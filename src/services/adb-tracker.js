@@ -125,7 +125,7 @@ async function handleDeviceAdd(device) {
     // 7. Register with process manager
     processManager.addDevice(serial, {
       streamProcess,
-      tunnelProcess,
+      tunnelProcess: null,
       port,
       publicUrl,
       streamUrl,
