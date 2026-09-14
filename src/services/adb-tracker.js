@@ -45,10 +45,10 @@ const DEBOUNCE_MS = 3000;
 async function handleDeviceAdd(device) {
   const serial = device.id;
 
-  if (processManager.getDevice(serial)) {
-    logger.warn(`Device ${serial} already tracked — tearing down old session`);
-    await handleDeviceRemove(device);
-    await new Promise(r => setTimeout(r, 1000));
+  const existingSession = processManager.getDevice(serial);
+  if (existingSession && existingSession.port) {
+    logger.info(`Device ${serial} already active on port ${existingSession.port} — preserving running stream`);
+    return;
   }
 
   const lastRemoval = recentRemovals.get(serial);

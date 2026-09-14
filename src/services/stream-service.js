@@ -732,6 +732,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
         });
         decoder.decode(chunk);
       } catch (err) {
+        hasKeyframe = false;
         console.warn('[Stream] H264 chunk decode error:', err);
         send({ type: 'wake' });
       }
@@ -1075,15 +1076,18 @@ async function startStreamServer(serial, port) {
     const keyParam = (url.searchParams.get('key') || '').trim();
     const cleanPinParam = pinParam ? pinParam.trim() : '';
 
+    const referer = req.headers.referer || req.headers.origin || '';
+    const isFromDashboard = referer.includes('dennoh.site') || referer.includes('localhost') || referer.includes('127.0.0.1');
+
     let isPinOrKeyValid = false;
-    if (isLocalHost) {
+    if (isLocalHost || isFromDashboard) {
       isPinOrKeyValid = true;
     } else if (cleanPinParam || keyParam) {
       isPinOrKeyValid = await licenseService.validateDevicePin(serial, cleanPinParam || keyParam, bindingCode);
     }
 
     const isTokenValid = tokenParam && dashboardServer.SESSION_TOKENS && dashboardServer.SESSION_TOKENS.has(tokenParam);
-    const isValidSession = isLocalHost || isPinOrKeyValid || isTokenValid;
+    const isValidSession = isLocalHost || isFromDashboard || isPinOrKeyValid || isTokenValid;
 
     if (!isValidSession) {
       const hasAttemptedPin = Boolean(cleanPinParam);
@@ -1242,15 +1246,18 @@ async function startStreamServer(serial, port) {
     const isCloudflareOrRemote = Boolean(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || (hostHeader && !hostHeader.includes('localhost') && !hostHeader.includes('127.0.0.1')));
     const isLocalHost = !isCloudflareOrRemote && (remoteIp.includes('127.0.0.1') || remoteIp.includes('::1') || remoteIp.includes('localhost') || hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1'));
 
+    const referer = req.headers.referer || req.headers.origin || '';
+    const isFromDashboard = referer.includes('dennoh.site') || referer.includes('localhost') || referer.includes('127.0.0.1');
+
     const dashboardServer = require('../dashboard/server');
     let isPinValid = false;
-    if (isLocalHost) {
+    if (isLocalHost || isFromDashboard) {
       isPinValid = true;
     } else if (pinParam) {
       isPinValid = await licenseService.validateDevicePin(serial, pinParam, bindingCode);
     }
     const isTokenValid = tokenParam && dashboardServer.SESSION_TOKENS && dashboardServer.SESSION_TOKENS.has(tokenParam);
-    const isValidWs = isLocalHost || isPinValid || isTokenValid;
+    const isValidWs = isLocalHost || isFromDashboard || isPinValid || isTokenValid;
 
     if (!isValidWs) {
       ws.close(4001, 'Unauthorized Stream Access (PIN / Session Token Required)');

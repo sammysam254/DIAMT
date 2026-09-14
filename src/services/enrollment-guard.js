@@ -116,15 +116,24 @@ function startEnrollmentGuard(onDeviceAdd, onDeviceRemove, intervalMs = 12000) {
   }, intervalMs);
 }
 
+let lastWifiProbeTime = 0;
+const WIFI_PROBE_INTERVAL_MS = 60000;
+
 async function connectFarmWifiDevices(adbBin, existingSerials) {
+  if (Date.now() - lastWifiProbeTime < WIFI_PROBE_INTERVAL_MS) {
+    return;
+  }
+  lastWifiProbeTime = Date.now();
+
   const farmIps = [
     '10.1.10.79', '10.1.10.197', '10.1.10.173', '10.1.10.124',
     '10.1.10.23', '10.1.10.49', '10.1.10.100', '10.1.10.194', '10.1.10.98'
   ];
+  const activeKeys = new Set(processManager.getActiveSerials());
   const net = require('net');
   for (const ip of farmIps) {
     const target = `${ip}:5555`;
-    if (existingSerials.includes(target)) continue;
+    if (existingSerials.includes(target) || activeKeys.has(target)) continue;
     // Fast TCP probe to avoid blocking if IP is offline
     const isOpen = await new Promise((res) => {
       const s = net.connect({ host: ip, port: 5555 }, () => { s.destroy(); res(true); });

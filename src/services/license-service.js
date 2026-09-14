@@ -404,6 +404,28 @@ async function validateDevicePin(serial, rawInputPin, bindingCode) {
       }
     }
 
+    // Query device_rentals table for stream_url keys/pins
+    try {
+      const rentalRes = await client.get(`/device_rentals?serial_number=eq.${encodeURIComponent(serial)}&select=stream_url`);
+      if (rentalRes.data && Array.isArray(rentalRes.data)) {
+        for (const row of rentalRes.data) {
+          const u = row.stream_url || '';
+          const kMatch = u.match(/key=([^&]+)/);
+          const pMatch = u.match(/pin=([^&]+)/);
+          if (kMatch) {
+            const k = kMatch[1].trim();
+            validKeys.add(k);
+            ROTATED_STREAM_KEYS.set(serial, k);
+          }
+          if (pMatch) {
+            const p = pMatch[1].trim();
+            validPins.add(p);
+            ROTATED_STREAM_PINS.set(serial, p);
+          }
+        }
+      }
+    } catch (_) {}
+
     // Query device_assignments table for access_password
     if (devId) {
       const assignRes = await client.get(`/device_assignments?device_id=eq.${encodeURIComponent(devId)}&select=access_password`);
