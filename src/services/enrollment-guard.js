@@ -182,7 +182,23 @@ async function runRecoveryCheck(force = false) {
     if (session) {
       if (session.adbSerial && adbSerials.includes(session.adbSerial)) continue;
       if (session.serial && adbSerials.includes(session.serial)) continue;
+      if (session.hardwareSerial && adbSerials.includes(session.hardwareSerial)) continue;
     }
+
+    const FARM_SERIAL_ALIASES = {
+      '7070016025067254': ['10.1.10.49:5555', '10.1.10.49'],
+      'ZA223HQMXQ': ['10.1.10.79:5555', '10.1.10.79'],
+      'YTCY999TVKVCZDZX': ['10.1.10.197:5555', '10.1.10.197'],
+      '1120308025024495': ['10.1.10.100:5555', '10.1.10.100'],
+      'M769UCQCDMZLPF8D': ['10.1.10.173:5555', '10.1.10.173'],
+      '10.1.10.49:5555': ['7070016025067254'],
+      '10.1.10.79:5555': ['ZA223HQMXQ'],
+      '10.1.10.197:5555': ['YTCY999TVKVCZDZX'],
+      '10.1.10.100:5555': ['1120308025024495'],
+      '10.1.10.173:5555': ['M769UCQCDMZLPF8D'],
+    };
+    const aliases = FARM_SERIAL_ALIASES[serial] || [];
+    if (aliases.some(a => adbSerials.includes(a) || activeSerials.has(a))) continue;
 
     logger.info(`[EnrollmentGuard] Stale session detected for ${serial} — cleaning up`);
     try {
