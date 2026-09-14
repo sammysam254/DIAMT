@@ -358,52 +358,20 @@ echo [*] Ensuring previous DeviceFarm Agent instances are stopped...
 ping 127.0.0.1 -n 2 >nul 2>nul
 echo [OK] Previous instances stopped.
 
-:: ── Register and launch 24/7 Silent Background Service ──────────────────
-echo [*] Configuring and registering Windows 24/7 Background Service...
-
-set "TASK_BOOT=DeviceFarm_Agent_BootService"
-set "TASK_LOGON=DeviceFarm_Agent_LogonService"
-set "VBS_LAUNCHER=%INSTALL_DIR%\Start-Agent-Silent.vbs"
-
-:: Remove old conflicting tasks
+:: ── Remove any background silent tasks to run in foreground with live logs ──
+echo [*] Disabling background silent tasks (running in foreground with live logs)...
 schtasks /delete /tn "DeviceFarm Agent AutoStart" /f >nul 2>&1
 schtasks /delete /tn "%TASK_BOOT%" /f >nul 2>&1
 schtasks /delete /tn "%TASK_LOGON%" /f >nul 2>&1
-
-:: Register Boot Task (starts when PC turns on / restarts)
-schtasks /create /tn "%TASK_BOOT%" /tr "wscript.exe \"%VBS_LAUNCHER%\"" /sc ONSTART /ru "SYSTEM" /rl HIGHEST /f >nul 2>&1
-
-:: Register Logon Task (starts when user logs in)
-schtasks /create /tn "%TASK_LOGON%" /tr "wscript.exe \"%VBS_LAUNCHER%\"" /sc ONLOGON /rl HIGHEST /f >nul 2>&1
-
-:: Redundant All-Users Startup Shortcut
-set "STARTUP_ALL=%ProgramData%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "LNK_ALL=%STARTUP_ALL%\DeviceFarm-Agent-Service.lnk"
-"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%LNK_ALL%'); $s.TargetPath = 'wscript.exe'; $s.Arguments = '\"%VBS_LAUNCHER%\"'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.WindowStyle = 0; $s.Description = 'DeviceFarm Agent Autonomous Background Service'; $s.Save()" >nul 2>&1
-
-echo [OK] Windows 24/7 background service registered.
+del "%LNK_ALL%" >nul 2>&1
 
 :: Stop any existing cloudflared tunnel processes
 echo [*] Stopping old cloudflared tunnel processes...
-"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Name 'cloudflared' -Force -ErrorAction SilentlyContinue" >nul 2>nul
+taskkill /F /IM cloudflared.exe /T >nul 2>&1
 ping 127.0.0.1 -n 2 >nul 2>nul
 
-:: Start service silently right now in the background
-echo [*] Starting DeviceFarm Agent silently in the background...
-if exist "%VBS_LAUNCHER%" (
-    wscript.exe "%VBS_LAUNCHER%"
-) else (
-    set "ELECTRON_BIN=node_modules\electron\dist\electron.exe"
-    if exist "%ELECTRON_BIN%" (
-        start "" "%INSTALL_DIR%\%ELECTRON_BIN%" "%INSTALL_DIR%\src\main\index.js"
-    ) else (
-        start "" "%NPM%" exec -- electron "%INSTALL_DIR%"
-    )
-)
-
 :: Ensure Cloudflare named tunnel daemon is restarted for agent.dennoh.site
-echo [*] Restarting Cloudflare tunnel daemon for agent.dennoh.site...
+echo [*] Starting Cloudflare tunnel daemon for agent.dennoh.site...
 set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=%CURRENT_DIR%\assets\bin\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\cloudflared\cloudflared.exe"
@@ -419,25 +387,27 @@ if not exist "%CLOUDFLARED_EXE%" (
 if exist "%CLOUDFLARED_EXE%" (
     "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
         "Start-Process -FilePath '%CLOUDFLARED_EXE%' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9' -WindowStyle Hidden"
-    echo [OK] Cloudflare tunnel daemon restarted in background for agent.dennoh.site.
+    echo [OK] Cloudflare tunnel daemon started in background for agent.dennoh.site.
 ) else (
     echo [WARN] Cloudflared binary not found - tunnel will not be available.
 )
 
-echo [*] Waiting for Dashboard...
-ping 127.0.0.1 -n 4 >nul 2>nul
+echo [*] Opening Dashboard...
 start "" "http://localhost:7400"
 
-:end_launch
+echo.
+echo  ================================================================
+echo   DEVICEFARM AGENT — LIVE CONSOLE LOGS
+echo   Dashboard : http://localhost:7400
+echo   Public    : https://agent.dennoh.site
+echo   (Press Ctrl+C to stop the agent)
+echo  ================================================================
+echo.
 
-echo.
-echo  ================================================================
-echo  [OK] DeviceFarm Agent is running continuously in the background!
-echo       Dashboard : http://localhost:7400
-echo       Install   : %INSTALL_DIR%
-echo       Status    : Active 24/7 Background Service (Auto-starts on Boot)
-echo  ================================================================
-echo.
-echo  Setup complete. This window will close automatically.
-ping 127.0.0.1 -n 3 >nul 2>nul
-exit /b 0
+set "ELECTRON_BIN=node_modules\electron\dist\electron.exe"
+if exist "%ELECTRON_BIN%" (
+    "%ELECTRON_BIN%" "src\main\index.js"
+) else (
+    call "%NPM%" start
+)
+

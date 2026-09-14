@@ -733,9 +733,16 @@ function buildPlayerHtml(serial, screenW, screenH) {
         decoder.decode(chunk);
       } catch (err) {
         console.warn('[Stream] H264 chunk decode error:', err);
-        hasKeyframe = false;
+        send({ type: 'wake' });
       }
     };
+
+    // Auto-nudge Android screen compositor if frame updates stall
+    setInterval(function() {
+      if (wsOk && (lastFrameReceivedTime > 0 && Date.now() - lastFrameReceivedTime > 2500)) {
+        send({ type: 'wake' });
+      }
+    }, 2000);
 
     ws.onerror = function() {};
 

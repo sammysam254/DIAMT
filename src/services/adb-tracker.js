@@ -115,25 +115,12 @@ async function handleDeviceAdd(device) {
     const { streamProcess, localUrl } = await startStreamServer(serial, port);
     logger.info(`Stream server started for ${serial}: ${localUrl}`);
 
-    // 5. Create Cloudflare tunnel
-    let publicUrl    = null;
-    let tunnelProcess = null;
+    // 5. Named Cloudflare tunnel stream URL (routed via port 7400 reverse proxy)
+    const domain = (config.customDomain || config.domain || 'agent.dennoh.site').replace(/^https?:\/\//, '');
+    const publicUrl = `https://${domain}`;
+    const streamUrl = buildStreamUrl(publicUrl, port, serial);
 
-    try {
-      const tunnelResult = await createTunnel(port);
-      publicUrl     = tunnelResult.publicUrl;
-      tunnelProcess = tunnelResult.tunnelProcess;
-      logger.info(`Tunnel created for ${serial}: ${publicUrl}`);
-    } catch (err) {
-      logger.warn(`Failed to create tunnel for ${serial} — local-only: ${err.message}`);
-    }
-
-    // 6. Build stream URL
-    const streamUrl = publicUrl
-      ? buildStreamUrl(publicUrl, port, serial)
-      : `http://localhost:${port}/?udid=${encodeURIComponent(serial)}`;
-
-    logger.info(`Stream URL for ${serial}: ${streamUrl}`);
+    logger.info(`[OK] Stream URL for ${serial}: ${streamUrl}`);
 
     // 7. Register with process manager
     processManager.addDevice(serial, {

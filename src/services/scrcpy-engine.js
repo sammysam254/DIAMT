@@ -225,17 +225,14 @@ class ScrcpyEngine extends EventEmitter {
    */
   addClient(ws) {
     this.wsClients.add(ws);
-    // Send cached SPS/PPS config & keyframe immediately so WebCodecs decodes in <10ms
-    if (this._configPacket && ws.readyState === 1) {
-      try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
-    }
+    // Send cached SPS/PPS config & IDR keyframe immediately so WebCodecs decodes instantly
     const initialPacket = this._keyframeBuffer || this._configPacket;
     if (initialPacket && ws.readyState === 1) {
       try { ws.send(initialPacket, { binary: true }); } catch (_) {}
     }
-    // Nudge Android window compositor to immediately produce a fresh frame
+    // Nudge Android window compositor with KEYCODE_WAKEUP (224) to immediately produce a fresh frame
     try {
-      this._adb(['shell', 'input', 'keyevent', '0']).catch(() => {});
+      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
     } catch (_) {}
   }
 
@@ -531,7 +528,13 @@ class ScrcpyEngine extends EventEmitter {
     const META = 12; // 8-byte PTS + 4-byte size
 
     const watchdog = setInterval(() => {
-      // Only trigger fallback if video socket is destroyed or disconnected
+      // 1. If no video data received for 3s while clients are watching, nudge screen compositor to unfreeze
+      if (this.isRunning && this.wsClients.size > 0 && Date.now() - lastDataTime > 3000) {
+        try {
+          this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
+        } catch (_) {}
+      }
+      // 2. Only trigger fallback if video socket is destroyed or disconnected
       if ((!this.videoSocket || this.videoSocket.destroyed) && !this._fallbackActive && this.isRunning) {
         logger.warn(`[ScrcpyEngine ${this.serial}] Video socket disconnected — starting screenrecord fallback`);
         this._startScreenrecordFallback();
