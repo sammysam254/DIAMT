@@ -141,6 +141,10 @@ function startDashboardServer(port = 7400) {
           'Access-Control-Allow-Origin': '*',
           'Cache-Control': 'no-cache',
         });
+        res.end(JSON.stringify({ status: 'ok', logs }));
+        return;
+      }
+
       if (url === '/api/system/sync' || url === '/api/system/update') {
         const autoSync = require('../services/auto-sync-service');
         if (autoSync && autoSync.checkAndSyncGithub) {

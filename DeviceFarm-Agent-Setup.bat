@@ -292,7 +292,7 @@ echo [*] Connected ADB Devices:
 
 echo.
 echo  ================================================================
-echo   STEP 3: LAUNCHING DEVICEFARM AGENT & DASHBOARD
+echo   STEP 3: LAUNCHING DEVICEFARM AGENT AND DASHBOARD
 echo  ================================================================
 echo.
 
