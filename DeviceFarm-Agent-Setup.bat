@@ -358,17 +358,49 @@ echo [*] Ensuring previous DeviceFarm Agent instances are stopped...
 ping 127.0.0.1 -n 2 >nul 2>nul
 echo [OK] Previous instances stopped.
 
-:: ── Remove any background silent tasks to run in foreground with live logs ──
-echo [*] Disabling background silent tasks (running in foreground with live logs)...
+:: ── Register and launch 24/7 Silent Background Service ──────────────────
+echo [*] Configuring and registering Windows 24/7 Background Service...
+
+set "TASK_BOOT=DeviceFarm_Agent_BootService"
+set "TASK_LOGON=DeviceFarm_Agent_LogonService"
+set "VBS_LAUNCHER=%INSTALL_DIR%\Start-Agent-Silent.vbs"
+set "STARTUP_ALL=%ProgramData%\Microsoft\Windows\Start Menu\Programs\Startup"
+set "LNK_ALL=%STARTUP_ALL%\DeviceFarm-Agent-Service.lnk"
+
+:: Remove old conflicting tasks safely
 schtasks /delete /tn "DeviceFarm Agent AutoStart" /f >nul 2>&1
-schtasks /delete /tn "%TASK_BOOT%" /f >nul 2>&1
-schtasks /delete /tn "%TASK_LOGON%" /f >nul 2>&1
-del "%LNK_ALL%" >nul 2>&1
+schtasks /delete /tn "DeviceFarm_Agent_BootService" /f >nul 2>&1
+schtasks /delete /tn "DeviceFarm_Agent_LogonService" /f >nul 2>&1
+
+:: Register Boot Task (starts when PC turns on / restarts)
+schtasks /create /tn "%TASK_BOOT%" /tr "wscript.exe \"%VBS_LAUNCHER%\"" /sc ONSTART /ru "SYSTEM" /rl HIGHEST /f >nul 2>&1
+
+:: Register Logon Task (starts when user logs in)
+schtasks /create /tn "%TASK_LOGON%" /tr "wscript.exe \"%VBS_LAUNCHER%\"" /sc ONLOGON /rl HIGHEST /f >nul 2>&1
+
+:: Redundant All-Users Startup Shortcut
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+    "try { $ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%LNK_ALL%'); $s.TargetPath = 'wscript.exe'; $s.Arguments = '\"%VBS_LAUNCHER%\"'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.WindowStyle = 0; $s.Description = 'DeviceFarm Agent Autonomous Background Service'; $s.Save() } catch {}" >nul 2>&1
+
+echo [OK] Windows 24/7 background service registered.
 
 :: Stop any existing cloudflared tunnel processes
 echo [*] Stopping old cloudflared tunnel processes...
 taskkill /F /IM cloudflared.exe /T >nul 2>&1
 ping 127.0.0.1 -n 2 >nul 2>nul
+
+:: Start service silently right now in the background
+echo [*] Starting DeviceFarm Agent silently in the background...
+if exist "%VBS_LAUNCHER%" (
+    wscript.exe "%VBS_LAUNCHER%"
+) else (
+    set "ELECTRON_BIN=node_modules\electron\dist\electron.exe"
+    if exist "%ELECTRON_BIN%" (
+        start "" "%INSTALL_DIR%\%ELECTRON_BIN%" "%INSTALL_DIR%\src\main\index.js"
+    ) else (
+        start "" "%NPM%" exec -- electron "%INSTALL_DIR%"
+    )
+)
 
 :: Ensure Cloudflare named tunnel daemon is restarted for agent.dennoh.site
 echo [*] Starting Cloudflare tunnel daemon for agent.dennoh.site...
@@ -392,22 +424,22 @@ if exist "%CLOUDFLARED_EXE%" (
     echo [WARN] Cloudflared binary not found - tunnel will not be available.
 )
 
-echo [*] Opening Dashboard...
+echo [*] Waiting for Dashboard...
+ping 127.0.0.1 -n 4 >nul 2>nul
 start "" "http://localhost:7400"
 
-echo.
-echo  ================================================================
-echo   DEVICEFARM AGENT — LIVE CONSOLE LOGS
-echo   Dashboard : http://localhost:7400
-echo   Public    : https://agent.dennoh.site
-echo   (Press Ctrl+C to stop the agent)
-echo  ================================================================
-echo.
+:end_launch
 
-set "ELECTRON_BIN=node_modules\electron\dist\electron.exe"
-if exist "%ELECTRON_BIN%" (
-    "%ELECTRON_BIN%" "src\main\index.js"
-) else (
-    call "%NPM%" start
-)
+echo.
+echo  ================================================================
+echo  [OK] DeviceFarm Agent is running continuously in the background!
+echo       Dashboard : http://localhost:7400
+echo       Public    : https://agent.dennoh.site
+echo       Install   : %INSTALL_DIR%
+echo       Status    : Active 24/7 Background Service (Auto-starts on Boot)
+echo  ================================================================
+echo.
+echo  Setup complete. This window will close automatically.
+ping 127.0.0.1 -n 3 >nul 2>nul
+exit /b 0
 
