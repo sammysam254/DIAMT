@@ -10,12 +10,29 @@
 
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 const rootDir = path.resolve(__dirname, '..', '..');
 let activeChild = null;
 let restartCount = 0;
 let isStopping = false;
+
+function preLaunchCleanup() {
+  try {
+    // 1. Permanently remove any legacy cache file if created
+    const wifiCache = path.join(rootDir, 'wifi-devices-cache.json');
+    if (fs.existsSync(wifiCache)) {
+      try { fs.unlinkSync(wifiCache); } catch (_) {}
+    }
+
+    // 2. Terminate any orphaned electron instances from prior crashes
+    if (process.platform === 'win32') {
+      try {
+        execSync('taskkill /F /IM electron.exe >nul 2>&1', { timeout: 3000, stdio: 'ignore' });
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
 
 function getElectronPath() {
   const localElectron = path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron.exe');
@@ -27,6 +44,8 @@ function getElectronPath() {
 
 function startAgent() {
   if (isStopping) return;
+
+  preLaunchCleanup();
 
   const electronExe = getElectronPath();
   const mainScript = path.join(rootDir, 'src', 'main', 'index.js');

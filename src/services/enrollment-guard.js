@@ -47,9 +47,23 @@ function resolveAdb() {
 
 function listAdbDevices(adbBin) {
   return new Promise((resolve) => {
-    exec(`"${adbBin}" devices`, (err, stdout) => {
+    exec(`"${adbBin}" devices`, { timeout: 7000 }, (err, stdout, stderr) => {
+      const out = ((stdout || '') + ' ' + (stderr || '')).toLowerCase();
+      // If ADB daemon cannot connect, hangs, or crashes, auto-heal immediately
+      if (err && (out.includes('cannot connect to daemon') || out.includes('could not read ok') || err.killed || out.includes('failed to start daemon'))) {
+        logger.warn('[EnrollmentGuard] ADB daemon unresponsive or in bad state. Auto-restarting ADB daemon...');
+        try {
+          if (process.platform === 'win32') {
+            const { execSync } = require('child_process');
+            try { execSync('taskkill /F /IM adb.exe >nul 2>&1', { timeout: 3000, stdio: 'ignore' }); } catch (_) {}
+            try { execSync(`"${adbBin}" start-server >nul 2>&1`, { timeout: 5000, stdio: 'ignore' }); } catch (_) {}
+          }
+        } catch (_) {}
+        resolve([]);
+        return;
+      }
       if (err) { resolve([]); return; }
-      const lines = stdout.split('\n').slice(1);
+      const lines = (stdout || '').split('\n').slice(1);
       const serials = [];
       for (const line of lines) {
         const parts = line.trim().split(/\s+/);
