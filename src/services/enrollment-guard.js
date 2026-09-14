@@ -116,10 +116,36 @@ function startEnrollmentGuard(onDeviceAdd, onDeviceRemove, intervalMs = 12000) {
   }, intervalMs);
 }
 
+async function connectFarmWifiDevices(adbBin, existingSerials) {
+  const farmIps = [
+    '10.1.10.79', '10.1.10.197', '10.1.10.173', '10.1.10.124',
+    '10.1.10.23', '10.1.10.49', '10.1.10.100', '10.1.10.194', '10.1.10.98'
+  ];
+  const net = require('net');
+  for (const ip of farmIps) {
+    const target = `${ip}:5555`;
+    if (existingSerials.includes(target)) continue;
+    // Fast TCP probe to avoid blocking if IP is offline
+    const isOpen = await new Promise((res) => {
+      const s = net.connect({ host: ip, port: 5555 }, () => { s.destroy(); res(true); });
+      s.on('error', () => { s.destroy(); res(false); });
+      s.setTimeout(400, () => { s.destroy(); res(false); });
+    });
+    if (isOpen) {
+      exec(`"${adbBin}" connect ${target}`, { timeout: 3000 }, () => {});
+    }
+  }
+}
+
 async function runRecoveryCheck() {
   const adbBin = resolveAdb();
   const adbSerials = await listAdbDevices(adbBin);
   const activeSerials = new Set(processManager.getActiveSerials());
+
+  // Auto-connect any reachable farm devices on WiFi
+  try {
+    await connectFarmWifiDevices(adbBin, adbSerials);
+  } catch (_) {}
 
   // ── 1. Re-enroll devices seen by ADB but not actively streaming ─────────────
   for (const serial of adbSerials) {

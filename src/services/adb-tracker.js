@@ -86,14 +86,22 @@ async function handleDeviceAdd(device) {
     let deviceModel = 'Android';
     let deviceBrand  = 'Generic';
 
+    let realSerial = serial;
     try {
       const deviceClient = client.getDevice(serial);
       const props = await deviceClient.getProperties();
       deviceModel = props['ro.product.model'] || deviceModel;
       deviceBrand  = props['ro.product.brand']  || deviceBrand;
-      logger.info(`Device properties: ${serial} → ${deviceBrand} ${deviceModel}`);
+      realSerial = props['ro.serialno'] || serial;
+      logger.info(`Device properties: ${serial} → ${deviceBrand} ${deviceModel} (real: ${realSerial})`);
     } catch (err) {
       logger.warn(`Could not read properties for ${serial}: ${err.message}`);
+    }
+
+    // If this is a WiFi connection for a device already streaming via USB, skip duplicate session
+    if (serial !== realSerial && processManager.getDevice(realSerial)) {
+      logger.info(`Device ${realSerial} already active over USB — skipping duplicate WiFi session ${serial}`);
+      return;
     }
 
     // 2. Sync machine binding (no payment check — license managed online)
@@ -118,12 +126,12 @@ async function handleDeviceAdd(device) {
     // 5. Named Cloudflare tunnel stream URL (routed via port 7400 reverse proxy)
     const domain = (config.customDomain || config.domain || 'agent.dennoh.site').replace(/^https?:\/\//, '');
     const publicUrl = `https://${domain}`;
-    const streamUrl = buildStreamUrl(publicUrl, port, serial);
+    const streamUrl = buildStreamUrl(publicUrl, port, realSerial || serial);
 
     logger.info(`[OK] Stream URL for ${serial}: ${streamUrl}`);
 
-    // 7. Register with process manager
-    processManager.addDevice(serial, {
+    // 7. Register with process manager (under both serial and realSerial if different)
+    const sessionObj = {
       streamProcess,
       tunnelProcess: null,
       port,
@@ -137,10 +145,15 @@ async function handleDeviceAdd(device) {
       bindingCode,
       isPaid: licenseStatus.isActive,
       paymentStatus: licenseStatus.mode,
-    });
+    };
+    processManager.addDevice(serial, sessionObj);
+    if (realSerial && realSerial !== serial) {
+      processManager.addDevice(realSerial, sessionObj);
+    }
 
-    // 8. Sync device + stream URL to Supabase cloud (enables real-time URL updates for website users)
-    await bindingService.syncDeviceUrl(serial, streamUrl, {
+    // 8. Sync device + stream URL to Supabase cloud (under real physical serial)
+    const primarySerial = realSerial || serial;
+    await bindingService.syncDeviceUrl(primarySerial, streamUrl, {
       model: deviceModel,
       brand: deviceBrand,
       localUrl,
