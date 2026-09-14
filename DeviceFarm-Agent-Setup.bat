@@ -37,18 +37,16 @@ echo [*] Install directory : %INSTALL_DIR%
 echo [*] Source repository : %REPO_URL%
 echo.
 
-:: ── Stop old agent instances and watchdog processes (strictly scoped to agent directory) ──
-echo [*] Stopping previous DeviceFarm Agent processes (scoped to agent directory)...
+:: ── Auto-close EVERYTHING before running (cloudflared, electron, scrcpy, adb, watchdog, port 7400) ──
+echo [*] Terminating all previous agent processes, tunnels, and releasing ports...
+taskkill /F /IM cloudflared.exe /T >nul 2>&1
+taskkill /F /IM electron.exe /T >nul 2>&1
+taskkill /F /IM scrcpy.exe /T >nul 2>&1
+taskkill /F /IM adb.exe /T >nul 2>&1
 "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$dirs = @('%INSTALL_DIR%', '%CURRENT_DIR%') | Where-Object { $_ -and (Test-Path $_) };" ^
-  "Get-CimInstance Win32_Process | Where-Object {" ^
-  "  $p = $_; if ($p.ProcessId -eq $PID) { return $false };" ^
-  "  $matchDir = $false;" ^
-  "  foreach ($d in $dirs) { if (($p.ExecutablePath -and $p.ExecutablePath.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase)) -or ($p.CommandLine -and $p.CommandLine.IndexOf($d, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)) { $matchDir = $true; break } };" ^
-  "  $isWatchdog = ($p.Name -like 'node*' -and $p.CommandLine -and ($p.CommandLine.IndexOf('service-watchdog.js', [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or $p.CommandLine.IndexOf('DeviceFarm', [System.StringComparison]::OrdinalIgnoreCase) -ge 0));" ^
-  "  return (($matchDir -or $isWatchdog) -and ($p.Name -match '^(electron|node|cloudflared|scrcpy|adb|DeviceFarm Agent)\.exe$'))" ^
-  "} | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }"
-timeout /t 1 /nobreak >nul
+  "Get-NetTCPConnection -LocalPort 7400 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } catch {} };" ^
+  "Get-CimInstance Win32_Process | Where-Object { ($_.Name -like 'node*' -and $_.CommandLine -and ($_.CommandLine.IndexOf('service-watchdog.js') -ge 0 -or $_.CommandLine.IndexOf('DeviceFarm') -ge 0 -or $_.CommandLine.IndexOf('devicefarm-agent') -ge 0)) } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }" >nul 2>&1
+timeout /t 2 /nobreak >nul
 
 
 
@@ -160,6 +158,9 @@ echo [4/6] Setting up agent files...
 
 if exist "%INSTALL_DIR%\.git" (
     echo [*] Agent directory exists — updating cleanly to latest version...
+    taskkill /F /IM adb.exe /T >nul 2>&1
+    taskkill /F /IM electron.exe /T >nul 2>&1
+    taskkill /F /IM cloudflared.exe /T >nul 2>&1
     "%GIT%" -C "%INSTALL_DIR%" fetch origin main
     "%GIT%" -C "%INSTALL_DIR%" reset --hard origin/main
     echo [OK] Agent updated to latest version from GitHub.
