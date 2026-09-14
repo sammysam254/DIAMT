@@ -163,6 +163,8 @@ if exist "%INSTALL_DIR%\.git" (
     taskkill /F /IM cloudflared.exe /T >nul 2>&1
     "%GIT%" -C "%INSTALL_DIR%" fetch origin main
     "%GIT%" -C "%INSTALL_DIR%" reset --hard origin/main
+    "%GIT%" -C "%INSTALL_DIR%" clean -fd
+    if exist "%INSTALL_DIR%\wifi-devices-cache.json" del /F /Q "%INSTALL_DIR%\wifi-devices-cache.json" >nul 2>&1
     echo [OK] Agent updated to latest version from GitHub.
 ) else (
     echo [*] Cloning agent from GitHub into %INSTALL_DIR% ...

@@ -45,6 +45,11 @@ function startDashboardServer(port = 7400) {
     serverPort = port;
     const htmlPath = path.join(__dirname, 'index.html');
 
+    try {
+      const wifiCachePath = path.join(process.cwd(), 'wifi-devices-cache.json');
+      if (fs.existsSync(wifiCachePath)) fs.unlinkSync(wifiCachePath);
+    } catch (_) {}
+
     server = http.createServer(async (req, res) => {
       // Enable CORS & Security headers (permitting frame embedding on dennoh.site)
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -164,7 +169,7 @@ function startDashboardServer(port = 7400) {
       if (actionParam === 'proxy' || udidParam || remoteParam) {
         const serial = udidParam || (remoteParam ? decodeURIComponent(remoteParam).split(':').pop() : null);
         const devices = processManager.getActiveDeviceSummaries();
-        const targetDev = (serial ? devices.find(d => d.serial === serial) : null) || (actionParam === 'proxy' ? devices[0] : null);
+        const targetDev = (serial ? devices.find(d => d.serial === serial || d.serial?.toLowerCase() === serial?.toLowerCase() || (d.serial && decodeURIComponent(serial) === d.serial)) : null) || (actionParam === 'proxy' ? devices[0] : null);
 
         if (targetDev && targetDev.port) {
           const proxyReq = http.request({
@@ -267,7 +272,10 @@ function startDashboardServer(port = 7400) {
       const serial = udidParam || (remoteParam ? decodeURIComponent(remoteParam).split(':').pop() : null);
 
       const devices = processManager.getActiveDeviceSummaries();
-      const targetDev = (serial ? devices.find(d => d.serial === serial) : null) || devices[0];
+      // If a specific serial was requested, NEVER stream the wrong device
+      const targetDev = serial 
+        ? devices.find(d => d.serial === serial || d.serial?.toLowerCase() === serial?.toLowerCase() || (d.serial && decodeURIComponent(serial) === d.serial))
+        : (actionParam === 'proxy' ? devices[0] : null);
 
       if (targetDev && targetDev.port) {
         const proxyReq = http.request({

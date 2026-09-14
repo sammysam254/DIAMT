@@ -88,20 +88,35 @@ function checkAndSyncGithub() {
 
             // 3. Pull changes cleanly into working copy
             execFile(gitBin, ['pull', '--ff-only', 'origin', 'main'], { cwd: process.cwd(), timeout: 45000 }, (pullErr) => {
+              const onUpdateSuccess = () => {
+                execFile(gitBin, ['clean', '-fd'], { cwd: process.cwd() }, () => {});
+                try {
+                  const wifiCache = path.join(process.cwd(), 'wifi-devices-cache.json');
+                  if (fs.existsSync(wifiCache)) fs.unlinkSync(wifiCache);
+                } catch (_) {}
+                invalidateModuleCache();
+                logger.info('[AutoSync] GitHub changes updated. Scheduling graceful restart in 3s so watchdog restarts clean runtime...');
+                setTimeout(() => {
+                  try {
+                    const { app } = require('electron');
+                    if (app && app.quit) app.quit();
+                  } catch (_) {}
+                  process.exit(0);
+                }, 3000);
+              };
+
               if (pullErr) {
                 // Fallback to reset --hard origin/main if untracked changes exist
                 execFile(gitBin, ['reset', '--hard', 'origin/main'], { cwd: process.cwd() }, (resetErr) => {
                   if (resetErr) {
                     logger.warn(`[AutoSync] git reset notice: ${resetErr.message}`);
                   } else {
-                    invalidateModuleCache();
-                    logger.info('[AutoSync] GitHub changes updated silently & hot-reloaded. Active device streams preserved without interruption.');
+                    onUpdateSuccess();
                   }
                   resolve(true);
                 });
               } else {
-                invalidateModuleCache();
-                logger.info('[AutoSync] GitHub changes updated silently & hot-reloaded. Active device streams preserved without interruption.');
+                onUpdateSuccess();
                 resolve(true);
               }
             });
