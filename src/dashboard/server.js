@@ -102,7 +102,8 @@ function startDashboardServer(port = 7400) {
     } catch (_) {}
 
     server = http.createServer(async (req, res) => {
-      // Enable CORS & Security headers (permitting frame embedding on dennoh.site)
+      try {
+        // Enable CORS & Security headers (permitting frame embedding on dennoh.site)
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
       res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -178,6 +179,7 @@ function startDashboardServer(port = 7400) {
           licenseMode: lic.mode,
           note: lic.note,
           deviceCount: devices.length,
+          deviceSerials: devices.map(d => ({ serial: d.serial, model: d.model, port: d.port })),
           timestamp: new Date().toISOString()
         }));
         return;
@@ -248,12 +250,21 @@ function startDashboardServer(port = 7400) {
             path: req.url,
             method: req.method,
             headers: req.headers,
+            timeout: 15000,
           }, (proxyRes) => {
             if (!res.headersSent) {
               res.writeHead(proxyRes.statusCode, proxyRes.headers);
             }
             proxyRes.pipe(res);
             proxyRes.on('error', () => { try { res.destroy(); } catch (_) {} });
+          });
+
+          proxyReq.on('timeout', () => {
+            proxyReq.destroy();
+            if (!res.headersSent) {
+              res.writeHead(504, { 'Content-Type': 'text/plain' });
+              res.end('Gateway Timeout — device stream response timed out');
+            }
           });
 
           proxyReq.on('error', () => {
@@ -272,6 +283,7 @@ function startDashboardServer(port = 7400) {
 
         // If a specific device UDID was requested but not found on this machine:
         if (udidParam || remoteParam) {
+          const requestedSerial = rawSerial || 'Unknown';
           const currentBinding = bindingService.getOrGenerateBindingCode();
           res.writeHead(404, { 'Content-Type': 'text/html' });
           res.end(`
@@ -280,7 +292,7 @@ function startDashboardServer(port = 7400) {
             <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Device Not Found — ${serial || 'Unknown'}</title>
+              <title>Device Not Found — ${requestedSerial}</title>
               <style>
                 body { background: #07090e; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
                 .card { max-width: 500px; width: 100%; background: #0f172a; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 20px; padding: 36px 28px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.6); }
@@ -296,11 +308,11 @@ function startDashboardServer(port = 7400) {
               <div class="card">
                 <div class="icon">📱</div>
                 <h2>Device Not Connected Here</h2>
-                <p>Device <code>${serial}</code> is not plugged into this machine (Binding Code: <strong>${currentBinding}</strong>).</p>
+                <p>Device <code>${requestedSerial}</code> is not plugged into this machine (Binding Code: <strong>${currentBinding}</strong>).</p>
                 <div class="box">
                   <strong>Why am I seeing this?</strong><br>
                   • This device is plugged into a different computer (e.g. your remote USA host).<br>
-                  • To stream this remote device, open it via your cloud dashboard or <code>https://agent.dennoh.site/?udid=${serial}</code> once that host is running.
+                  • To stream this remote device, open it via your cloud dashboard or <code>https://agent.dennoh.site/?udid=${requestedSerial}</code> once that host is running.
                 </div>
                 <a href="/" class="btn">View Local Dashboard</a>
               </div>
@@ -311,16 +323,25 @@ function startDashboardServer(port = 7400) {
         }
       }
 
-      // ── Serve Index HTML Page ───────────────────────────────────────────
-      fs.readFile(htmlPath, (err, data) => {
-        if (err) {
+        // ── Serve Index HTML Page ───────────────────────────────────────────
+        fs.readFile(htmlPath, (err, data) => {
+          if (err) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end('Error loading dashboard page');
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(data);
+        });
+      } catch (handlerErr) {
+        logger.error(`[DashboardServer] Request error: ${handlerErr.message}`);
+        if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'text/plain' });
-          res.end('Error loading dashboard page');
-          return;
+          res.end('Internal Server Error');
+        } else {
+          try { res.destroy(); } catch (_) {}
         }
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(data);
-      });
+      }
     });
 
     server.on('clientError', (err, socket) => {
