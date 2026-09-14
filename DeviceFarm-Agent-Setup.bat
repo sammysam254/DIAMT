@@ -253,42 +253,14 @@ echo [*] Generating Machine Binding Code...
 "%NODE%" -e "const fs=require('fs'),p=require('path'),c=p.join(process.cwd(),'config.json'),cfg=fs.existsSync(c)?JSON.parse(fs.readFileSync(c)):{};if(!cfg.machineBindingCode||!/^\d{8}$/.test(cfg.machineBindingCode)){cfg.machineBindingCode=Math.floor(10000000+Math.random()*90000000).toString();fs.writeFileSync(c,JSON.stringify(cfg,null,2));}"
 "%NODE%" "src\services\verify-payment.js"
 
-:: ── Check if Agent is already running with active device streams ──────────
-netstat -ano 2>nul | findstr ":7400 " | findstr "LISTENING" >nul
-if %errorlevel% equ 0 (
-    echo.
-    echo  ================================================================
-    echo  [OK] DeviceFarm Agent is ALREADY running with active devices!
-    echo       Syncing GitHub changes silently without dropping connections...
-    echo  ================================================================
-    echo.
-    if exist "%INSTALL_DIR%\.git" (
-        "%GIT%" -C "%INSTALL_DIR%" fetch origin main >nul 2>&1
-        "%GIT%" -C "%INSTALL_DIR%" pull --ff-only origin main >nul 2>&1
-        echo [OK] GitHub code updated silently. Active device streams remain 100% connected.
-    )
-    :: Ensure cloudflared is running for agent.dennoh.site
-    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "Get-Process -Name 'cloudflared' -ErrorAction SilentlyContinue" | findstr "cloudflared" >nul
-    if !errorlevel! neq 0 (
-        echo [*] Starting Cloudflare tunnel daemon for agent.dennoh.site...
-        set "CF_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
-        if not exist "!CF_EXE!" set "CF_EXE=C:\cloudflared\cloudflared.exe"
-        if not exist "!CF_EXE!" set "CF_EXE=C:\Program Files\cloudflared\cloudflared.exe"
-        if not exist "!CF_EXE!" set "CF_EXE=C:\Program Files (x86)\cloudflared\cloudflared.exe"
-        if exist "!CF_EXE!" (
-            "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-                "Start-Process -FilePath '!CF_EXE!' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9' -WindowStyle Hidden"
-            echo [OK] Cloudflare tunnel started.
-        )
-    )
-    echo.
-    echo  Dashboard: http://localhost:7400
-    echo  You can close this window.
-    echo.
-    start "" "http://localhost:7400"
-    pause >nul
-    exit /b 0
-)
+:: ── Terminate any existing agent process on port 7400 to apply new code ──
+echo [*] Stopping running agent instances to reload latest code...
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Get-NetTCPConnection -LocalPort 7400 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } catch {} }"
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Stop-Process -Name 'electron','scrcpy' -Force -ErrorAction SilentlyContinue"
+ping 127.0.0.1 -n 2 >nul 2>nul
+
 
 echo.
 echo  ================================================================
