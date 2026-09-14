@@ -26,11 +26,11 @@ electronPath = scriptDir & "\node_modules\electron\dist\electron.exe"
 
 If fso.FileExists(watchdogPath) Then
     ' Run via watchdog to ensure auto-restart on crashes/closure
-    cmdToRun = nodePath & " """ & watchdogPath & """"
+    cmdToRun = "%comspec% /c " & nodePath & " """ & watchdogPath & """"
 ElseIf fso.FileExists(electronPath) Then
-    cmdToRun = """" & electronPath & """ """ & scriptDir & "\src\main\index.js"" --hidden"
+    cmdToRun = """" & electronPath & """ """ & scriptDir & "\src\main\index.js"""
 Else
-    cmdToRun = "cmd.exe /c cd /d """ & scriptDir & """ && npm start -- --hidden"
+    cmdToRun = "%comspec% /c cd /d """ & scriptDir & """ && npm start"
 End If
 
 ' Set current working directory
@@ -48,6 +48,10 @@ If Not fso.FileExists(cloudflaredPath) Then cloudflaredPath = "C:\Program Files 
 If fso.FileExists(cloudflaredPath) Then
     shell.Run """" & cloudflaredPath & """ tunnel run --token eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9", 0, False
 End If
+
+' 4. Open dashboard in default browser
+WScript.Sleep 2000
+shell.Run "%comspec% /c start """" ""http://localhost:7400""", 0, False
 
 Set shell = Nothing
 Set fso = Nothing

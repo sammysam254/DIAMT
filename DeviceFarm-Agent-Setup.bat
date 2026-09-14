@@ -1,6 +1,14 @@
 @echo off
 setlocal enabledelayedexpansion
 
+:: ── Self-replicate to %TEMP% so git update cannot disrupt running batch file ──
+if /i not "%~dp0"=="%TEMP%\DeviceFarmSetup\" (
+    if not exist "%TEMP%\DeviceFarmSetup" mkdir "%TEMP%\DeviceFarmSetup" >nul 2>&1
+    copy /Y "%~f0" "%TEMP%\DeviceFarmSetup\setup.bat" >nul 2>&1
+    call "%TEMP%\DeviceFarmSetup\setup.bat" %*
+    exit /b !errorlevel!
+)
+
 title DeviceFarm Agent — Setup
 
 :: ═══════════════════════════════════════════════════════════════════════════
@@ -14,7 +22,7 @@ title DeviceFarm Agent — Setup
 ::    5. Install npm dependencies
 ::    6. Download Electron binary
 ::    7. Run payment verification
-::    8. Launch the agent
+::    8. Launch the agent and open Dashboard
 :: ═══════════════════════════════════════════════════════════════════════════
 
 echo.
@@ -252,8 +260,7 @@ echo  ================================================================
 echo   STEP 1: PAYMENT SYSTEM VERIFICATION  ($30 / month)
 echo  ================================================================
 echo.
-echo [*] Generating Machine Binding Code...
-"%NODE%" -e "const fs=require('fs'),p=require('path'),c=p.join(process.cwd(),'config.json'),cfg=fs.existsSync(c)?JSON.parse(fs.readFileSync(c)):{};if(!cfg.machineBindingCode||!/^\d{8}$/.test(cfg.machineBindingCode)){cfg.machineBindingCode=Math.floor(10000000+Math.random()*90000000).toString();fs.writeFileSync(c,JSON.stringify(cfg,null,2));}"
+echo [*] Initializing Machine License & Cloud Binding...
 "%NODE%" "src\services\verify-payment.js"
 
 :: ── Terminate any existing agent process on port 7400 to apply new code ──
@@ -267,87 +274,30 @@ ping 127.0.0.1 -n 2 >nul 2>nul
 
 echo.
 echo  ================================================================
-echo   STEP 2: RESETTING ADB SERVER
+echo   STEP 2: CHECKING CONNECTED ANDROID DEVICES
 echo  ================================================================
 echo.
 
-:: ── Reset ADB so the phone gets a fresh authorization prompt ───────────────
-echo [*] Resetting ADB server to force fresh USB authorization prompt...
 set "ADB_BIN=%INSTALL_DIR%\assets\bin\adb.exe"
 if not exist "%ADB_BIN%" set "ADB_BIN=adb"
 
-:: Kill bundled ADB server
-"%ADB_BIN%" kill-server >nul 2>&1
-ping 127.0.0.1 -n 2 >nul
-
 :: Restart ADB server with bundled binary
-echo [*] Starting fresh ADB server...
+echo [*] Refreshing ADB server...
 "%ADB_BIN%" start-server >nul 2>&1
+"%ADB_BIN%" reconnect >nul 2>&1
 ping 127.0.0.1 -n 2 >nul
 
-echo.
-echo  ================================================================
-echo   ACTION REQUIRED — READ THIS CAREFULLY
-echo  ================================================================
-echo.
-echo   1. UNLOCK your phone screen right now
-echo   2. Keep the phone screen ON and USB cable plugged in
-echo   3. A popup asking "Allow USB Debugging?" should appear
-echo   4. Tap ALLOW  (check "Always allow" to skip this next time)
-echo.
-echo   If no popup appears after 10 seconds:
-echo     - Unplug the USB cable, wait 3 seconds, plug it back in
-echo     - The popup should appear within 5 seconds
-echo  ================================================================
-echo.
-
-:: Force a reconnect to re-trigger the auth handshake
-"%ADB_BIN%" reconnect >nul 2>&1
-ping 127.0.0.1 -n 3 >nul
-
-:: Wait loop — check every 5 seconds for up to 60 seconds
-set /a ADB_WAIT=0
-:adb_auth_loop
-set /a ADB_WAIT+=1
-if %ADB_WAIT% gtr 12 goto adb_auth_timeout
-
-:: Check if device is now authorized
-"%ADB_BIN%" devices 2>nul | findstr /R "device$" >nul
-if %errorlevel% equ 0 (
-    echo [OK] Phone authorized successfully!
-    "%ADB_BIN%" devices -l
-    goto adb_auth_done
-)
-
-:: Still unauthorized — nudge it with a reconnect every 3 checks
-set /a ADB_MOD=%ADB_WAIT% %% 3
-if %ADB_MOD% equ 0 (
-    "%ADB_BIN%" reconnect >nul 2>&1
-)
-
-echo [*] Waiting for phone authorization... attempt %ADB_WAIT%/12  ^(plug/unplug cable if no popup^)
-ping 127.0.0.1 -n 6 >nul
-goto adb_auth_loop
-
-:adb_auth_timeout
-echo.
-echo  [WARN] Phone not authorized after 60 seconds.
-echo         The agent will still launch — once you accept on the phone,
-echo         devices will appear in the dashboard automatically.
-echo.
-goto adb_auth_done
-
-:adb_auth_done
-echo.
+echo [*] Connected ADB Devices:
+"%ADB_BIN%" devices -l
 
 echo.
 echo  ================================================================
-echo   STEP 3: LAUNCHING DEVICEFARM AGENT
+echo   STEP 3: LAUNCHING DEVICEFARM AGENT & DASHBOARD
 echo  ================================================================
 echo.
 
 :: ── Stop any existing DeviceFarm Agent processes safely ───────────────────
-echo [*] Ensuring previous DeviceFarm Agent instances are stopped...
+echo [*] Ensuring clean process state...
 "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
   "$dirs = @('%INSTALL_DIR%', '%CURRENT_DIR%') | Where-Object { $_ -and (Test-Path $_) };" ^
   "Get-CimInstance Win32_Process | Where-Object {" ^
@@ -358,7 +308,7 @@ echo [*] Ensuring previous DeviceFarm Agent instances are stopped...
   "  return (($matchDir -or $isWatchdog) -and ($p.Name -match '^(electron|node|cloudflared|scrcpy|adb|DeviceFarm Agent)\.exe$'))" ^
   "} | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }"
 ping 127.0.0.1 -n 2 >nul 2>nul
-echo [OK] Previous instances stopped.
+echo [OK] Process state clean.
 
 :: ── Register and launch 24/7 Silent Background Service ──────────────────
 echo [*] Configuring and registering Windows 24/7 Background Service...
@@ -387,22 +337,13 @@ schtasks /create /tn "%TASK_LOGON%" /tr "wscript.exe \"%VBS_LAUNCHER%\"" /sc ONL
 echo [OK] Windows 24/7 background service registered.
 
 :: Stop any existing cloudflared tunnel processes
-echo [*] Stopping old cloudflared tunnel processes...
 taskkill /F /IM cloudflared.exe /T >nul 2>&1
 ping 127.0.0.1 -n 2 >nul 2>nul
 
-:: Start service silently right now in the background
-echo [*] Starting DeviceFarm Agent silently in the background...
-if exist "%VBS_LAUNCHER%" (
-    wscript.exe "%VBS_LAUNCHER%"
-) else (
-    set "ELECTRON_BIN=node_modules\electron\dist\electron.exe"
-    if exist "%ELECTRON_BIN%" (
-        start "" "%INSTALL_DIR%\%ELECTRON_BIN%" "%INSTALL_DIR%\src\main\index.js"
-    ) else (
-        start "" "%NPM%" exec -- electron "%INSTALL_DIR%"
-    )
-)
+:: Start agent directly via watchdog in background
+echo [*] Starting DeviceFarm Agent service in the background...
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+    "Start-Process -FilePath '%NODE%' -ArgumentList 'src\main\service-watchdog.js' -WorkingDirectory '%INSTALL_DIR%' -WindowStyle Hidden"
 
 :: Ensure Cloudflare named tunnel daemon is restarted for agent.dennoh.site
 echo [*] Starting Cloudflare tunnel daemon for agent.dennoh.site...
@@ -426,8 +367,11 @@ if exist "%CLOUDFLARED_EXE%" (
     echo [WARN] Cloudflared binary not found - tunnel will not be available.
 )
 
-echo [*] Waiting for Dashboard...
-ping 127.0.0.1 -n 4 >nul 2>nul
+:: Wait for Dashboard to become responsive
+echo [*] Waiting for Dashboard to start on http://localhost:7400...
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ok = $false; for ($i = 0; $i -lt 12; $i++) { try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:7400/api/license/status' -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}; Start-Sleep -Seconds 1 }; if ($ok) { Write-Host '[OK] Dashboard is live and ready!' } else { Write-Host '[*] Dashboard is launching in the background...' }"
+
 start "" "http://localhost:7400"
 
 :end_launch

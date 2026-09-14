@@ -289,7 +289,20 @@ app.whenReady().then(async () => {
     logger.warn('Tray icon init warning:', e.message);
   }
 
-  await adbTracker.startTracking();
+  // 1. Immediately start Dashboard Server on port 7400 so local UI and Cloudflare tunnel respond instantly
+  try {
+    const { url } = await startDashboardServer(7400);
+    logger.info(`[Dashboard] DeviceFarm Agent Dashboard live at ${url}`);
+    const isHidden = process.argv.includes('--hidden') || process.env.BACKGROUND_SERVICE === '1';
+    if (!isHidden) {
+      openInChrome(url);
+    }
+  } catch (err) {
+    logger.error('Failed to start Dashboard server', { error: err.message });
+  }
+
+  // 2. Start ADB tracking, device connection, and cloud heartbeat asynchronously in background
+  adbTracker.startTracking().catch(err => logger.error('ADB tracker error:', err));
   apiClient.startHeartbeat(() => processManager.getActiveSerials());
   autoSync.startAutoSync(30 * 60 * 1000);
   startTrayRefreshInterval();
@@ -304,33 +317,19 @@ app.whenReady().then(async () => {
 
   // Sync machine hardware identity & network MAC to Supabase
   try {
-    await bindingService.syncMachineBinding();
+    bindingService.syncMachineBinding().catch(e => logger.warn('Machine binding sync notice:', e.message));
   } catch (e) {
     logger.warn('Machine binding sync notice:', e.message);
   }
 
   // Initialize Wake-on-LAN listener
   try {
-    const cfg = require('../services/binding-service');
     const supabaseUrl = process.env.SUPABASE_URL || 'https://vrmzfgfxrycbrtqfygit.supabase.co';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
     if (supabaseUrl && supabaseKey) {
       wolService.startWolRemoteListener(supabaseUrl, supabaseKey);
     }
   } catch (e) {}
-
-  try {
-    const { url } = await startDashboardServer(7400);
-    // Only open Chrome window if NOT running in hidden / background service mode
-    const isHidden = process.argv.includes('--hidden') || process.env.BACKGROUND_SERVICE === '1';
-    if (!isHidden) {
-      openInChrome(url);
-    } else {
-      logger.info(`DeviceFarm Agent running silently in background. Dashboard accessible at ${url}`);
-    }
-  } catch (err) {
-    logger.error('Failed to start Dashboard server', { error: err.message });
-  }
 
   setTimeout(() => refreshTrayMenu(), 3000);
   logger.info('DeviceFarm Agent is fully operational');
