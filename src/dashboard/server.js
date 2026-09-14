@@ -164,7 +164,8 @@ function startDashboardServer(port = 7400) {
       if (actionParam === 'proxy' || udidParam || remoteParam) {
         const serial = udidParam || (remoteParam ? decodeURIComponent(remoteParam).split(':').pop() : null);
         const devices = processManager.getActiveDeviceSummaries();
-        const targetDev = devices.find(d => d.serial === serial) || devices[0];
+        const targetDev = (serial ? devices.find(d => d.serial === serial) : null) || (actionParam === 'proxy' ? devices[0] : null);
+
         if (targetDev && targetDev.port) {
           const proxyReq = http.request({
             hostname: '127.0.0.1',
@@ -191,6 +192,46 @@ function startDashboardServer(port = 7400) {
 
           req.on('error', () => { try { proxyReq.destroy(); } catch (_) {} });
           req.pipe(proxyReq);
+          return;
+        }
+
+        // If a specific device UDID was requested but not found on this machine:
+        if (udidParam || remoteParam) {
+          const currentBinding = bindingService.getOrGenerateBindingCode();
+          res.writeHead(404, { 'Content-Type': 'text/html' });
+          res.end(`
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Device Not Found — ${serial || 'Unknown'}</title>
+              <style>
+                body { background: #07090e; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+                .card { max-width: 500px; width: 100%; background: #0f172a; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 20px; padding: 36px 28px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.6); }
+                .icon { font-size: 48px; margin-bottom: 12px; }
+                h2 { color: #f87171; margin: 0 0 10px; font-size: 22px; font-weight: 800; }
+                p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 20px; }
+                code { background: rgba(255,255,255,0.08); color: #38bdf8; padding: 3px 8px; border-radius: 6px; font-family: monospace; font-size: 14px; }
+                .box { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; font-size: 13px; color: #cbd5e1; text-align: left; margin-bottom: 24px; line-height: 1.6; }
+                .btn { display: inline-block; padding: 12px 24px; background: #38bdf8; color: #0f172a; border-radius: 10px; font-weight: 700; text-decoration: none; font-size: 14px; }
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <div class="icon">📱</div>
+                <h2>Device Not Connected Here</h2>
+                <p>Device <code>${serial}</code> is not plugged into this machine (Binding Code: <strong>${currentBinding}</strong>).</p>
+                <div class="box">
+                  <strong>Why am I seeing this?</strong><br>
+                  • This device is plugged into a different computer (e.g. your remote USA host).<br>
+                  • To stream this remote device, open it via your cloud dashboard or <code>https://agent.dennoh.site/?udid=${serial}</code> once that host is running.
+                </div>
+                <a href="/" class="btn">View Local Dashboard</a>
+              </div>
+            </body>
+            </html>
+          `);
           return;
         }
       }
