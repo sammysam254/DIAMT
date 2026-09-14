@@ -230,9 +230,11 @@ class ScrcpyEngine extends EventEmitter {
     if (initialPacket && ws.readyState === 1) {
       try { ws.send(initialPacket, { binary: true }); } catch (_) {}
     }
-    // Nudge Android window compositor with KEYCODE_WAKEUP (224) to immediately produce a fresh frame
+    // Nudge Android window compositor with WAKEUP (224) and MENU (82) to dismiss lockscreen and produce fresh frames
     try {
       this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
+      this._adb(['shell', 'input', 'keyevent', '82']).catch(() => {});
+      this._adb(['shell', 'svc', 'power', 'stayon', 'true']).catch(() => {});
     } catch (_) {}
   }
 

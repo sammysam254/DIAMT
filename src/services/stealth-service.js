@@ -99,9 +99,11 @@ async function applyDeviceStealth(serial, stealthRootEnabled = true) {
     'settings put secure mock_location 0',
     'settings put global package_verifier_enable 1',
     'settings put system show_touches 0',
-    'settings put system pointer_location 0',
-    'settings put global stay_awake 0',
-    'settings put system stay_awake 0',
+    'settings put global stay_awake 3',
+    'settings put system stay_awake 3',
+    'svc power stayon true',
+    'input keyevent 224',
+    'input keyevent 82',
   ];
 
   // 3. Hide Remote Control & Accessibility Service flags & Input Method automation signatures
