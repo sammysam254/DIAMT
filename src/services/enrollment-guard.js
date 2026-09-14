@@ -158,7 +158,7 @@ async function runRecoveryCheck() {
 
   // ── 1. Re-enroll devices seen by ADB but not actively streaming ─────────────
   for (const serial of adbSerials) {
-    if (activeSerials.has(serial)) continue;      // Already streaming ✓
+    if (activeSerials.has(serial) || processManager.getDevice(serial)) continue;      // Already streaming or tracked ✓
     if (_inProgress.has(serial)) continue;         // Already being provisioned ✓
 
     logger.info(`[EnrollmentGuard] Re-enrolling rebooted/reconnected device: ${serial}`);

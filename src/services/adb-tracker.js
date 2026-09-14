@@ -109,9 +109,16 @@ async function handleDeviceAdd(device) {
       logger.warn(`Could not read properties for ${serial}: ${err.message}`);
     }
 
-    // If this is a WiFi connection for a device already streaming via USB, skip duplicate session
+    // If this is a WiFi connection for a device already streaming via USB, alias and disconnect duplicate ADB WiFi
     if (serial !== realSerial && processManager.getDevice(realSerial)) {
-      logger.info(`Device ${realSerial} already active over USB — skipping duplicate WiFi session ${serial}`);
+      logger.info(`Device ${realSerial} already active over USB — aliasing WiFi session ${serial} and disconnecting duplicate ADB WiFi`);
+      const existing = processManager.getDevice(realSerial);
+      processManager.addDevice(serial, existing);
+      try {
+        const adbBin = resolveAdb();
+        const { exec } = require('child_process');
+        exec(`"${adbBin}" disconnect ${serial}`, { timeout: 3000 }, () => {});
+      } catch (_) {}
       return;
     }
 
