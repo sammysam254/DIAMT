@@ -211,7 +211,7 @@ class ScrcpyEngine extends EventEmitter {
     this.videoHeight = 0;
     this._jarPushed = false;
     this._screencapActive = false;
-    this.enableAudio = true;
+    this.enableAudio = false;
     this.audioSocket = null;
   }
 

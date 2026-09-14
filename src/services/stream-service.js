@@ -94,19 +94,39 @@ function handleControl(type, data, serial, engine) {
   const realW = engine.screenWidth  || 720;
   const realH = engine.screenHeight || 1600;
 
+  const ctrlOk = () => engine.controlSocket && !engine.controlSocket.destroyed;
+
   if (type === 'touch') {
     const action = parseInt(get(data, 'action'), 10);
     const x = parseFloat(get(data, 'x'));
     const y = parseFloat(get(data, 'y'));
-    engine.sendTouchEvent(action, x, y, W, H);
+    const ok = engine.sendTouchEvent(action, x, y, W, H);
+    if (!ok && action === 0) {
+      const sx = Math.round((x / W) * realW);
+      const sy = Math.round((y / H) * realH);
+      adbInput(serial, `input tap ${sx} ${sy}`);
+    }
   } else if (type === 'tap') {
     const x = parseFloat(get(data, 'x')), y = parseFloat(get(data, 'y'));
-    engine.sendTouchEvent(0, x, y, W, H, 0.4);
-    setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 80);
+    if (ctrlOk()) {
+      engine.sendTouchEvent(0, x, y, W, H, 0.4);
+      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 80);
+    } else {
+      const sx = Math.round((x / W) * realW);
+      const sy = Math.round((y / H) * realH);
+      adbInput(serial, `input tap ${sx} ${sy}`);
+    }
   } else if (type === 'swipe') {
     const x1 = parseFloat(get(data, 'x1')), y1 = parseFloat(get(data, 'y1'));
     const x2 = parseFloat(get(data, 'x2')), y2 = parseFloat(get(data, 'y2'));
     const dur = parseInt(get(data, 'duration'), 10) || 160;
+
+    if (!ctrlOk()) {
+      const sx1 = Math.round((x1 / W) * realW), sy1 = Math.round((y1 / H) * realH);
+      const sx2 = Math.round((x2 / W) * realW), sy2 = Math.round((y2 / H) * realH);
+      adbInput(serial, `input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${dur}`);
+      return;
+    }
 
     // Organic human finger micro-curve arc (1-3px natural lateral drift during swipe stroke)
     const arcX = (Math.random() - 0.5) * 4;
@@ -114,7 +134,9 @@ function handleControl(type, data, serial, engine) {
     // Send DOWN at start position with human touch pressure (0.28)
     const downOk = engine.sendTouchEvent(0, x1, y1, W, H, 0.28);
     if (!downOk) {
-      logger.warn(`[StreamServer] Swipe DOWN failed for ${serial}`);
+      const sx1 = Math.round((x1 / W) * realW), sy1 = Math.round((y1 / H) * realH);
+      const sx2 = Math.round((x2 / W) * realW), sy2 = Math.round((y2 / H) * realH);
+      adbInput(serial, `input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${dur}`);
       return;
     }
     
@@ -141,17 +163,26 @@ function handleControl(type, data, serial, engine) {
     }
   } else if (type === 'code' || type === 'key') {
     const code = parseInt(get(data, 'code'), 10);
-    engine.sendKeycode(0, code);
-    setTimeout(() => engine.sendKeycode(1, code), 50);
+    if (ctrlOk()) {
+      engine.sendKeycode(0, code);
+      setTimeout(() => engine.sendKeycode(1, code), 50);
+    } else {
+      adbInput(serial, `input keyevent ${code}`);
+    }
   } else if (type === 'text') {
     const text = get(data, 'text') || '';
-    engine.sendText(text);
+    if (ctrlOk()) {
+      engine.sendText(text);
+    } else {
+      const escaped = text.replace(/(["'`$\\!& |;()<>])/g, '\\$1');
+      adbInput(serial, `input text ${escaped}`);
+    }
   } else if (type === 'reboot') {
     exec(`"${ADB_BIN}" -s ${serial} reboot`);
   } else if (type === 'expand_notifications' || type === 'notifications') {
     exec(`"${ADB_BIN}" -s ${serial} shell cmd statusbar expand`);
   } else if (type === 'wake' || type === 'refresh') {
-    try { adbInput(serial, 'input keyevent 0'); } catch (_) {}
+    try { adbInput(serial, 'input keyevent 224'); } catch (_) {}
   }
 }
 

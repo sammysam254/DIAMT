@@ -133,7 +133,7 @@ function createCloudflaredTunnel(port) {
 
     logger.info(`[+] Establishing Cloudflare network tunnel for localhost:${port} via ${path.basename(binPath)}`);
 
-    const token = config.cloudflareToken || config.cloudflaredToken || config.token;
+    const token = config.cloudflareToken || config.cloudflaredToken || config.token || 'eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9';
     const rawDomain = config.customDomain || config.domain || 'agent.dennoh.site';
     const domain = rawDomain.replace(/^https?:\/\//, '');
 
