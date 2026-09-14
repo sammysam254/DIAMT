@@ -267,6 +267,20 @@ if %errorlevel% equ 0 (
         "%GIT%" -C "%INSTALL_DIR%" pull --ff-only origin main >nul 2>&1
         echo [OK] GitHub code updated silently. Active device streams remain 100% connected.
     )
+    :: Ensure cloudflared is running for agent.dennoh.site
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "Get-Process -Name 'cloudflared' -ErrorAction SilentlyContinue" | findstr "cloudflared" >nul
+    if !errorlevel! neq 0 (
+        echo [*] Starting Cloudflare tunnel daemon for agent.dennoh.site...
+        set "CF_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
+        if not exist "!CF_EXE!" set "CF_EXE=C:\cloudflared\cloudflared.exe"
+        if not exist "!CF_EXE!" set "CF_EXE=C:\Program Files\cloudflared\cloudflared.exe"
+        if not exist "!CF_EXE!" set "CF_EXE=C:\Program Files (x86)\cloudflared\cloudflared.exe"
+        if exist "!CF_EXE!" (
+            "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+                "Start-Process -FilePath '!CF_EXE!' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9' -WindowStyle Hidden"
+            echo [OK] Cloudflare tunnel started.
+        )
+    )
     echo.
     echo  Dashboard: http://localhost:7400
     echo  You can close this window.
@@ -397,6 +411,11 @@ set "LNK_ALL=%STARTUP_ALL%\DeviceFarm-Agent-Service.lnk"
 
 echo [OK] Windows 24/7 background service registered.
 
+:: Stop any existing cloudflared tunnel processes
+echo [*] Stopping old cloudflared tunnel processes...
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Name 'cloudflared' -Force -ErrorAction SilentlyContinue" >nul 2>nul
+ping 127.0.0.1 -n 2 >nul 2>nul
+
 :: Start service silently right now in the background
 echo [*] Starting DeviceFarm Agent silently in the background...
 if exist "%VBS_LAUNCHER%" (
@@ -408,6 +427,28 @@ if exist "%VBS_LAUNCHER%" (
     ) else (
         start "" "%NPM%" exec -- electron "%INSTALL_DIR%"
     )
+)
+
+:: Ensure Cloudflare named tunnel daemon is restarted for agent.dennoh.site
+echo [*] Restarting Cloudflare tunnel daemon for agent.dennoh.site...
+set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
+if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=%CURRENT_DIR%\assets\bin\cloudflared.exe"
+if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\cloudflared\cloudflared.exe"
+if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\Program Files\cloudflared\cloudflared.exe"
+if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\Program Files (x86)\cloudflared\cloudflared.exe"
+if not exist "%CLOUDFLARED_EXE%" (
+    echo [*] Cloudflared not found locally. Downloading cloudflared-windows-amd64.exe...
+    if not exist "%INSTALL_DIR%\assets\bin" mkdir "%INSTALL_DIR%\assets\bin" >nul 2>nul
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '%INSTALL_DIR%\assets\bin\cloudflared.exe' -UseBasicParsing"
+    if exist "%INSTALL_DIR%\assets\bin\cloudflared.exe" set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
+)
+if exist "%CLOUDFLARED_EXE%" (
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+        "Start-Process -FilePath '%CLOUDFLARED_EXE%' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9' -WindowStyle Hidden"
+    echo [OK] Cloudflare tunnel daemon restarted in background for agent.dennoh.site.
+) else (
+    echo [WARN] Cloudflared binary not found - tunnel will not be available.
 )
 
 echo [*] Waiting for Dashboard...
