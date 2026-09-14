@@ -35,6 +35,19 @@ function storeBindingCodeInSession(bindingCode) {
   return token;
 }
 
+const FARM_SERIAL_ALIASES = {
+  '7070016025067254': ['10.1.10.49:5555', '10.1.10.49'],
+  'ZA223HQMXQ': ['10.1.10.79:5555', '10.1.10.79'],
+  'YTCY999TVKVCZDZX': ['10.1.10.197:5555', '10.1.10.197'],
+  '1120308025024495': ['10.1.10.100:5555', '10.1.10.100'],
+  'M769UCQCDMZLPF8D': ['10.1.10.173:5555', '10.1.10.173'],
+  '10.1.10.49:5555': ['7070016025067254'],
+  '10.1.10.79:5555': ['ZA223HQMXQ'],
+  '10.1.10.197:5555': ['YTCY999TVKVCZDZX'],
+  '10.1.10.100:5555': ['1120308025024495'],
+  '10.1.10.173:5555': ['M769UCQCDMZLPF8D'],
+};
+
 function findTargetDevice(rawSerial, actionParam) {
   if (!rawSerial) {
     if (actionParam === 'proxy') {
@@ -49,6 +62,13 @@ function findTargetDevice(rawSerial, actionParam) {
   // 1. Direct lookup from processManager active sessions
   const direct = processManager.getDevice(serial);
   if (direct && direct.port) return direct;
+
+  // 1b. Check known farm hardware serial aliases
+  const aliases = FARM_SERIAL_ALIASES[serial] || [];
+  for (const alias of aliases) {
+    const aliasDev = processManager.getDevice(alias);
+    if (aliasDev && aliasDev.port) return aliasDev;
+  }
 
   // 2. Check all active sessions for hardwareSerial, adbSerial, or serial match
   const allSerials = processManager.getActiveSerials();

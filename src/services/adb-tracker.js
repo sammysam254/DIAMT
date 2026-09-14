@@ -93,6 +93,17 @@ async function handleDeviceAdd(device) {
       deviceModel = props['ro.product.model'] || deviceModel;
       deviceBrand  = props['ro.product.brand']  || deviceBrand;
       realSerial = props['ro.serialno'] || serial;
+      if (realSerial === serial && serial.includes(':')) {
+        const ip = serial.split(':')[0];
+        const IP_MAP = {
+          '10.1.10.49': '7070016025067254',
+          '10.1.10.79': 'ZA223HQMXQ',
+          '10.1.10.197': 'YTCY999TVKVCZDZX',
+          '10.1.10.100': '1120308025024495',
+          '10.1.10.173': 'M769UCQCDMZLPF8D',
+        };
+        if (IP_MAP[ip]) realSerial = IP_MAP[ip];
+      }
       logger.info(`Device properties: ${serial} → ${deviceBrand} ${deviceModel} (real: ${realSerial})`);
     } catch (err) {
       logger.warn(`Could not read properties for ${serial}: ${err.message}`);
