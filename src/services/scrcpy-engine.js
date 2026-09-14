@@ -258,6 +258,12 @@ class ScrcpyEngine extends EventEmitter {
     this.isRunning = true;
 
     try {
+      // 0. Force-kill any lingering scrcpy/app_process on device to release localabstract:scrcpy
+      try {
+        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
+        await new Promise(r => setTimeout(r, 200));
+      } catch (_) {}
+
       // 1. Fetch real screen dimensions
       try {
         const out = await this._adb(['shell', 'wm', 'size']);
@@ -285,8 +291,13 @@ class ScrcpyEngine extends EventEmitter {
       logger.info(`[ScrcpyEngine ${this.serial}] High-speed 60FPS Scrcpy H264 engine active`);
 
     } catch (err) {
-      logger.warn(`[ScrcpyEngine ${this.serial}] Scrcpy start failed: ${err.message} — falling back to screenrecord stream`);
-      this._startScreenrecordFallback();
+      logger.warn(`[ScrcpyEngine ${this.serial}] Scrcpy start failed: ${err.message} — freeing phone socket and scheduling auto-recovery`);
+      try {
+        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
+      } catch (_) {}
+      if (this.isRunning) {
+        setTimeout(() => this._restart(), 2000);
+      }
     }
   }
 
@@ -351,6 +362,10 @@ class ScrcpyEngine extends EventEmitter {
       this.serverProc.stderr.on('data', (d) => {
         const msg = d.toString().trim();
         if (msg) logger.warn(`[ScrcpyEngine ${this.serial}] stderr: ${msg}`);
+        if (msg.includes('Address already in use')) {
+          logger.warn(`[ScrcpyEngine ${this.serial}] Socket conflict on device — force-killing zombie scrcpy server`);
+          this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
+        }
       });
 
       // Safety timeout — if no "Device:" within 5s, proceed anyway
@@ -925,6 +940,12 @@ class ScrcpyEngine extends EventEmitter {
       if (ws.readyState === 1) try { ws.send(resetMsg); } catch (_) {}
     }
     try {
+      // Force-kill any lingering scrcpy/app_process on device to release localabstract:scrcpy
+      try {
+        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
+        await new Promise(r => setTimeout(r, 200));
+      } catch (_) {}
+
       try { await this._adb(['forward', '--remove', `tcp:${this.videoPort}`]); } catch (_) {}
       await this._adb(['forward', `tcp:${this.videoPort}`, 'localabstract:scrcpy']);
       this._spawnServer();

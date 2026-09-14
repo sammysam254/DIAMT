@@ -31,6 +31,14 @@ function preLaunchCleanup() {
         execSync('taskkill /F /IM electron.exe >nul 2>&1', { timeout: 3000, stdio: 'ignore' });
       } catch (_) {}
     }
+
+    // 3. Terminate any zombie scrcpy servers on connected Android devices
+    try {
+      const adbBin = path.join(rootDir, 'assets', 'bin', 'adb.exe');
+      if (fs.existsSync(adbBin)) {
+        execSync(`"${adbBin}" shell pkill -9 -f com.genymobile.scrcpy >nul 2>&1`, { timeout: 4000, stdio: 'ignore' });
+      }
+    } catch (_) {}
   } catch (_) {}
 }
 
