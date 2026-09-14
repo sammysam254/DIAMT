@@ -117,10 +117,10 @@ function startEnrollmentGuard(onDeviceAdd, onDeviceRemove, intervalMs = 12000) {
 }
 
 let lastWifiProbeTime = 0;
-const WIFI_PROBE_INTERVAL_MS = 60000;
+const WIFI_PROBE_INTERVAL_MS = 25000;
 
-async function connectFarmWifiDevices(adbBin, existingSerials) {
-  if (Date.now() - lastWifiProbeTime < WIFI_PROBE_INTERVAL_MS) {
+async function connectFarmWifiDevices(adbBin, existingSerials, force = false) {
+  if (!force && Date.now() - lastWifiProbeTime < WIFI_PROBE_INTERVAL_MS) {
     return;
   }
   lastWifiProbeTime = Date.now();
@@ -146,14 +146,14 @@ async function connectFarmWifiDevices(adbBin, existingSerials) {
   }
 }
 
-async function runRecoveryCheck() {
+async function runRecoveryCheck(force = false) {
   const adbBin = resolveAdb();
   const adbSerials = await listAdbDevices(adbBin);
   const activeSerials = new Set(processManager.getActiveSerials());
 
   // Auto-connect any reachable farm devices on WiFi
   try {
-    await connectFarmWifiDevices(adbBin, adbSerials);
+    await connectFarmWifiDevices(adbBin, adbSerials, force);
   } catch (_) {}
 
   // ── 1. Re-enroll devices seen by ADB but not actively streaming ─────────────

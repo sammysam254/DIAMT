@@ -231,7 +231,7 @@ function startDashboardServer(port = 7400) {
       if (url === '/api/system/reconnect') {
         const enrollmentGuard = require('../services/enrollment-guard');
         if (enrollmentGuard && enrollmentGuard.runRecoveryCheck) {
-          enrollmentGuard.runRecoveryCheck().catch(() => {});
+          enrollmentGuard.runRecoveryCheck(true).catch(() => {});
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', message: 'Recovery check initiated' }));
