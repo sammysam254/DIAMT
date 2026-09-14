@@ -65,11 +65,21 @@ function listAdbDevices(adbBin) {
       if (err) { resolve([]); return; }
       const lines = (stdout || '').split('\n').slice(1);
       const serials = [];
+      let hasOffline = false;
       for (const line of lines) {
         const parts = line.trim().split(/\s+/);
-        if (parts.length >= 2 && parts[1] === 'device') {
-          serials.push(parts[0]);
+        if (parts.length >= 2) {
+          if (parts[1] === 'device') {
+            serials.push(parts[0]);
+          } else if (parts[1] === 'offline') {
+            hasOffline = true;
+          }
         }
+      }
+      if (hasOffline) {
+        try {
+          exec(`"${adbBin}" reconnect offline`, { timeout: 3000 }, () => {});
+        } catch (_) {}
       }
       resolve(serials);
     });
