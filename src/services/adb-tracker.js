@@ -44,11 +44,17 @@ const DEBOUNCE_MS = 3000;
 
 async function handleDeviceAdd(device) {
   const serial = device.id;
+  const isUsb = !serial.includes(':');
 
   const existingSession = processManager.getDevice(serial);
   if (existingSession && existingSession.port) {
-    logger.info(`Device ${serial} already active on port ${existingSession.port} — preserving running stream`);
-    return;
+    if (isUsb && (existingSession.isWifi || existingSession.adbSerial?.includes(':'))) {
+      logger.info(`Upgrading device ${serial} from WiFi to high-speed USB priority!`);
+      await handleDeviceRemove({ id: existingSession.adbSerial || serial });
+    } else {
+      logger.info(`Device ${serial} already active on port ${existingSession.port} — preserving running stream`);
+      return;
+    }
   }
 
   const lastRemoval = recentRemovals.get(serial);
@@ -58,7 +64,7 @@ async function handleDeviceAdd(device) {
     await new Promise(r => setTimeout(r, waitTime));
   }
 
-  logger.info(`Device connected: ${serial} (type: ${device.type})`);
+  logger.info(`Device connected: ${serial} (type: ${device.type}, connection: ${isUsb ? 'USB (Primary)' : 'WiFi'})`);
 
   // Apply bootloader hiding & anti-detection stealth config before running apps
   try {
@@ -165,6 +171,8 @@ async function handleDeviceAdd(device) {
       paymentStatus: licenseStatus.mode,
       adbSerial: serial,
       hardwareSerial: realSerial,
+      isUsb,
+      isWifi: !isUsb,
     };
     processManager.addDevice(serial, sessionObj);
     if (realSerial && realSerial !== serial) {

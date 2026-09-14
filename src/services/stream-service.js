@@ -119,7 +119,7 @@ function handleControl(type, data, serial, engine) {
   } else if (type === 'swipe') {
     const x1 = parseFloat(get(data, 'x1')), y1 = parseFloat(get(data, 'y1'));
     const x2 = parseFloat(get(data, 'x2')), y2 = parseFloat(get(data, 'y2'));
-    const dur = parseInt(get(data, 'duration'), 10) || 160;
+    const dur = Math.min(220, Math.max(70, parseInt(get(data, 'duration'), 10) || 120));
 
     if (!ctrlOk()) {
       const sx1 = Math.round((x1 / W) * realW), sy1 = Math.round((y1 / H) * realH);
@@ -128,36 +128,26 @@ function handleControl(type, data, serial, engine) {
       return;
     }
 
-    // Organic human finger micro-curve arc (1-3px natural lateral drift during swipe stroke)
-    const arcX = (Math.random() - 0.5) * 4;
-    
-    // Send DOWN at start position with human touch pressure (0.28)
-    const downOk = engine.sendTouchEvent(0, x1, y1, W, H, 0.28);
+    // Direct touch injection down immediately
+    const downOk = engine.sendTouchEvent(0, x1, y1, W, H, 0.45);
     if (!downOk) {
       const sx1 = Math.round((x1 / W) * realW), sy1 = Math.round((y1 / H) * realH);
       const sx2 = Math.round((x2 / W) * realW), sy2 = Math.round((y2 / H) * realH);
       adbInput(serial, `input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${dur}`);
       return;
     }
-    
-    logger.info(`[StreamServer] Human swipe started: (${x1},${y1}) → (${x2},${y2}) over ${dur}ms`);
-    
-    // Human finger motion mechanics: smooth S-curve interpolation (acceleration -> peak speed -> deceleration)
-    // with realistic pressure envelope (light touch -> firm drag -> light release) & organic arc
-    const steps = Math.max(6, Math.floor(dur / 16));
+
+    // High-precision smooth swipe with cubic ease-out (fast initial flick, smooth glide)
+    const steps = Math.max(8, Math.floor(dur / 12));
     const dt = dur / steps;
     for (let i = 1; i <= steps; i++) {
       setTimeout(() => {
         const progress = i / steps;
-        // Smoothstep easing (S-curve) matches natural human hand inertia
-        const ease = progress * progress * (3 - 2 * progress);
-        const currX = x1 + (x2 - x1) * ease + Math.sin(progress * Math.PI) * arcX;
+        const ease = 1 - Math.pow(1 - progress, 3);
+        const currX = x1 + (x2 - x1) * ease;
         const currY = y1 + (y2 - y1) * ease;
-        
-        // Human pressure profile: light touch-down -> firm mid-stroke contact -> light release
-        const pressure = Math.sin(progress * Math.PI) * 0.55 + 0.25;
-        const action = (i === steps) ? 1 : 2; // UP on final step, MOVE otherwise
-        const pVal = (action === 1) ? 0 : pressure;
+        const action = (i === steps) ? 1 : 2; // UP on final step
+        const pVal = (action === 1) ? 0 : 0.6;
         engine.sendTouchEvent(action, currX, currY, W, H, pVal);
       }, Math.round(i * dt));
     }
@@ -819,23 +809,35 @@ function buildPlayerHtml(serial, screenW, screenH) {
     send({ type:'touch', action:0, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0.35 });
   });
 
+  let moveRaf = null;
+  let pendingMove = null;
+
   canvas.addEventListener('pointermove', (e) => {
     if (!down) return;
     e.preventDefault();
-    const c = coords(e);
-    // Active drag pressure (0.70 = firm finger drag)
-    send({ type:'touch', action:2, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0.70 });
+    pendingMove = coords(e);
+    if (!moveRaf) {
+      moveRaf = requestAnimationFrame(() => {
+        moveRaf = null;
+        if (down && pendingMove) {
+          send({ type:'touch', action:2, x:pendingMove.x, y:pendingMove.y, width:nativeW, height:nativeH, pressure:0.65 });
+        }
+      });
+    }
   });
 
   function releasePointer(e) {
     if (!down) return;
     down = false;
+    if (moveRaf) {
+      cancelAnimationFrame(moveRaf);
+      moveRaf = null;
+    }
     if (activePointerId !== null) {
       try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
       activePointerId = null;
     }
     const c = coords(e);
-    // Release pressure (0.0 = finger lifted off screen)
     send({ type:'touch', action:1, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0 });
   }
 

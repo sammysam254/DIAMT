@@ -59,16 +59,22 @@ function findTargetDevice(rawSerial, actionParam) {
 
   const serial = decodeURIComponent(rawSerial).trim();
 
-  // 1. Direct lookup from processManager active sessions
+  // 1. Direct lookup from processManager active sessions (USB priority)
   const direct = processManager.getDevice(serial);
-  if (direct && direct.port) return direct;
+  if (direct && direct.port && !direct.isWifi) return direct;
 
-  // 1b. Check known farm hardware serial aliases
+  // 1b. Check known farm hardware serial aliases (USB priority)
   const aliases = FARM_SERIAL_ALIASES[serial] || [];
+  for (const alias of aliases) {
+    const aliasDev = processManager.getDevice(alias);
+    if (aliasDev && aliasDev.port && !aliasDev.isWifi) return aliasDev;
+  }
   for (const alias of aliases) {
     const aliasDev = processManager.getDevice(alias);
     if (aliasDev && aliasDev.port) return aliasDev;
   }
+
+  if (direct && direct.port) return direct;
 
   // 2. Check all active sessions for hardwareSerial, adbSerial, or serial match
   const allSerials = processManager.getActiveSerials();
