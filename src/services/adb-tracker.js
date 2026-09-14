@@ -145,6 +145,8 @@ async function handleDeviceAdd(device) {
       bindingCode,
       isPaid: licenseStatus.isActive,
       paymentStatus: licenseStatus.mode,
+      adbSerial: serial,
+      hardwareSerial: realSerial,
     };
     processManager.addDevice(serial, sessionObj);
     if (realSerial && realSerial !== serial) {

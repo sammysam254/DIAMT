@@ -166,7 +166,15 @@ async function runRecoveryCheck() {
 
   // ── 2. Clean up stale processManager entries for vanished devices ───────────
   for (const serial of activeSerials) {
-    if (adbSerials.includes(serial)) continue;    // Still connected ✓
+    if (adbSerials.includes(serial)) continue;    // Still directly in ADB ✓
+
+    // Prevent killing sessions that are active under their ADB endpoint (e.g. WiFi IP)
+    const session = processManager.getDevice(serial);
+    if (session) {
+      if (session.adbSerial && adbSerials.includes(session.adbSerial)) continue;
+      if (session.serial && adbSerials.includes(session.serial)) continue;
+    }
+
     logger.info(`[EnrollmentGuard] Stale session detected for ${serial} — cleaning up`);
     try {
       if (_removeDeviceCallback) {

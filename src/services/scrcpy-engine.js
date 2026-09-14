@@ -266,6 +266,14 @@ class ScrcpyEngine extends EventEmitter {
         await new Promise(r => setTimeout(r, 200));
       } catch (_) {}
 
+      // Wake display, keep screen on, and unlock so hardware H.264 encoder never feeds black frames
+      try {
+        await this._adb(['shell', 'svc', 'power', 'stayon', 'true']).catch(() => {});
+        await this._adb(['shell', 'settings', 'put', 'global', 'stay_on_while_plugged_in', '3']).catch(() => {});
+        await this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {}); // KEYCODE_WAKEUP
+        await this._adb(['shell', 'input', 'keyevent', '82']).catch(() => {});  // KEYCODE_MENU
+      } catch (_) {}
+
       // 1. Fetch real screen dimensions
       try {
         const out = await this._adb(['shell', 'wm', 'size']);

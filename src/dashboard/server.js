@@ -35,6 +35,57 @@ function storeBindingCodeInSession(bindingCode) {
   return token;
 }
 
+function findTargetDevice(rawSerial, actionParam) {
+  if (!rawSerial) {
+    if (actionParam === 'proxy') {
+      const devices = processManager.getActiveDeviceSummaries();
+      return devices[0] || null;
+    }
+    return null;
+  }
+
+  const serial = decodeURIComponent(rawSerial).trim();
+
+  // 1. Direct lookup from processManager active sessions
+  const direct = processManager.getDevice(serial);
+  if (direct && direct.port) return direct;
+
+  // 2. Check all active sessions for hardwareSerial, adbSerial, or serial match
+  const allSerials = processManager.getActiveSerials();
+  for (const s of allSerials) {
+    const dev = processManager.getDevice(s);
+    if (!dev || !dev.port) continue;
+    if (dev.hardwareSerial === serial || dev.adbSerial === serial || dev.serial === serial) {
+      return dev;
+    }
+    if (dev.hardwareSerial?.toLowerCase() === serial.toLowerCase() || dev.serial?.toLowerCase() === serial.toLowerCase()) {
+      return dev;
+    }
+  }
+
+  // 3. Match by IP address without port if serial contains IP
+  if (serial.includes(':')) {
+    const ipOnly = serial.split(':')[0];
+    for (const s of allSerials) {
+      const dev = processManager.getDevice(s);
+      if (dev && dev.port && (s.startsWith(ipOnly) || dev.adbSerial?.startsWith(ipOnly))) {
+        return dev;
+      }
+    }
+  }
+
+  // 4. Summaries fallback
+  const summaries = processManager.getActiveDeviceSummaries();
+  const found = summaries.find(d => 
+    d.serial === serial || 
+    d.serial?.toLowerCase() === serial.toLowerCase() ||
+    (d.serial && (d.serial.includes(serial) || serial.includes(d.serial)))
+  );
+  if (found) return found;
+
+  return null;
+}
+
 /**
  * Start the local Dashboard HTTP Server.
  * @param {number} [port=7400]
@@ -187,9 +238,8 @@ function startDashboardServer(port = 7400) {
       const remoteParam = fullUrl.searchParams.get('remote');
 
       if (actionParam === 'proxy' || udidParam || remoteParam) {
-        const serial = udidParam || (remoteParam ? decodeURIComponent(remoteParam).split(':').pop() : null);
-        const devices = processManager.getActiveDeviceSummaries();
-        const targetDev = (serial ? devices.find(d => d.serial === serial || d.serial?.toLowerCase() === serial?.toLowerCase() || (d.serial && decodeURIComponent(serial) === d.serial)) : null) || (actionParam === 'proxy' ? devices[0] : null);
+        const rawSerial = udidParam || (remoteParam ? decodeURIComponent(remoteParam).split(':').pop() : null);
+        const targetDev = findTargetDevice(rawSerial, actionParam);
 
         if (targetDev && targetDev.port) {
           const proxyReq = http.request({
@@ -290,12 +340,7 @@ function startDashboardServer(port = 7400) {
       const udidParam = fullUrl.searchParams.get('udid');
       const remoteParam = fullUrl.searchParams.get('remote');
       const serial = udidParam || (remoteParam ? decodeURIComponent(remoteParam).split(':').pop() : null);
-
-      const devices = processManager.getActiveDeviceSummaries();
-      // If a specific serial was requested, NEVER stream the wrong device
-      const targetDev = serial 
-        ? devices.find(d => d.serial === serial || d.serial?.toLowerCase() === serial?.toLowerCase() || (d.serial && decodeURIComponent(serial) === d.serial))
-        : (actionParam === 'proxy' ? devices[0] : null);
+      const targetDev = findTargetDevice(serial, actionParam);
 
       if (targetDev && targetDev.port) {
         const proxyReq = http.request({

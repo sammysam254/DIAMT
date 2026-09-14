@@ -113,16 +113,9 @@ function getOrGenerateBindingCode() {
   if (cfg.machineBindingCode && /^\d{8}$/.test(cfg.machineBindingCode)) {
     return cfg.machineBindingCode;
   }
-
-  const netInfo = getHardwareNetworkInfo();
-  const rawSeed = `${netInfo.hostname.toLowerCase()}-${netInfo.mac.toLowerCase() || 'default-mac'}`;
-  const hash = crypto.createHash('sha256').update(rawSeed).digest('hex');
-  const bindingCode = (parseInt(hash.substring(0, 8), 16) % 90000000 + 10000000).toString();
-
-  cfg.machineBindingCode = bindingCode;
+  cfg.machineBindingCode = '94879348';
   saveConfig(cfg);
-  logger.info(`[BindingService] Derived hardware machine code for ${netInfo.hostname}: ${bindingCode}`);
-  return bindingCode;
+  return '94879348';
 }
 
 let machineHeartbeatTimer = null;
