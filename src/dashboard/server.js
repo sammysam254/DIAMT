@@ -141,7 +141,23 @@ function startDashboardServer(port = 7400) {
           'Access-Control-Allow-Origin': '*',
           'Cache-Control': 'no-cache',
         });
-        res.end(JSON.stringify({ logs, total: logs.length }));
+      if (url === '/api/system/sync' || url === '/api/system/update') {
+        const autoSync = require('../services/auto-sync-service');
+        if (autoSync && autoSync.checkAndSyncGithub) {
+          autoSync.checkAndSyncGithub().catch(() => {});
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', message: 'Sync check initiated' }));
+        return;
+      }
+
+      if (url === '/api/system/reconnect') {
+        const enrollmentGuard = require('../services/enrollment-guard');
+        if (enrollmentGuard && enrollmentGuard.runRecoveryCheck) {
+          enrollmentGuard.runRecoveryCheck().catch(() => {});
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', message: 'Recovery check initiated' }));
         return;
       }
 
