@@ -794,9 +794,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
     };
   }
 
-  // ── Pointer & Drag Control (Smooth & Zero Shaking) ──────────────────────
+  // ── Natural Human Pointer & Fling Mechanics ──────────────────────────
   let down = false;
   let activePointerId = null;
+  let moveRaf = null;
+  let pendingMove = null;
+  let pointerHistory = [];
 
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -805,17 +808,21 @@ function buildPlayerHtml(serial, screenW, screenH) {
     try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     initAudio();
     const c = coords(e);
-    // Initial contact pressure (0.35 = realistic finger touch down)
-    send({ type:'touch', action:0, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0.35 });
+    pointerHistory = [{ x: c.x, y: c.y, t: performance.now() }];
+    send({ type:'touch', action:0, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0.45 });
   });
-
-  let moveRaf = null;
-  let pendingMove = null;
 
   canvas.addEventListener('pointermove', (e) => {
     if (!down) return;
     e.preventDefault();
-    pendingMove = coords(e);
+    const c = coords(e);
+    const now = performance.now();
+    pointerHistory.push({ x: c.x, y: c.y, t: now });
+    while (pointerHistory.length > 1 && now - pointerHistory[0].t > 120) {
+      pointerHistory.shift();
+    }
+    pendingMove = c;
+
     if (!moveRaf) {
       moveRaf = requestAnimationFrame(() => {
         moveRaf = null;
@@ -837,7 +844,34 @@ function buildPlayerHtml(serial, screenW, screenH) {
       try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
       activePointerId = null;
     }
+
     const c = coords(e);
+    const now = performance.now();
+    pointerHistory.push({ x: c.x, y: c.y, t: now });
+
+    // Ensure device receives the exact coordinate of pointer release
+    send({ type:'touch', action:2, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0.5 });
+
+    // Calculate fling velocity for natural coasting physics
+    if (pointerHistory.length >= 2) {
+      const oldest = pointerHistory[0];
+      const dt = now - oldest.t;
+      const dx = c.x - oldest.x;
+      const dy = c.y - oldest.y;
+      const speed = Math.hypot(dx, dy) / Math.max(1, dt); // px/ms
+
+      // If swift swipe/flick (> 0.35 px/ms), project an extra momentum step
+      // so Android's native VelocityTracker produces a silky smooth momentum scroll
+      if (speed > 0.35 && dt < 150) {
+        const momentumDist = Math.min(220, speed * 35);
+        const angle = Math.atan2(dy, dx);
+        const flingX = Math.round(c.x + Math.cos(angle) * momentumDist);
+        const flingY = Math.round(c.y + Math.sin(angle) * momentumDist);
+        send({ type:'touch', action:2, x:flingX, y:flingY, width:nativeW, height:nativeH, pressure:0.3 });
+      }
+    }
+
+    // Complete gesture with ACTION_UP
     send({ type:'touch', action:1, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0 });
   }
 
@@ -845,15 +879,33 @@ function buildPlayerHtml(serial, screenW, screenH) {
   canvas.addEventListener('pointercancel', releasePointer);
   window.addEventListener('pointerup', releasePointer);
 
-  // wheel scroll — 300ms debounce throttle, 150ms natural swipe gesture
-  let wheelT = null;
+  // ── Ultra-Smooth Continuous Wheel Scrolling (35ms Responsive Bucket) ───
+  let wheelAccum = 0;
+  let wheelTimer = null;
+  let lastWheelPos = null;
+
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    if (wheelT) return;
-    wheelT = setTimeout(() => { wheelT = null; }, 300);
-    const c = coords(e);
-    const d = e.deltaY > 0 ? -400 : 400;
-    send({ type:'swipe', x1:c.x, y1:c.y, x2:c.x, y2:Math.max(50, Math.min(nativeH - 50, c.y + d)), duration: 150 });
+    wheelAccum += e.deltaY;
+    lastWheelPos = coords(e);
+
+    if (!wheelTimer) {
+      wheelTimer = setTimeout(() => {
+        const d = wheelAccum;
+        const c = lastWheelPos || { x: nativeW / 2, y: nativeH / 2 };
+        wheelAccum = 0;
+        wheelTimer = null;
+
+        // Convert mouse wheel ticks into natural, fluid finger scroll strokes
+        const scrollDist = Math.max(-550, Math.min(550, -d * 2.2));
+        if (Math.abs(scrollDist) > 8) {
+          const y1 = Math.max(120, Math.min(nativeH - 120, c.y));
+          const y2 = Math.max(30, Math.min(nativeH - 30, y1 + scrollDist));
+          const strokeDur = Math.max(50, Math.min(130, Math.round(Math.abs(scrollDist) * 0.25)));
+          send({ type:'swipe', x1:c.x, y1:y1, x2:c.x, y2:y2, duration:strokeDur });
+        }
+      }, 35);
+    }
   }, { passive:false });
 
   // ── Keyboard handling (Spacebar protection & full Android keys) ────────
