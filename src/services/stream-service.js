@@ -992,15 +992,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
 async function startStreamServer(serial, port) {
   logger.info(`[StreamServer] Starting for ${serial} on port ${port}`);
 
-  // Start scrcpy engine
+  // Start scrcpy engine asynchronously so stream server port listens immediately
   const engine = new ScrcpyEngine(serial);
   const videoPort = port + 1000;
-  try {
-    await engine.start(videoPort);
-    logger.info(`[StreamServer] ScrcpyEngine ready for ${serial}`);
-  } catch (err) {
-    logger.warn(`[StreamServer] ScrcpyEngine failed for ${serial}: ${err.message} — screencap fallback active`);
-  }
+  engine.start(videoPort)
+    .then(() => logger.info(`[StreamServer] ScrcpyEngine ready for ${serial}`))
+    .catch((err) => logger.warn(`[StreamServer] ScrcpyEngine failed for ${serial}: ${err.message}`));
 
   // ── HTTP handler ──────────────────────────────────────────────────────────
   const server = http.createServer(async (req, res) => {
