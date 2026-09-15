@@ -332,11 +332,10 @@ function startCloudHeartbeat() {
   const performSync = async () => {
     try {
       const activeDevices = processManager.getActiveDeviceSummaries();
-      if (!activeDevices || activeDevices.length === 0) return;
-
       const defaultBinding = bindingService.getOrGenerateBindingCode();
+      const activeSerials = new Set((activeDevices || []).map(d => d.serial));
 
-      for (const dev of activeDevices) {
+      for (const dev of (activeDevices || [])) {
         await licenseService.syncDeviceToCloud({
           serial: dev.serial,
           model: dev.deviceModel || dev.model,
@@ -348,6 +347,22 @@ function startCloudHeartbeat() {
           status: 'online',
         });
       }
+
+      // Reconcile with Supabase: mark any devices for this binding code that are NOT active as offline
+      try {
+        const client = licenseService.getSupabaseClient ? licenseService.getSupabaseClient() : null;
+        if (client) {
+          const res = await client.get(`/devices?binding_code=eq.${encodeURIComponent(defaultBinding)}&status=eq.online&select=serial`);
+          if (res.data && Array.isArray(res.data)) {
+            for (const row of res.data) {
+              if (row.serial && !activeSerials.has(row.serial)) {
+                logger.info(`[Heartbeat] Device ${row.serial} no longer attached on USB — marking offline in cloud`);
+                await licenseService.markDeviceOffline(row.serial);
+              }
+            }
+          }
+        }
+      } catch (_) {}
     } catch (_) {}
   };
 

@@ -19,7 +19,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
 
       const activeOnlineDevices = (dData || []).filter(d => {
         if (d.is_deleted_from_view) return false;
-        if (d.status === 'online' || Boolean(d.stream_url)) return true;
+        if (d.status === 'online' && Boolean(d.stream_url)) return true;
         return false;
       });
 

@@ -464,4 +464,5 @@ module.exports = {
   getRotatedStreamPin,
   setRotatedStreamPin,
   validateDevicePin,
+  getSupabaseClient,
 };
