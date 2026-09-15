@@ -116,52 +116,31 @@ function startEnrollmentGuard(onDeviceAdd, onDeviceRemove, intervalMs = 12000) {
   }, intervalMs);
 }
 
-let lastWifiProbeTime = 0;
-const WIFI_PROBE_INTERVAL_MS = 25000;
-
-async function connectFarmWifiDevices(adbBin, existingSerials, force = false) {
-  if (!force && Date.now() - lastWifiProbeTime < WIFI_PROBE_INTERVAL_MS) {
-    return;
-  }
-  lastWifiProbeTime = Date.now();
-
-  const farmIps = [
-    '10.1.10.79', '10.1.10.197', '10.1.10.173', '10.1.10.124',
-    '10.1.10.23', '10.1.10.49', '10.1.10.100', '10.1.10.194', '10.1.10.98'
-  ];
-  const activeKeys = new Set(processManager.getActiveSerials());
-  const net = require('net');
-  for (const ip of farmIps) {
-    const target = `${ip}:5555`;
-    if (existingSerials.includes(target) || activeKeys.has(target)) continue;
-    // Fast TCP probe to avoid blocking if IP is offline
-    const isOpen = await new Promise((res) => {
-      const s = net.connect({ host: ip, port: 5555 }, () => { s.destroy(); res(true); });
-      s.on('error', () => { s.destroy(); res(false); });
-      s.setTimeout(400, () => { s.destroy(); res(false); });
-    });
-    if (isOpen) {
-      exec(`"${adbBin}" connect ${target}`, { timeout: 3000 }, () => {});
-    }
-  }
-}
-
 async function runRecoveryCheck(force = false) {
   const adbBin = resolveAdb();
-  const adbSerials = await listAdbDevices(adbBin);
+  const rawSerials = await listAdbDevices(adbBin);
+
+  // Strict USB only: disconnect and filter out any WiFi IP endpoints
+  const adbSerials = [];
+  for (const s of rawSerials) {
+    if (s.includes(':')) {
+      logger.info(`[EnrollmentGuard] Disconnecting wireless ADB endpoint ${s} — strict USB debugging only`);
+      try {
+        exec(`"${adbBin}" disconnect ${s}`, { timeout: 3000 }, () => {});
+      } catch (_) {}
+    } else {
+      adbSerials.push(s);
+    }
+  }
+
   const activeSerials = new Set(processManager.getActiveSerials());
 
-  // Auto-connect any reachable farm devices on WiFi
-  try {
-    await connectFarmWifiDevices(adbBin, adbSerials, force);
-  } catch (_) {}
-
-  // ── 1. Re-enroll devices seen by ADB but not actively streaming ─────────────
+  // ── 1. Re-enroll physical USB devices seen by ADB but not actively streaming ──
   for (const serial of adbSerials) {
     if (activeSerials.has(serial) || processManager.getDevice(serial)) continue;      // Already streaming or tracked ✓
     if (_inProgress.has(serial)) continue;         // Already being provisioned ✓
 
-    logger.info(`[EnrollmentGuard] Re-enrolling rebooted/reconnected device: ${serial}`);
+    logger.info(`[EnrollmentGuard] Re-enrolling USB device: ${serial}`);
     _inProgress.add(serial);
 
     try {
@@ -173,32 +152,23 @@ async function runRecoveryCheck(force = false) {
     }
   }
 
-  // ── 2. Clean up stale processManager entries for vanished devices ───────────
+  // ── 2. Clean up stale processManager entries for vanished or legacy WiFi devices ─
   for (const serial of activeSerials) {
-    if (adbSerials.includes(serial)) continue;    // Still directly in ADB ✓
-
-    // Prevent killing sessions that are active under their ADB endpoint (e.g. WiFi IP)
-    const session = processManager.getDevice(serial);
-    if (session) {
-      if (session.adbSerial && adbSerials.includes(session.adbSerial)) continue;
-      if (session.serial && adbSerials.includes(session.serial)) continue;
-      if (session.hardwareSerial && adbSerials.includes(session.hardwareSerial)) continue;
+    if (serial.includes(':')) {
+      logger.info(`[EnrollmentGuard] Purging legacy/stale WiFi session: ${serial}`);
+      try {
+        if (_removeDeviceCallback) {
+          await _removeDeviceCallback({ id: serial });
+        } else {
+          processManager.killDeviceProcesses(serial);
+        }
+      } catch (err) {
+        logger.warn(`[EnrollmentGuard] Cleanup error for ${serial}: ${err.message}`);
+      }
+      continue;
     }
 
-    const FARM_SERIAL_ALIASES = {
-      '7070016025067254': ['10.1.10.49:5555', '10.1.10.49'],
-      'ZA223HQMXQ': ['10.1.10.79:5555', '10.1.10.79'],
-      'YTCY999TVKVCZDZX': ['10.1.10.197:5555', '10.1.10.197'],
-      '1120308025024495': ['10.1.10.100:5555', '10.1.10.100'],
-      'M769UCQCDMZLPF8D': ['10.1.10.173:5555', '10.1.10.173'],
-      '10.1.10.49:5555': ['7070016025067254'],
-      '10.1.10.79:5555': ['ZA223HQMXQ'],
-      '10.1.10.197:5555': ['YTCY999TVKVCZDZX'],
-      '10.1.10.100:5555': ['1120308025024495'],
-      '10.1.10.173:5555': ['M769UCQCDMZLPF8D'],
-    };
-    const aliases = FARM_SERIAL_ALIASES[serial] || [];
-    if (aliases.some(a => adbSerials.includes(a) || activeSerials.has(a))) continue;
+    if (adbSerials.includes(serial)) continue;    // Still directly in ADB USB ✓
 
     logger.info(`[EnrollmentGuard] Stale session detected for ${serial} — cleaning up`);
     try {

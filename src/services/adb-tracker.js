@@ -30,6 +30,15 @@ function loadConfig() {
   return {};
 }
 
+function resolveAdb() {
+  const cfg = loadConfig();
+  if (cfg.adbPath && fs.existsSync(cfg.adbPath)) return cfg.adbPath;
+  const bundled = path.join(__dirname, '../../assets/bin/adb.exe');
+  if (fs.existsSync(bundled)) return bundled;
+  if (fs.existsSync('C:\\platform-tools\\adb.exe')) return 'C:\\platform-tools\\adb.exe';
+  return 'adb';
+}
+
 const config = loadConfig();
 const PORT_RANGE_START = config.portRangeStart || 8100;
 const PORT_RANGE_END   = config.portRangeEnd   || 8900;
@@ -46,15 +55,21 @@ async function handleDeviceAdd(device) {
   const serial = device.id;
   const isUsb = !serial.includes(':');
 
+  // Strict USB debugging only: immediately reject and disconnect any WiFi / network endpoint
+  if (!isUsb) {
+    logger.info(`[ADB] Rejecting non-USB / WiFi device ${serial} — strict USB debugging only is enforced.`);
+    try {
+      const adbBin = resolveAdb();
+      const { exec } = require('child_process');
+      exec(`"${adbBin}" disconnect ${serial}`, { timeout: 3000 }, () => {});
+    } catch (_) {}
+    return;
+  }
+
   const existingSession = processManager.getDevice(serial);
   if (existingSession && existingSession.port) {
-    if (isUsb && (existingSession.isWifi || existingSession.adbSerial?.includes(':'))) {
-      logger.info(`Upgrading device ${serial} from WiFi to high-speed USB priority!`);
-      await handleDeviceRemove({ id: existingSession.adbSerial || serial });
-    } else {
-      logger.info(`Device ${serial} already active on port ${existingSession.port} — preserving running stream`);
-      return;
-    }
+    logger.info(`Device ${serial} already active on port ${existingSession.port} — preserving running stream`);
+    return;
   }
 
   const lastRemoval = recentRemovals.get(serial);
@@ -64,7 +79,7 @@ async function handleDeviceAdd(device) {
     await new Promise(r => setTimeout(r, waitTime));
   }
 
-  logger.info(`Device connected: ${serial} (type: ${device.type}, connection: ${isUsb ? 'USB (Primary)' : 'WiFi'})`);
+  logger.info(`Device connected: ${serial} (type: ${device.type}, connection: USB)`);
 
   // Apply bootloader hiding & anti-detection stealth config before running apps
   try {
@@ -245,6 +260,15 @@ async function startTracking() {
     const devices = await client.listDevices();
     logger.info(`Initial ADB scan: ${devices.length} device(s)`);
     for (const d of devices) {
+      if (d.id && d.id.includes(':')) {
+        logger.info(`[ADB] Disconnecting wireless ADB device ${d.id} — strict USB debugging only`);
+        try {
+          const adbBin = resolveAdb();
+          const { exec } = require('child_process');
+          exec(`"${adbBin}" disconnect ${d.id}`, { timeout: 3000 }, () => {});
+        } catch (_) {}
+        continue;
+      }
       if (d.type === 'device') {
         await handleDeviceAdd(d);
       } else if (d.type === 'unauthorized') {
@@ -263,6 +287,15 @@ async function startTracking() {
     tracker = await client.trackDevices();
 
     tracker.on('add', (d) => {
+      if (d.id && d.id.includes(':')) {
+        logger.info(`[ADB] Rejecting incoming WiFi device ${d.id} and disconnecting`);
+        try {
+          const adbBin = resolveAdb();
+          const { exec } = require('child_process');
+          exec(`"${adbBin}" disconnect ${d.id}`, { timeout: 3000 }, () => {});
+        } catch (_) {}
+        return;
+      }
       if (d.type === 'device') {
         handleDeviceAdd(d);
       } else if (d.type === 'unauthorized') {
