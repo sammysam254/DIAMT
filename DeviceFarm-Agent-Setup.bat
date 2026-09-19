@@ -23,7 +23,7 @@ echo.
 
 :: ── Where to install the agent ─────────────────────────────────────────────
 set "INSTALL_DIR=C:\DeviceFarmAgent"
-set "REPO_URL=https://github.com/sammysam254/devicefarm-agent.git"
+set "REPO_URL=https://github.com/sammysam254/DIAMT.git"
 set "CURRENT_DIR=%~dp0"
 if "%CURRENT_DIR:~-1%"=="\" set "CURRENT_DIR=%CURRENT_DIR:~0,-1%"
 
@@ -247,10 +247,10 @@ if not exist "node_modules\electron\dist\electron.exe" (
 :: ════════════════════════════════════════════════════════════════════════════
 echo.
 echo  ================================================================
-echo   STEP 1: PAYMENT SYSTEM VERIFICATION  ($30 / month)
+echo   STEP 6: DIAMT AUTONOMOUS SYSTEM INITIALIZATION
 echo  ================================================================
 echo.
-echo [*] Initializing Machine License & Cloud Binding...
+echo [*] Identifying system and establishing autonomous cloud sync...
 "%NODE%" "src\services\verify-payment.js"
 
 :: ── Terminate any existing agent process on port 7400 to apply new code ──

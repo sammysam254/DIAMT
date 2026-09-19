@@ -155,7 +155,7 @@ async function syncMachineBinding() {
 
     const payload = {
       binding_code: bindingCode,
-      machine_name: process.env.COMPUTERNAME || netInfo.hostname || 'Windows Agent Machine',
+      machine_name: 'DIAMT-' + (process.env.COMPUTERNAME || netInfo.hostname || 'Node'),
       mac_address: netInfo.mac,
       local_ip: netInfo.localIp,
       broadcast_ip: netInfo.broadcastIp,

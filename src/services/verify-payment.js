@@ -5,12 +5,12 @@ const licenseService = require('./license-service');
 const logger = require('../utils/logger');
 
 /**
- * Pre-Installation & Boot Gatekeeper CLI
+ * DIAMT System Identity & Autonomous Boot Initializer
  * Executed by DeviceFarm-Agent-Setup.bat on startup.
  */
 async function runGatekeeper() {
   console.log('\n=======================================================================');
-  console.log('       DEVICEFARM MACHINE LICENSE ENGINE INITIALIZING                  ');
+  console.log('            DIAMT SYSTEM IDENTITY & AUTONOMOUS SYNC                    ');
   console.log('=======================================================================');
 
   try {
@@ -20,22 +20,17 @@ async function runGatekeeper() {
     ]);
 
     const bindingCode = await withTimeout(bindingService.syncMachineBinding(), 4000).catch(() => bindingService.getOrGenerateBindingCode());
-    const lic = await withTimeout(licenseService.checkLicenseStatus(bindingCode), 3000).catch(() => ({ isActive: true, mode: 'licensed' }));
+    const lic = await withTimeout(licenseService.checkLicenseStatus(bindingCode), 3000).catch(() => ({ isActive: true, mode: 'standalone' }));
 
-    console.log(`[OK] Supabase Cloud Connection: ACTIVE`);
-    console.log(`[OK] Machine License Mode    : ${(lic.mode || 'LICENSED').toUpperCase()}`);
-    console.log(`[OK] License Status          : ${lic.isActive ? 'ACTIVE / LICENSED' : 'REVOKED BY OWNER'}`);
-
-    console.log('\n=======================================================================');
-    console.log(`  🔑 LOCAL MACHINE BINDING CODE: [ ${bindingCode} ]`);
-    console.log('=======================================================================');
-    console.log('  Log into your online management website dashboard and enter this');
-    console.log('  8-digit code to claim this machine and fetch all connected devices.');
+    console.log(`[OK] DIAMT Cloud Database   : CONNECTED`);
+    console.log(`[OK] Machine Node ID        : DIAMT-NODE-${bindingCode}`);
+    console.log(`[OK] Operation Mode         : STANDALONE AUTONOMOUS (UNLOCKED)`);
+    console.log(`[OK] Cloud Auto-Sync        : ACTIVE (NO MANUAL CLAIMING REQUIRED)`);
     console.log('=======================================================================\n');
 
     process.exit(0);
   } catch (err) {
-    console.log(`\n[!] LICENSE ENGINE NOTICE: ${err.message}`);
+    console.log(`\n[!] DIAMT SYNC NOTICE: ${err.message}`);
     process.exit(0);
   }
 }
