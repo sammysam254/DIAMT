@@ -849,8 +849,11 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const now = performance.now();
     pointerHistory.push({ x: c.x, y: c.y, t: now });
 
-    // Ensure device receives the exact coordinate of pointer release
-    send({ type:'touch', action:2, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0.5 });
+    // Only send MOVE on release if pointer actually moved, ensuring pure clicks register as taps
+    const didMove = pointerHistory.length > 2 || (pointerHistory.length >= 2 && Math.hypot(c.x - pointerHistory[0].x, c.y - pointerHistory[0].y) > 4);
+    if (didMove) {
+      send({ type:'touch', action:2, x:c.x, y:c.y, width:nativeW, height:nativeH, pressure:0.5 });
+    }
 
     // Calculate fling velocity for natural coasting physics
     if (pointerHistory.length >= 2) {

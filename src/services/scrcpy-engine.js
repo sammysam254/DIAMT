@@ -209,6 +209,8 @@ class ScrcpyEngine extends EventEmitter {
     this._keyframeBuffer = null;
     this.videoWidth = 0;
     this.videoHeight = 0;
+    this.scrcpyVideoWidth = 0;
+    this.scrcpyVideoHeight = 0;
     this._jarPushed = false;
     this._screencapActive = false;
     this.enableAudio = false;
@@ -357,11 +359,13 @@ class ScrcpyEngine extends EventEmitter {
         if (msg) logger.info(`[ScrcpyEngine ${this.serial}] stdout: ${msg}`);
         // scrcpy prints "Device: <model> (<WxH>)" once the encoder is initialised.
         // Parse the negotiated resolution so touch events use the exact same dimensions.
-        const dimMatch = msg.match(/\((\d+)x(\d+)\)/);
+        const dimMatch = msg.match(/\((\d+)x(\d+)\)/) || msg.match(/(?:texture|resolution|size):\s*(\d+)x(\d+)/i);
         if (dimMatch) {
           const sw = parseInt(dimMatch[1], 10);
           const sh = parseInt(dimMatch[2], 10);
           if (sw > 0 && sh > 0) {
+            this.scrcpyVideoWidth = sw;
+            this.scrcpyVideoHeight = sh;
             this.videoWidth  = sw;
             this.videoHeight = sh;
             logger.info(`[ScrcpyEngine ${this.serial}] Server-negotiated resolution: ${sw}x${sh}`);
@@ -585,6 +589,8 @@ class ScrcpyEngine extends EventEmitter {
           const w = buf.readUInt32BE(69);
           const h = buf.readUInt32BE(73);
           if (w > 0 && h > 0 && w < 10000 && h < 10000) {
+            this.scrcpyVideoWidth = w;
+            this.scrcpyVideoHeight = h;
             this.videoWidth = w;
             this.videoHeight = h;
             logger.info(`[ScrcpyEngine ${this.serial}] Scrcpy stream resolution: ${w}x${h}`);
@@ -626,22 +632,23 @@ class ScrcpyEngine extends EventEmitter {
           this._configPacket = Buffer.from(payload);
           logger.info(`[ScrcpyEngine ${this.serial}] SPS/PPS config cached (${payload.length} bytes)`);
 
-          // Parse width/height from SPS NAL — the most authoritative source.
-          // If parsing fails, keep the dimensions we already have.
-          try {
-            const spsW = parseSpsWidth(payload);
-            const spsH = parseSpsHeight(payload);
-            if (spsW > 16 && spsH > 16 && spsW < 10000 && spsH < 10000) {
-              if (this.videoWidth !== spsW || this.videoHeight !== spsH) {
-                logger.info(`[ScrcpyEngine ${this.serial}] SPS resolution: ${spsW}x${spsH} (previously ${this.videoWidth}x${this.videoHeight})`);
+          // Use SPS NAL as resolution fallback only if scrcpy header didn't specify width/height.
+          // Note: SPS macroblock calculation rounds to 16px multiples without frame crop offsets,
+          // whereas scrcpy header gives the exact encoder display size required by Controller.java.
+          if (!this.scrcpyVideoWidth || !this.scrcpyVideoHeight) {
+            try {
+              const spsW = parseSpsWidth(payload);
+              const spsH = parseSpsHeight(payload);
+              if (spsW > 16 && spsH > 16 && spsW < 10000 && spsH < 10000) {
+                this.scrcpyVideoWidth = spsW;
+                this.scrcpyVideoHeight = spsH;
+                this.videoWidth  = spsW;
+                this.videoHeight = spsH;
+                logger.info(`[ScrcpyEngine ${this.serial}] Fallback SPS resolution: ${spsW}x${spsH}`);
               }
-              this.videoWidth  = spsW;
-              this.videoHeight = spsH;
-            } else {
-              logger.warn(`[ScrcpyEngine ${this.serial}] SPS parse gave invalid dims ${spsW}x${spsH}, keeping ${this.videoWidth}x${this.videoHeight}`);
+            } catch (err) {
+              logger.warn(`[ScrcpyEngine ${this.serial}] SPS parse error: ${err.message}`);
             }
-          } catch (err) {
-            logger.warn(`[ScrcpyEngine ${this.serial}] SPS parse error: ${err.message}`);
           }
         }
 
@@ -833,9 +840,11 @@ class ScrcpyEngine extends EventEmitter {
       return false;
     }
 
-    // Use videoWidth (from SPS NAL, most reliable) → videoWidth from header → screenWidth from wm size → defaults
-    let targetW = this.videoWidth;
-    let targetH = this.videoHeight;
+    // Must use the exact resolution scrcpy-server expects in Controller.java:
+    // Controller.java: if (!position.getScreenSize().equals(device.getScreenInfo().getVideoSize())) reject
+    // The device header (bytes 69-76) provides this exact videoSize.
+    let targetW = this.scrcpyVideoWidth || this.videoWidth;
+    let targetH = this.scrcpyVideoHeight || this.videoHeight;
     if (!targetW || !targetH) {
       targetW = this.screenWidth || 1080;
       targetH = this.screenHeight || 2340;
