@@ -2,15 +2,19 @@
 
 const axios = require('axios');
 
-const memoryWallets = new Map();
+const memoryRoles = new Map([
+  ['sammyseth260@gmail.com', 'seed_admin']
+]);
+
+let memoryCctvAllowed = true;
 
 function getSupabaseClient() {
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const supabaseUrl = process.env.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 
   return axios.create({
     baseURL: `${supabaseUrl.replace(/\/$/, '')}/rest/v1`,
-    timeout: 5000,
+    timeout: 6000,
     headers: {
       apikey: supabaseServiceRoleKey,
       Authorization: `Bearer ${supabaseServiceRoleKey}`,
@@ -20,147 +24,139 @@ function getSupabaseClient() {
   });
 }
 
-async function getBalance(userId) {
-  if (!userId) return 0;
+async function getRole(userId) {
+  if (!userId) return 'operator';
   const normalizedUser = userId.toLowerCase().trim();
+
+  if (normalizedUser === 'sammyseth260@gmail.com') {
+    return 'seed_admin';
+  }
 
   const client = getSupabaseClient();
 
   // 1. Check user_profiles table in Supabase
   try {
-    const res = await client.get(`/user_profiles?id=eq.${encodeURIComponent(normalizedUser)}&select=*`);
-    if (res.data && res.data.length > 0) {
-      const fn = res.data[0].full_name || '';
-      if (fn.startsWith('WALLET_BAL:')) {
-        const bal = parseFloat(fn.replace('WALLET_BAL:', '')) || 0;
-        memoryWallets.set(normalizedUser, bal);
-        return bal;
-      }
+    const res = await client.get(`/user_profiles?id=eq.${encodeURIComponent(normalizedUser)}&select=role`);
+    if (res.data && res.data.length > 0 && res.data[0].role) {
+      const r = res.data[0].role;
+      memoryRoles.set(normalizedUser, r);
+      return r;
     }
   } catch (_) {}
 
-  // 2. Check user_wallets table as secondary fallback
+  // 2. Check profiles table
   try {
-    const res2 = await client.get(`/user_wallets?user_id=eq.${encodeURIComponent(normalizedUser)}&select=*`);
-    if (res2.data && res2.data.length > 0) {
-      const bal = parseFloat(res2.data[0].balance || 0);
-      memoryWallets.set(normalizedUser, bal);
-      return bal;
+    const resProf = await client.get(`/profiles?email=eq.${encodeURIComponent(normalizedUser)}&select=role`);
+    if (resProf.data && resProf.data.length > 0 && resProf.data[0].role) {
+      const r = resProf.data[0].role;
+      memoryRoles.set(normalizedUser, r);
+      return r;
     }
   } catch (_) {}
 
-  // 3. Fallback to memory map or default
-  if (memoryWallets.has(normalizedUser)) {
-    return memoryWallets.get(normalizedUser);
+  // 3. Fallback to memory map
+  if (memoryRoles.has(normalizedUser)) {
+    return memoryRoles.get(normalizedUser);
   }
 
-  // Default initial seed balance for admin/owner
-  const defaultBal = (normalizedUser === 'sammdev.ai@gmail.com' || normalizedUser === 'sammyseth260@gmail.com') ? 100.00 : 0.00;
-  return defaultBal;
+  return 'operator';
 }
 
-async function addCredit(userId, amount) {
-  if (!userId) return 0;
+async function setRole(userId, role) {
+  if (!userId) return false;
   const normalizedUser = userId.toLowerCase().trim();
-  const currentBal = await getBalance(normalizedUser);
-  const newBal = currentBal + parseFloat(amount || 0);
 
-  memoryWallets.set(normalizedUser, newBal);
+  if (normalizedUser === 'sammyseth260@gmail.com') {
+    memoryRoles.set(normalizedUser, 'seed_admin');
+    return 'seed_admin';
+  }
+
+  memoryRoles.set(normalizedUser, role);
 
   const client = getSupabaseClient();
 
-  // Persist balance in user_profiles.full_name
+  // Upsert to user_profiles
   try {
     await client.post('/user_profiles', {
       id: normalizedUser,
-      email: normalizedUser,
-      full_name: `WALLET_BAL:${newBal.toFixed(2)}`,
-      updated_at: new Date().toISOString(),
+      role: role,
+      updated_at: new Date().toISOString()
     });
   } catch (_) {}
 
-  // Also attempt posting to user_wallets table
+  // Update profiles table if exists
   try {
-    await client.post('/user_wallets', {
-      user_id: normalizedUser,
-      balance: newBal,
-      updated_at: new Date().toISOString(),
+    await client.patch(`/profiles?email=eq.${encodeURIComponent(normalizedUser)}`, {
+      role: role,
+      updated_at: new Date().toISOString()
     });
   } catch (_) {}
 
-  return newBal;
+  return role;
 }
 
-async function deductBalance(userId, amount) {
-  if (!userId) return { success: false, balance: 0 };
-  const normalizedUser = userId.toLowerCase().trim();
-  const cost = parseFloat(amount || 0);
-  const currentBal = await getBalance(normalizedUser);
+async function getAllRoles() {
+  const rolesList = [];
+  const seen = new Set();
 
-  if (currentBal < cost) {
-    return { success: false, balance: currentBal };
-  }
-
-  const newBal = currentBal - cost;
-  memoryWallets.set(normalizedUser, newBal);
+  // Always include Seed Admin first
+  rolesList.push({
+    email: 'sammyseth260@gmail.com',
+    role: 'seed_admin',
+    label: 'Seed Admin (Root Owner)',
+    status: 'active'
+  });
+  seen.add('sammyseth260@gmail.com');
 
   const client = getSupabaseClient();
 
-  // Persist balance in user_profiles.full_name
   try {
-    await client.post('/user_profiles', {
-      id: normalizedUser,
-      email: normalizedUser,
-      full_name: `WALLET_BAL:${newBal.toFixed(2)}`,
-      updated_at: new Date().toISOString(),
-    });
+    const res = await client.get('/profiles?select=email,role,is_blocked');
+    if (res.data && Array.isArray(res.data)) {
+      res.data.forEach(p => {
+        if (p.email && !seen.has(p.email.toLowerCase().trim())) {
+          const e = p.email.toLowerCase().trim();
+          seen.add(e);
+          rolesList.push({
+            email: e,
+            role: e === 'sammyseth260@gmail.com' ? 'seed_admin' : (p.role || 'operator'),
+            label: e === 'sammyseth260@gmail.com' ? 'Seed Admin' : (p.role === 'super_admin' ? 'Super Admin' : (p.role === 'admin' ? 'Admin' : 'Operator')),
+            status: p.is_blocked ? 'blocked' : 'active'
+          });
+        }
+      });
+    }
   } catch (_) {}
 
-  // Also attempt posting to user_wallets table
-  try {
-    await client.post('/user_wallets', {
-      user_id: normalizedUser,
-      balance: newBal,
-      updated_at: new Date().toISOString(),
-    });
-  } catch (_) {}
+  // Add memory roles not in DB
+  for (const [e, r] of memoryRoles.entries()) {
+    if (!seen.has(e)) {
+      seen.add(e);
+      rolesList.push({
+        email: e,
+        role: r,
+        label: r === 'seed_admin' ? 'Seed Admin' : (r === 'super_admin' ? 'Super Admin' : (r === 'admin' ? 'Admin' : 'Operator')),
+        status: 'active'
+      });
+    }
+  }
 
-  return { success: true, balance: newBal };
+  return rolesList;
 }
-
-let cctvWallAccessAllowed = true;
 
 async function getCctvAccess() {
-  const client = getSupabaseClient();
-  try {
-    const res = await client.get('/user_profiles?id=eq.CCTV_ACCESS_PERM&select=*');
-    if (res.data && res.data.length > 0) {
-      const val = res.data[0].full_name || '';
-      if (val === 'CCTV_PERM:BLOCKED') return false;
-      if (val === 'CCTV_PERM:ALLOWED') return true;
-    }
-  } catch (_) {}
-  return cctvWallAccessAllowed;
+  return memoryCctvAllowed;
 }
 
 async function setCctvAccess(allowed) {
-  cctvWallAccessAllowed = !!allowed;
-  const client = getSupabaseClient();
-  try {
-    await client.post('/user_profiles', {
-      id: 'CCTV_ACCESS_PERM',
-      email: 'CCTV_ACCESS_PERM',
-      full_name: `CCTV_PERM:${allowed ? 'ALLOWED' : 'BLOCKED'}`,
-      updated_at: new Date().toISOString(),
-    });
-  } catch (_) {}
-  return cctvWallAccessAllowed;
+  memoryCctvAllowed = !!allowed;
+  return memoryCctvAllowed;
 }
 
 module.exports = {
-  getBalance,
-  addCredit,
-  deductBalance,
+  getRole,
+  setRole,
+  getAllRoles,
   getCctvAccess,
   setCctvAccess,
 };

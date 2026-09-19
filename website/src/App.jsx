@@ -15,8 +15,35 @@ function ProtectedRoute({ children, allowedRoles }) {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', color: 'var(--text-main)' }}>
-        Loading DIAMT Portal...
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg-main, #070b16)',
+        color: 'var(--text-main, #f8fafc)',
+        gap: '16px'
+      }}>
+        <div style={{
+          width: '50px',
+          height: '50px',
+          borderRadius: '14px',
+          background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 0 25px rgba(56, 189, 248, 0.4)',
+          marginBottom: '8px'
+        }}>
+          <span style={{ fontWeight: 900, color: '#fff', fontSize: '22px' }}>D</span>
+        </div>
+        <div style={{ fontWeight: 800, fontSize: '18px', letterSpacing: '0.5px' }}>
+          DIAMT <span style={{ color: 'var(--primary, #38bdf8)' }}>CLOUD</span>
+        </div>
+        <div style={{ fontSize: '13px', color: 'var(--text-muted, #94a3b8)' }}>
+          Synchronizing Device Farm Hub...
+        </div>
       </div>
     );
   }

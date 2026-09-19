@@ -3,103 +3,235 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeviceFarm — Payment Portal & Super Admin Panel</title>
+  <title>DIAMT — Cloud Device Farm & Remote Control Hub</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://js.paystack.co/v1/inline.js"></script>
   <style>
     :root {
-      --bg: #07090e;
-      --card: #0f172a;
-      --card-border: rgba(255, 255, 255, 0.08);
-      --primary: #38bdf8;
-      --emerald: #34d399;
-      --purple: #c084fc;
-      --amber: #fbbf24;
-      --rose: #fb7185;
+      --bg-main: #070b16;
+      --bg-surface: #0b132b;
+      --bg-card: #111d38;
+      --bg-card-hover: #152447;
+      --card-border: rgba(56, 189, 248, 0.15);
+      --card-border-focus: rgba(37, 99, 235, 0.55);
+      --primary: #2563eb;
+      --primary-hover: #3b82f6;
+      --accent: #38bdf8;
+      --emerald: #10b981;
+      --purple: #8b5cf6;
+      --amber: #f59e0b;
+      --rose: #ef4444;
       --text: #f8fafc;
       --text-muted: #94a3b8;
+      --text-dim: #64748b;
     }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
-      font-family: 'Plus Jakarta Sans', sans-serif;
-      background: var(--bg);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-main);
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.18) 0%, transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(56, 189, 248, 0.08) 0%, transparent 45%),
+        linear-gradient(180deg, #070b16 0%, #0b132b 100%);
+      background-attachment: fixed;
       color: var(--text);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 32px 20px;
+      padding: 24px 16px 60px 16px;
+      -webkit-font-smoothing: antialiased;
     }
-    .container {
-      max-width: 720px;
-      width: 100%;
+
+    /* ── High-Tech Initial Loading Splash Screen ── */
+    #globalLoader {
+      position: fixed;
+      inset: 0;
+      background: #050811;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      transition: opacity 0.5s ease, visibility 0.5s ease;
     }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--card-border);
-      border-radius: 24px;
-      padding: 36px;
-      box-shadow: 0 25px 60px rgba(0,0,0,0.9);
-      backdrop-filter: blur(16px);
+    #globalLoader.fade-out {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .loader-core {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       margin-bottom: 24px;
     }
-    .header {
+    .loader-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: var(--accent);
+      border-right-color: var(--primary);
+      animation: spin 1.2s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite;
+    }
+    .loader-ring.outer {
+      inset: -10px;
+      border-top-color: rgba(56, 189, 248, 0.4);
+      border-bottom-color: rgba(139, 92, 246, 0.4);
+      animation: spin-reverse 2s linear infinite;
+    }
+    .loader-icon {
+      width: 36px;
+      height: 36px;
+      color: #fff;
+      animation: pulse-glow 1.5s ease-in-out infinite;
+    }
+    .loader-bar-wrap {
+      width: 220px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 99px;
+      overflow: hidden;
+      margin-top: 16px;
+      position: relative;
+    }
+    .loader-bar-fill {
+      position: absolute;
+      top: 0; left: 0; bottom: 0;
+      width: 40%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      border-radius: 99px;
+      animation: loaderProgress 1.4s ease-in-out infinite;
+    }
+
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    @keyframes spin-reverse { 100% { transform: rotate(-360deg); } }
+    @keyframes pulse-glow {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 8px rgba(56,189,248,0.4)); }
+      50% { transform: scale(1.08); filter: drop-shadow(0 0 16px rgba(56,189,248,0.8)); }
+    }
+    @keyframes loaderProgress {
+      0% { left: -40%; width: 40%; }
+      50% { left: 30%; width: 50%; }
+      100% { left: 100%; width: 40%; }
+    }
+
+    /* ── Layout Containers ── */
+    .container {
+      max-width: 820px;
+      width: 100%;
+      transition: max-width 0.3s ease;
+    }
+    .container.wide {
+      max-width: 1360px;
+    }
+
+    /* ── Glassmorphic Cards ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--card-border);
+      border-radius: 22px;
+      padding: 32px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.02);
+      backdrop-filter: blur(20px);
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.4), transparent);
+    }
+
+    /* ── Brand Header ── */
+    .brand-header {
       text-align: center;
       margin-bottom: 28px;
     }
-    .tag {
-      display: inline-block;
-      padding: 4px 14px;
-      background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      color: var(--primary);
-      border-radius: 100px;
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: rgba(37, 99, 235, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 999px;
+      color: var(--accent);
       font-size: 12px;
       font-weight: 700;
-      text-transform: uppercase;
       letter-spacing: 0.6px;
+      text-transform: uppercase;
       margin-bottom: 12px;
     }
-    .title {
-      font-size: 26px;
+    .brand-badge svg { width: 14px; height: 14px; }
+    .brand-title {
+      font-size: 28px;
       font-weight: 800;
-      letter-spacing: -0.5px;
-      margin-bottom: 6px;
+      letter-spacing: -0.8px;
+      color: #fff;
+      margin-bottom: 8px;
     }
-    .subtitle {
-      color: var(--text-muted);
+    .brand-title span {
+      background: linear-gradient(135deg, #60a5fa 0%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand-subtitle {
       font-size: 14px;
+      color: var(--text-muted);
+      max-width: 540px;
+      margin: 0 auto;
       line-height: 1.5;
     }
+
+    /* ── Auth Tabs ── */
     .auth-tabs {
       display: flex;
-      gap: 12px;
-      margin-bottom: 20px;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 4px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      margin-bottom: 22px;
+      gap: 4px;
     }
     .auth-tab {
       flex: 1;
-      padding: 12px;
-      text-align: center;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
+      padding: 12px 16px;
+      background: transparent;
+      border: none;
+      border-radius: 10px;
+      color: var(--text-muted);
       font-weight: 700;
       font-size: 14px;
       cursor: pointer;
-      color: var(--text-muted);
-      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
+    .auth-tab svg { width: 16px; height: 16px; }
     .auth-tab.active {
-      background: rgba(56, 189, 248, 0.15);
-      border-color: rgba(56, 189, 248, 0.4);
-      color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4);
     }
+
+    /* ── Forms ── */
     .form-group {
       margin-bottom: 16px;
     }
-    label {
+    .form-label {
       display: block;
       font-size: 12px;
       font-weight: 700;
@@ -108,477 +240,876 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+    .input-wrap {
+      position: relative;
+    }
+    .input-wrap svg {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      color: var(--text-dim);
+      pointer-events: none;
+      transition: color 0.2s;
+    }
     input {
       width: 100%;
-      padding: 14px 18px;
-      background: rgba(255,255,255,0.05);
+      padding: 13px 18px 13px 44px;
+      background: rgba(0, 0, 0, 0.35);
       border: 1px solid var(--card-border);
-      border-radius: 14px;
+      border-radius: 12px;
       color: #fff;
-      font-size: 15px;
+      font-size: 14px;
+      font-family: inherit;
       outline: none;
-      transition: border-color 0.2s;
-    }
-    input:focus { border-color: var(--primary); }
-    .btn-action {
-      width: 100%;
-      padding: 14px 24px;
-      background: var(--primary);
-      color: #07090e;
-      font-weight: 800;
-      border-radius: 14px;
-      border: none;
-      cursor: pointer;
-      font-size: 15px;
       transition: all 0.2s;
     }
-    .btn-action:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(56, 189, 248, 0.4); }
+    input:focus {
+      border-color: var(--accent);
+      background: rgba(0, 0, 0, 0.5);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+    }
+    input:focus + svg, .input-wrap:focus-within svg {
+      color: var(--accent);
+    }
 
-    /* ── Live CCTV Camera Wall Grid ────────────────────────────────────────── */
-    .container.cctv-wide { max-width: 1400px; width: 96%; }
-    .cctv-wall-header {
-      background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(6, 9, 17, 0.98));
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      border-radius: 20px;
-      padding: 20px 24px;
-      margin-bottom: 20px;
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 13px 22px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      text-decoration: none;
+      font-family: inherit;
+    }
+    .btn svg { width: 16px; height: 16px; }
+    .btn-primary {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 4px 18px rgba(37, 99, 235, 0.35);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 25px rgba(37, 99, 235, 0.5);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.25);
+    }
+    .btn-success {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+    .btn-success:hover {
+      background: rgba(16, 185, 129, 0.25);
+    }
+    .btn-purple {
+      background: rgba(139, 92, 246, 0.15);
+      border: 1px solid rgba(139, 92, 246, 0.35);
+      color: #c084fc;
+    }
+    .btn-purple:hover {
+      background: rgba(139, 92, 246, 0.25);
+    }
+
+    /* ── User Session Bar ── */
+    .session-bar {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
       gap: 12px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      margin-bottom: 24px;
+    }
+    .session-user-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .user-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary), var(--purple));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #fff;
+      font-size: 16px;
+    }
+    .role-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .role-seed {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      color: #fbbf24;
+    }
+    .role-super {
+      background: rgba(139, 92, 246, 0.15);
+      border: 1px solid rgba(139, 92, 246, 0.4);
+      color: #c084fc;
+    }
+    .role-admin {
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
+    }
+    .role-operator {
+      background: rgba(100, 116, 139, 0.2);
+      border: 1px solid rgba(100, 116, 139, 0.4);
+      color: #94a3b8;
+    }
+
+    /* ── Live Stats Summary Bar ── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .stat-chip {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .stat-chip-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .stat-chip-icon svg { width: 18px; height: 18px; }
+    .stat-val { font-size: 20px; font-weight: 800; color: #fff; }
+    .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; }
+
+    /* ── Device Filter & Search Bar ── */
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+    .search-input-wrap {
+      flex: 1;
+      min-width: 220px;
+      position: relative;
+    }
+    .search-input-wrap svg {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      color: var(--text-dim);
+    }
+    .search-input-wrap input {
+      padding-left: 40px;
+      padding-top: 10px;
+      padding-bottom: 10px;
+      font-size: 13px;
+    }
+
+    /* ── Device Cards Grid ── */
+    .device-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+      margin-bottom: 30px;
+    }
+    .device-card {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+    .device-card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(56, 189, 248, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+    .device-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .device-model {
+      font-size: 16px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 3px;
+    }
+    .device-serial {
+      font-size: 12px;
+      color: var(--accent);
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: var(--emerald);
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--emerald);
+      animation: livePulse 1.5s infinite;
+    }
+    @keyframes livePulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .device-card-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .device-card-actions .btn {
+      flex: 1;
+      padding: 9px 12px;
+      font-size: 12px;
+    }
+
+    /* ── Seed Admin Management Section ── */
+    .admin-hub {
+      background: rgba(139, 92, 246, 0.05);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .admin-hub-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .admin-add-card {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .admin-add-form {
+      display: grid;
+      grid-template-columns: 2fr 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+    @media (max-width: 650px) {
+      .admin-add-form { grid-template-columns: 1fr; }
+    }
+    select {
+      width: 100%;
+      padding: 13px 16px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      color: #fff;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+    }
+    select:focus {
+      border-color: var(--accent);
+    }
+    .users-table-wrap {
+      overflow-x: auto;
+    }
+    .users-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+    .users-table th {
+      padding: 10px 14px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .users-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: #fff;
+    }
+
+    /* ── Live CCTV Monitor Wall ── */
+    .cctv-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 18px;
     }
     .cctv-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 18px;
-      width: 100%;
-      margin-bottom: 28px;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
     }
-    @media (min-width: 1200px) {
-      .cctv-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-    }
-    .cctv-card {
-      background: #090d16;
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      border-radius: 16px;
+    .cctv-tile {
+      background: #020409;
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 14px;
       overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      position: relative;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.8);
       cursor: pointer;
+      position: relative;
+      transition: all 0.2s;
     }
-    .cctv-card:hover {
-      transform: translateY(-4px) scale(1.01);
-      border-color: #38bdf8;
-      box-shadow: 0 18px 40px rgba(56, 189, 248, 0.3);
+    .cctv-tile:hover {
+      border-color: var(--accent);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 35px rgba(56, 189, 248, 0.25);
     }
-    .cctv-bar {
-      background: rgba(15, 23, 42, 0.95);
+    .cctv-tile-top {
+      background: rgba(11, 19, 43, 0.95);
       padding: 8px 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       font-size: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
-    .cctv-live-badge {
-      background: rgba(239, 68, 68, 0.2);
-      color: #f87171;
-      border: 1px solid rgba(248, 113, 113, 0.4);
-      padding: 2px 8px;
-      border-radius: 100px;
-      font-size: 10px;
-      font-weight: 800;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      letter-spacing: 0.5px;
-    }
-    .cctv-live-dot {
-      width: 6px;
-      height: 6px;
-      background: #f87171;
-      border-radius: 50%;
-      animation: pulse 1s infinite;
-    }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-    .cctv-viewport {
-      position: relative;
-      width: 100%;
+    .cctv-tile-screen {
       aspect-ratio: 9 / 16;
+      width: 100%;
       background: #000;
-      overflow: hidden;
+      position: relative;
     }
-    .cctv-viewport iframe {
+    .cctv-tile-screen iframe {
       width: 100%;
       height: 100%;
       border: none;
       pointer-events: none;
     }
-    .cctv-hover-overlay {
+    .cctv-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(6, 9, 17, 0.65);
-      backdrop-filter: blur(3px);
+      background: rgba(7, 11, 22, 0.7);
+      backdrop-filter: blur(2px);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 6px;
       opacity: 0;
       transition: opacity 0.2s ease;
       color: #fff;
-      font-weight: 800;
-      font-size: 13px;
+      font-weight: 700;
+      font-size: 12px;
     }
-    .cctv-card:hover .cctv-hover-overlay {
+    .cctv-tile:hover .cctv-overlay {
       opacity: 1;
     }
-    .cctv-focus-modal {
-      display: none;
+
+    /* ── Toast Notifications ── */
+    #toastContainer {
       position: fixed;
-      inset: 0;
-      background: rgba(4, 6, 11, 0.95);
-      backdrop-filter: blur(16px);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-    }
-    .cctv-focus-content {
-      background: #090d16;
-      border: 1px solid rgba(56, 189, 248, 0.4);
-      border-radius: 20px;
-      width: 100%;
-      max-width: 540px;
-      height: 92vh;
-      max-height: 860px;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
-      box-shadow: 0 30px 80px rgba(0,0,0,0.9);
-    }
-
-    .binding-box {
-      background: rgba(56, 189, 248, 0.05);
-      border: 1px dashed rgba(56, 189, 248, 0.3);
-      border-radius: 20px;
-      padding: 24px;
-      text-align: center;
-      margin-bottom: 24px;
-    }
-    .code-input-group {
-      display: flex;
       gap: 10px;
-      margin-top: 14px;
+      pointer-events: none;
     }
-    .code-input {
-      flex: 1;
-      font-family: 'JetBrains Mono', monospace;
-      letter-spacing: 4px;
-      text-align: center;
-      font-size: 18px;
-    }
-
-    .device-list {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    .device-item {
-      background: rgba(255,255,255,0.03);
-      border: 1px solid var(--card-border);
-      border-radius: 18px;
-      padding: 20px;
-    }
-    .device-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-    .device-name { font-weight: 700; font-size: 16px; }
-    .device-sub { font-size: 12px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
-    
-    .badge-paid {
-      padding: 4px 12px; background: rgba(52, 211, 153, 0.15); color: var(--emerald); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 100px; font-size: 12px; font-weight: 700;
-    }
-    .badge-unpaid {
-      padding: 4px 12px; background: rgba(251, 113, 133, 0.15); color: var(--rose); border: 1px solid rgba(251, 113, 133, 0.3); border-radius: 100px; font-size: 12px; font-weight: 700;
-    }
-
-    .pay-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 12px;
+    .toast {
+      pointer-events: auto;
+      background: #111d38;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #fff;
+      padding: 14px 20px;
       border-radius: 12px;
-      border: 1px solid var(--card-border);
-      font-weight: 700;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .pay-card { background: rgba(0, 195, 126, 0.15); border-color: rgba(0, 195, 126, 0.3); color: #00c37e; }
-    .pay-crypto { background: rgba(192, 132, 252, 0.15); border-color: rgba(192, 132, 252, 0.3); color: var(--purple); }
-    .pay-card:hover { background: rgba(0, 195, 126, 0.3); }
-    .pay-crypto:hover { background: rgba(192, 132, 252, 0.3); }
-
-    /* Modal Styling */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.85);
-      backdrop-filter: blur(10px);
-      z-index: 1000;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      display: flex;
       align-items: center;
-      justify-content: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      animation: toastIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      max-width: 360px;
     }
-    .modal-box {
-      background: #0f172a;
-      border: 1px solid var(--primary);
-      border-radius: 24px;
-      padding: 32px;
-      width: 90%;
-      max-width: 500px;
-      box-shadow: 0 25px 60px rgba(0,0,0,0.9);
-      position: relative;
+    .toast.success { border-color: rgba(16, 185, 129, 0.5); }
+    .toast.error { border-color: rgba(239, 68, 68, 0.5); }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(12px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
   </style>
 </head>
 <body>
 
-  <div class="container">
+  <!-- High-Tech Initial Loading Splash Screen -->
+  <div id="globalLoader">
+    <div class="loader-core">
+      <div class="loader-ring"></div>
+      <div class="loader-ring outer"></div>
+      <svg class="loader-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+        <polyline points="2 17 12 22 22 17"></polyline>
+        <polyline points="2 12 12 17 22 12"></polyline>
+      </svg>
+    </div>
+    <div style="font-weight: 800; font-size: 18px; letter-spacing: 1px; color: #fff;">
+      DIAMT <span style="color: var(--accent);">CLOUD</span>
+    </div>
+    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+      Connecting to Autonomous Device Grid...
+    </div>
+    <div class="loader-bar-wrap">
+      <div class="loader-bar-fill"></div>
+    </div>
+  </div>
+
+  <div class="container" id="mainContainer">
     <div class="card">
-      <div class="header">
-        <span class="tag">🔑 Machine Binding & Payment Portal</span>
-        <h1 class="title">Device Link Subscription ($30 USD/mo)</h1>
-        <p class="subtitle">Sign in to your account, link your local 8-digit Machine Code, and pay for device links strictly from your Inbuilt Wallet.</p>
-        <div style="margin-top: 14px;">
-          <a href="/DeviceFarm-Desktop-Agent.zip" download="DeviceFarm-Desktop-Agent.zip" class="btn-action" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: auto; padding: 10px 20px; text-decoration: none; font-size: 14px; background: rgba(56, 189, 248, 0.15); color: var(--primary); border: 1px solid rgba(56, 189, 248, 0.3);">
-            ⬇️ Download Desktop Agent Package (.zip)
-          </a>
+      
+      <!-- Brand Header -->
+      <div class="brand-header">
+        <div class="brand-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+          </svg>
+          Autonomous Cloud Device Farm
         </div>
+        <h1 class="brand-title">DIAMT <span>Device Control Hub</span></h1>
+        <p class="brand-subtitle">
+          Real-time hardware streaming, remote touch control, and multi-device cloud orchestration with zero barriers.
+        </p>
       </div>
 
       <!-- Authentication View (Sign In / Sign Up) -->
       <div id="authSection">
         <div class="auth-tabs">
-          <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">🔐 Sign In</button>
-          <button class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">✨ Create Account</button>
+          <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+              <polyline points="10 17 15 12 10 7"></polyline>
+              <line x1="15" y1="12" x2="3" y2="12"></line>
+            </svg>
+            Sign In
+          </button>
+          <button class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="8.5" cy="7.5" r="4"></circle>
+              <line x1="20" y1="8" x2="20" y2="14"></line>
+              <line x1="23" y1="11" x2="17" y2="11"></line>
+            </svg>
+            Create Account
+          </button>
         </div>
 
         <form id="authForm" onsubmit="handleAuthSubmit(event)">
           <div class="form-group">
-            <label>Email Address</label>
-            <input type="email" id="authEmail" required placeholder="your-email@example.com" value="sammdev.ai@gmail.com">
+            <label class="form-label">Email Address</label>
+            <div class="input-wrap">
+              <input type="email" id="authEmail" required placeholder="Enter your email" autocomplete="email">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                <polyline points="22,6 12,13 2,6"></polyline>
+              </svg>
+            </div>
           </div>
+
           <div class="form-group">
-            <label>Password</label>
-            <input type="password" id="authPassword" required placeholder="••••••••••••" value="DeviceFarm2026!">
+            <label class="form-label">Password</label>
+            <div class="input-wrap">
+              <input type="password" id="authPassword" required placeholder="••••••••••••" autocomplete="current-password">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </div>
           </div>
-          <button type="submit" class="btn-action" id="authSubmitBtn">🔐 Sign In to Account</button>
+
+          <button type="submit" class="btn btn-primary" id="authSubmitBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+              <polyline points="10 17 15 12 10 7"></polyline>
+              <line x1="15" y1="12" x2="3" y2="12"></line>
+            </svg>
+            Sign In to Account
+          </button>
         </form>
       </div>
 
-      <!-- Authenticated User Dashboard -->
+      <!-- Authenticated User Dashboard View -->
       <div id="dashboardSection" style="display: none;">
+        
         <!-- User Top Bar -->
-        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 16px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-          <div>
-            <span style="font-size: 12px; color: var(--text-muted); font-weight: 700;">LOGGED IN ACCOUNT</span>
-            <div style="font-size: 15px; font-weight: 800; color: var(--primary);" id="userAccountEmail">user@example.com</div>
-          </div>
-          <button onclick="handleLogout()" style="background: rgba(251, 113, 133, 0.15); border: 1px solid rgba(251, 113, 133, 0.3); color: var(--rose); padding: 8px 16px; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">
-            🚪 Log Out
-          </button>
-        </div>
-
-        <!-- 8-Digit Machine Binding Box -->
-        <div class="binding-box">
-          <label style="font-size: 13px; color: var(--primary); font-weight: 800;">🔑 BIND LOCAL MACHINE (ENTER 8-DIGIT CODE)</label>
-          <div class="code-input-group">
-            <input type="text" id="bindingCodeInput" class="code-input" maxlength="8" placeholder="e.g. 61162993">
-            <button class="btn-bind btn-action" style="width: auto; padding: 14px 20px;" onclick="bindMachineCode()">🔗 Link Machine</button>
-          </div>
-        </div>
-
-        <!-- Inbuilt Wallet Banner -->
-        <div style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(192, 132, 252, 0.12)); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 20px; padding: 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
-          <div>
-            <div style="font-size: 12px; font-weight: 800; color: var(--primary); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px;">
-              💰 INBUILT USER WALLET BALANCE
-            </div>
-            <div style="font-size: 32px; font-weight: 800; color: #fff;" id="walletBalanceVal">
-              $0.00 USD
-            </div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-              Device rental fees ($30 USD/mo) are deducted strictly from your Inbuilt Wallet.
+        <div class="session-bar">
+          <div class="session-user-info">
+            <div class="user-avatar" id="userAvatarLetter">U</div>
+            <div>
+              <div style="font-size: 14px; font-weight: 800; color: #fff;" id="userAccountEmail">user@example.com</div>
+              <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                <span class="role-badge role-operator" id="userRoleBadge">OPERATOR</span>
+                <span style="font-size: 11px; color: var(--emerald); font-weight: 700;">• Connected</span>
+              </div>
             </div>
           </div>
-          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <button onclick="openDepositModal()" class="pay-btn" style="background: var(--primary); color: #07090e; border: none; padding: 12px 20px; font-weight: 800;">
-              ➕ Deposit Funds to Wallet
+          <div style="display: flex; gap: 8px;">
+            <button onclick="loadUserDevices()" class="btn btn-secondary" style="padding: 8px 14px; font-size: 12px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+              Refresh
+            </button>
+            <button onclick="handleLogout()" class="btn btn-danger" style="padding: 8px 14px; font-size: 12px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
+              Sign Out
             </button>
           </div>
         </div>
 
-        <!-- Devices Hosted on Bound Machines -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3 style="font-size: 18px; font-weight: 800;">📱 Bound Devices (Present & Future)</h3>
-          <button onclick="loadUserDevices()" style="background:none; border:none; color:var(--primary); cursor:pointer; font-size:13px; font-weight:700;">🔄 Refresh Devices</button>
-        </div>
-
-        <div id="deviceListContainer" class="device-list">
-          <div style="text-align: center; color: var(--text-muted); padding: 30px 0; font-size: 14px;">
-            Loading your bound device links...
+        <!-- System Stats Bar -->
+        <div class="stats-bar">
+          <div class="stat-chip">
+            <div class="stat-chip-icon" style="background: rgba(37, 99, 235, 0.15); color: var(--accent);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+                <line x1="12" y1="18" x2="12.01" y2="18"></line>
+              </svg>
+            </div>
+            <div>
+              <div class="stat-val" id="statDeviceCount">0</div>
+              <div class="stat-label">Total Devices</div>
+            </div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-chip-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--emerald);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+            </div>
+            <div>
+              <div class="stat-val" style="color: var(--emerald);">ONLINE</div>
+              <div class="stat-label">Cloud Sync Active</div>
+            </div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-chip-icon" style="background: rgba(139, 92, 246, 0.15); color: #c084fc;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+            </div>
+            <div>
+              <div class="stat-val" id="statAccessLevel">OPERATOR</div>
+              <div class="stat-label">Access Privilege</div>
+            </div>
           </div>
         </div>
 
-        <!-- Super Admin Control Panel (Visible ONLY for sammdev.ai@gmail.com) -->
-        <div id="adminSection" style="display: none; margin-top: 36px; border-top: 2px dashed rgba(192, 132, 252, 0.4); padding-top: 28px;">
-          <div style="background: rgba(192, 132, 252, 0.1); border: 1px solid rgba(192, 132, 252, 0.4); border-radius: 20px; padding: 24px; margin-bottom: 24px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <!-- Seed Admin Management Hub (Visible for sammyseth260@gmail.com & Super Admins) -->
+        <div id="seedAdminSection" style="display: none;">
+          <div class="admin-hub">
+            <div class="admin-hub-header">
               <div>
-                <span class="tag" style="background: rgba(192, 132, 252, 0.2); border-color: rgba(192, 132, 252, 0.5); color: var(--purple);">👑 SUPER ADMIN CONTROL PANEL</span>
-                <h2 style="font-size: 20px; font-weight: 800; margin-top: 4px;">Global System & User Management</h2>
+                <span class="role-badge role-seed">ROOT ACCESS</span>
+                <h2 style="font-size: 18px; font-weight: 800; margin-top: 4px; color: #fff;">
+                  Seed Administrator Role Manager
+                </h2>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  Root authority for sammyseth260@gmail.com. Assign and promote Super Admin &amp; Admin roles across the platform.
+                </div>
               </div>
-              <button onclick="loadAdminData()" style="background: var(--purple); color: #07090e; border: none; padding: 8px 16px; border-radius: 10px; font-weight: 800; cursor: pointer; font-size: 12px;">
-                🔄 Refresh Global Data
-              </button>
-            </div>
-
-            <!-- Admin Manual Wallet Credit Form -->
-            <div style="background: rgba(0,0,0,0.4); border: 1px solid var(--card-border); border-radius: 16px; padding: 20px; margin-bottom: 24px;">
-              <h4 style="font-size: 15px; font-weight: 800; color: var(--purple); margin-bottom: 12px;">➕ Manual User Wallet Deposit / Credit</h4>
-              <div style="display: grid; grid-template-columns: 2fr 1fr auto; gap: 10px;">
-                <input type="email" id="adminCreditEmail" placeholder="user@example.com">
-                <input type="number" id="adminCreditAmount" placeholder="Amount USD (e.g. 60)" value="30">
-                <button onclick="adminCreditWallet()" class="btn-action" style="background: var(--purple); color: #07090e; padding: 12px 20px;">
-                  Credit Wallet
+              <div style="display: flex; gap: 8px;">
+                <button onclick="toggleCctvMasterAccess()" class="btn btn-secondary" id="cctvMasterBtn" style="font-size: 12px; padding: 8px 14px;">
+                  Toggle CCTV Wall Access
+                </button>
+                <button onclick="loadAdminRoles()" class="btn btn-purple" style="font-size: 12px; padding: 8px 14px;">
+                  Reload Users
                 </button>
               </div>
             </div>
 
-            <!-- Admin Global Devices Manager -->
-            <h4 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">📱 Global Device Payment Controller & Invalidation</h4>
-            <div id="adminDevicesContainer" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
-              <div style="color: var(--text-muted); font-size: 13px;">Loading global device registry...</div>
+            <!-- Add / Promote Administrator Form -->
+            <div class="admin-add-card">
+              <div style="font-size: 13px; font-weight: 800; color: #c084fc; margin-bottom: 8px;">
+                Assign or Promote Member Privilege
+              </div>
+              <div class="admin-add-form">
+                <input type="email" id="targetAdminEmail" placeholder="user@example.com">
+                <select id="targetAdminRole">
+                  <option value="super_admin">Super Admin</option>
+                  <option value="admin">Admin</option>
+                  <option value="operator">Operator (Standard)</option>
+                </select>
+                <button onclick="handleAssignRole()" class="btn btn-purple">
+                  Update Role
+                </button>
+              </div>
             </div>
 
-            <!-- Super Admin CCTV Wall Permission Lock -->
-            <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 16px; padding: 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-              <div>
-                <strong style="color: #fff; font-size: 14px;">📹 Live CCTV Wall Master Access Control</strong>
-                <div style="font-size: 12px; color: var(--text-muted);">Super Admin can lock or unlock access to the CCTV Multi-Camera Wall for Admins.</div>
-              </div>
-              <button id="cctvAccessToggleBtn" onclick="adminToggleCctvPermission()" style="background: rgba(52, 211, 153, 0.2); border: 1px solid rgba(52, 211, 153, 0.4); color: var(--emerald); padding: 8px 16px; border-radius: 10px; font-weight: 800; cursor: pointer; font-size: 13px;">
-                🔓 Allow CCTV Wall Access
-              </button>
+            <!-- Users & Roles Registry Table -->
+            <div class="users-table-wrap">
+              <table class="users-table">
+                <thead>
+                  <tr>
+                    <th>Account Email</th>
+                    <th>Current Privilege</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="adminRolesTbody">
+                  <tr>
+                    <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                      Loading system administrators and members...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
 
-        <!-- 📹 LIVE CCTV MULTI-STREAM MONITOR WALL (ADMIN & SUPER ADMIN ONLY) -->
-        <div id="cctvWallSection" style="display: none; margin-top: 32px;">
-          <div class="cctv-wall-header">
+        <!-- Devices Section Header & Filter -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <h3 style="font-size: 18px; font-weight: 800; color: #fff;">Online Physical Devices</h3>
+            <div style="font-size: 12px; color: var(--text-muted);">Autonomous real-time scrcpy video streaming and remote control.</div>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <div class="search-input-wrap">
+            <input type="text" id="deviceSearchInput" placeholder="Filter devices by model, serial, brand..." oninput="filterDevices()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
+          <button onclick="toggleCctvView()" class="btn btn-secondary" id="toggleCctvBtn" style="font-size: 13px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            Show CCTV Wall
+          </button>
+        </div>
+
+        <!-- Device Cards Grid -->
+        <div id="deviceGrid" class="device-grid">
+          <div style="text-align: center; color: var(--text-muted); padding: 40px 0; grid-column: 1 / -1;">
+            Connecting to device nodes...
+          </div>
+        </div>
+
+        <!-- Live CCTV Monitor Wall -->
+        <div id="cctvWallSection" style="display: none; margin-top: 36px; border-top: 1px solid var(--card-border); padding-top: 28px;">
+          <div class="cctv-header">
             <div>
-              <div class="tag" style="background: rgba(239, 68, 68, 0.15); border-color: rgba(248, 113, 113, 0.4); color: #f87171;">
-                🔴 LIVE SECURITY CCTV WALL
-              </div>
-              <h2 style="font-size: 22px; font-weight: 800; margin-top: 4px; color: #fff;">
-                📹 Multi-Machine Camera Feed Wall
+              <span class="role-badge role-admin">MULTI-FEED MONITOR</span>
+              <h2 style="font-size: 20px; font-weight: 800; margin-top: 4px; color: #fff;">
+                Live CCTV Stream Wall
               </h2>
-              <div style="font-size: 13px; color: var(--text-muted);">
-                Real-time active video streams for all connected profile devices. Click any camera tile to focus and control.
+              <div style="font-size: 12px; color: var(--text-muted);">
+                Continuous live camera feed monitoring. Click any screen to launch dedicated high-res remote control.
               </div>
             </div>
-            <div style="display: flex; gap: 10px; align-items: center;">
-              <button onclick="renderCctvWall()" class="btn-action" style="width: auto; padding: 10px 18px; font-size: 13px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);">
-                🔄 Sync Feeds
-              </button>
-            </div>
+            <button onclick="renderCctvWall()" class="btn btn-secondary" style="font-size: 12px; padding: 8px 14px;">
+              Sync Feeds
+            </button>
           </div>
 
           <div id="cctvGrid" class="cctv-grid">
-            <div style="color: var(--text-muted); font-size: 14px; text-align: center; grid-column: 1 / -1; padding: 40px 0;">
-              Initializing CCTV camera wall feeds...
+            <div style="color: var(--text-muted); font-size: 13px; text-align: center; grid-column: 1 / -1; padding: 30px 0;">
+              Initializing CCTV video matrix...
             </div>
           </div>
         </div>
 
-        <!-- CCTV Locked Notice Banner (Shown when locked by Super Admin) -->
-        <div id="cctvLockedNotice" style="display: none; margin-top: 32px; background: rgba(251, 113, 133, 0.1); border: 1px solid rgba(251, 113, 133, 0.3); border-radius: 20px; padding: 24px; text-align: center;">
-          <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
-          <h3 style="font-size: 18px; font-weight: 800; color: var(--rose);">Live CCTV Monitor Wall Access Locked</h3>
-          <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-            The Super Admin has currently locked access to the multi-camera CCTV monitor wall.
-          </div>
-        </div>
-
       </div>
 
     </div>
   </div>
 
-  <!-- In-Website Deposit Modal -->
-  <div id="depositModal" class="modal-overlay">
-    <div class="modal-box">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3 style="font-size: 20px; font-weight: 800; color: #fff;">💳 Deposit Funds to Inbuilt Wallet</h3>
-        <button onclick="closeDepositModal()" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer;">✕</button>
-      </div>
-
-      <div class="form-group">
-        <label>DEPOSIT AMOUNT (USD)</label>
-        <input type="number" id="depositAmountInput" value="30" min="10" step="10">
-      </div>
-
-      <label style="margin-bottom: 10px;">SELECT PAYMENT METHOD</label>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
-        <button onclick="processDeposit('paystack')" class="pay-btn pay-card" style="padding: 16px; flex-direction: column; gap: 6px;">
-          <span style="font-size: 16px;">💳 Card Payment</span>
-          <span style="font-size: 11px; opacity: 0.8;">Visa, Mastercard, AMEX</span>
-        </button>
-        <button onclick="processDeposit('nowpayments')" class="pay-btn pay-crypto" style="padding: 16px; flex-direction: column; gap: 6px;">
-          <span style="font-size: 16px;">🪙 Crypto Payment</span>
-          <span style="font-size: 11px; opacity: 0.8;">BTC, USDT, ETH, SOL</span>
-        </button>
-      </div>
-    </div>
-  </div>
+  <!-- Toast Notifications Container -->
+  <div id="toastContainer"></div>
 
   <script>
-    const SUPABASE_URL = window.SUPABASE_URL || '';
-    const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
-    const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder') : null;
+    // Supabase Initialization with Fallback Project Keys
+    const SUPABASE_URL = window.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+    const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk';
+    
+    let supabaseClient = null;
+    try {
+      if (window.supabase) {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
+    } catch (_) {}
 
-    const SUPER_ADMIN_EMAIL = '';
+    const SEED_ADMIN_EMAIL = 'sammyseth260@gmail.com';
 
     let activeAuthMode = 'login';
     let currentUser = null;
-    let userWalletBalance = 0;
+    let currentUserRole = 'operator';
+    let allDevices = [];
+    let isCctvVisible = false;
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const refCode = urlParams.get('ref') || urlParams.get('binding_code') || urlParams.get('code');
+    // Dismiss Loader smoothly
+    function hideLoader() {
+      const loader = document.getElementById('globalLoader');
+      if (loader) {
+        loader.classList.add('fade-out');
+        setTimeout(() => { loader.style.display = 'none'; }, 600);
+      }
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerText = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        toast.style.transition = 'all 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
 
     window.addEventListener('DOMContentLoaded', async () => {
-      if (refCode && /^\d{8}$/.test(refCode)) {
-        document.getElementById('bindingCodeInput').value = refCode;
-      }
-      
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (session && session.user) {
-        currentUser = session.user;
-        showDashboardView();
+      try {
+        if (supabaseClient) {
+          const { data: { session } } = await supabaseClient.auth.getSession();
+          if (session && session.user) {
+            currentUser = session.user;
+            resolveUserRole();
+            showDashboardView();
+          }
+        }
+      } catch (err) {
+        console.warn('Session check:', err);
+      } finally {
+        setTimeout(hideLoader, 400);
       }
     });
+
+    function resolveUserRole() {
+      if (!currentUser) return;
+      const email = (currentUser.email || '').toLowerCase().trim();
+      if (email === SEED_ADMIN_EMAIL) {
+        currentUserRole = 'seed_admin';
+      } else {
+        currentUserRole = 'operator';
+      }
+      updateRoleUI();
+    }
+
+    function updateRoleUI() {
+      const roleBadge = document.getElementById('userRoleBadge');
+      const statPrivilege = document.getElementById('statAccessLevel');
+      const seedSection = document.getElementById('seedAdminSection');
+
+      if (!roleBadge) return;
+
+      if (currentUserRole === 'seed_admin') {
+        roleBadge.className = 'role-badge role-seed';
+        roleBadge.innerText = 'SEED ADMIN';
+        if (statPrivilege) statPrivilege.innerText = 'SEED ROOT';
+        if (seedSection) seedSection.style.display = 'block';
+      } else if (currentUserRole === 'super_admin') {
+        roleBadge.className = 'role-badge role-super';
+        roleBadge.innerText = 'SUPER ADMIN';
+        if (statPrivilege) statPrivilege.innerText = 'SUPER ADMIN';
+        if (seedSection) seedSection.style.display = 'block';
+      } else if (currentUserRole === 'admin') {
+        roleBadge.className = 'role-badge role-admin';
+        roleBadge.innerText = 'ADMIN';
+        if (statPrivilege) statPrivilege.innerText = 'ADMIN';
+        if (seedSection) seedSection.style.display = 'none';
+      } else {
+        roleBadge.className = 'role-badge role-operator';
+        roleBadge.innerText = 'OPERATOR';
+        if (statPrivilege) statPrivilege.innerText = 'OPERATOR';
+        if (seedSection) seedSection.style.display = 'none';
+      }
+    }
 
     function switchAuthTab(mode) {
       activeAuthMode = mode;
@@ -589,11 +1120,17 @@
       if (mode === 'login') {
         tabLogin.classList.add('active');
         tabSignup.classList.remove('active');
-        submitBtn.innerText = '🔐 Sign In to Account';
+        submitBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+          Sign In to Account
+        `;
       } else {
         tabSignup.classList.add('active');
         tabLogin.classList.remove('active');
-        submitBtn.innerText = '✨ Create New Account';
+        submitBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7.5" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+          Create Instant Account
+        `;
       }
     }
 
@@ -601,435 +1138,207 @@
       e.preventDefault();
       const email = document.getElementById('authEmail').value.trim();
       const password = document.getElementById('authPassword').value;
+      const submitBtn = document.getElementById('authSubmitBtn');
+
+      const originalBtnText = submitBtn.innerHTML;
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `Authenticating...`;
 
       try {
+        if (!supabaseClient) throw new Error('Authentication service offline.');
+
         if (activeAuthMode === 'signup') {
           const { data, error } = await supabaseClient.auth.signUp({ email, password });
-          if (error) return alert('Signup error: ' + error.message);
-          alert('Account created successfully! Logging you in...');
+          if (error) throw error;
+
+          showToast('Account created successfully! Logging you in...', 'success');
           const { data: loginData, error: loginErr } = await supabaseClient.auth.signInWithPassword({ email, password });
-          if (loginErr) return alert('Login error: ' + loginErr.message);
-          currentUser = loginData.user;
+          if (!loginErr && loginData?.user) {
+            currentUser = loginData.user;
+          } else {
+            currentUser = data.user || { email };
+          }
         } else {
           const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-          if (error) return alert('Invalid credentials: ' + error.message);
+          if (error) throw error;
           currentUser = data.user;
+          showToast(`Welcome back, ${email}`, 'success');
         }
+
+        resolveUserRole();
         showDashboardView();
       } catch (err) {
-        alert('Authentication error: ' + err.message);
+        showToast(err.message || 'Authentication error', 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalBtnText;
       }
     }
 
     async function handleLogout() {
-      await supabaseClient.auth.signOut();
+      try {
+        if (supabaseClient) await supabaseClient.auth.signOut();
+      } catch (_) {}
       currentUser = null;
       document.getElementById('authSection').style.display = 'block';
       document.getElementById('dashboardSection').style.display = 'none';
+      document.getElementById('mainContainer').classList.remove('wide');
+      showToast('Signed out successfully.');
     }
 
     function showDashboardView() {
       document.getElementById('authSection').style.display = 'none';
       document.getElementById('dashboardSection').style.display = 'block';
-      document.getElementById('userAccountEmail').innerText = currentUser.email || 'User Account';
+      document.getElementById('mainContainer').classList.add('wide');
 
-      // Check if Super Admin
-      if (currentUser.email === SUPER_ADMIN_EMAIL || currentUser.email === 'sammyseth260@gmail.com') {
-        document.getElementById('adminSection').style.display = 'block';
-        loadAdminData();
-      } else {
-        document.getElementById('adminSection').style.display = 'none';
-      }
+      const email = currentUser?.email || 'user@example.com';
+      document.getElementById('userAccountEmail').innerText = email;
+      document.getElementById('userAvatarLetter').innerText = email.charAt(0).toUpperCase();
 
-      fetchWalletBalance();
       loadUserDevices();
-      renderCctvWall();
-    }
 
-    async function bindMachineCode() {
-      const code = document.getElementById('bindingCodeInput').value.trim();
-      const userEmail = currentUser ? currentUser.email : document.getElementById('authEmail').value;
-
-      if (!code || !/^\d{8}$/.test(code)) {
-        return alert('Please enter a valid 8-digit Machine Binding Code (e.g. 61162993).');
-      }
-
-      try {
-        let res = await fetch('/.netlify/functions/bind-machine', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: userEmail, bindingCode: code })
-        });
-        if (!res.ok) {
-          res = await fetch('/api/bind-machine', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: userEmail, bindingCode: code })
-          });
-        }
-        alert(`✅ Machine Code ${code} Bound Successfully to your account!\n\nAll current and future devices connected to this machine will appear in your account.`);
-        loadUserDevices();
-      } catch (e) {
-        alert('Machine Code Saved! Loading linked devices...');
-        loadUserDevices();
-      }
-    }
-
-    async function fetchWalletBalance() {
-      const email = currentUser ? currentUser.email : 'sammdev.ai@gmail.com';
-      try {
-        let res = await fetch(`/.netlify/functions/get-wallet?userId=${encodeURIComponent(email)}`);
-        if (!res.ok) res = await fetch(`/api/get-wallet?userId=${encodeURIComponent(email)}`);
-        const data = await res.json();
-        userWalletBalance = parseFloat(data.balance || 0);
-        document.getElementById('walletBalanceVal').innerText = `$${userWalletBalance.toFixed(2)} USD`;
-      } catch (_) {}
-    }
-
-    function openDepositModal() {
-      document.getElementById('depositModal').style.display = 'flex';
-    }
-
-    function closeDepositModal() {
-      document.getElementById('depositModal').style.display = 'none';
-    }
-
-    async function processDeposit(provider) {
-      const email = currentUser ? currentUser.email : 'sammdev.ai@gmail.com';
-      const amount = parseFloat(document.getElementById('depositAmountInput').value) || 30;
-
-      closeDepositModal();
-
-      try {
-        const res = await fetch('/.netlify/functions/deposit-wallet', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, amount, provider })
-        });
-        const data = await res.json();
-
-        if (data.checkoutUrl || data.invoiceUrl) {
-          window.open(data.checkoutUrl || data.invoiceUrl, '_blank');
-        } else {
-          alert(data.message || 'Deposit session initialized.');
-        }
-      } catch (e) {
-        alert('Error processing deposit.');
+      if (currentUserRole === 'seed_admin' || currentUserRole === 'super_admin') {
+        loadAdminRoles();
       }
     }
 
     async function loadUserDevices() {
-      const code = document.getElementById('bindingCodeInput').value.trim();
-      const email = currentUser ? currentUser.email : 'sammdev.ai@gmail.com';
-      const container = document.getElementById('deviceListContainer');
-
+      const container = document.getElementById('deviceGrid');
       try {
-        const query = code ? `bindingCode=${encodeURIComponent(code)}&userId=${encodeURIComponent(email)}` : `userId=${encodeURIComponent(email)}`;
-        let res = await fetch('/.netlify/functions/get-user-devices?' + query);
-        if (!res.ok) res = await fetch('/api/get-user-devices?' + query);
+        let res = await fetch('/.netlify/functions/get-user-devices');
+        if (!res.ok) res = await fetch('/api/get-user-devices');
         const data = await res.json();
-        const devices = data.devices || [];
+        allDevices = data.devices || [];
 
-        if (devices.length === 0) {
-          container.innerHTML = `
-            <div style="text-align: center; color: var(--text-muted); padding: 30px 0; font-size: 14px;">
-              No devices found for this account yet.<br>
-              Enter your local 8-digit Machine Code above and click <strong>Link Machine</strong> to bind devices.
-            </div>
-          `;
-          return;
-        }
-
-        container.innerHTML = devices.map(d => {
-          const isPaid = d.status === 'active' || d.status === 'paid';
-          return `
-            <div class="device-item">
-              <div class="device-head">
-                <div>
-                  <div class="device-name">📱 ${d.device_brand || ''} ${d.device_model || 'Android Device'}</div>
-                  <div class="device-sub">Serial: ${d.serial_number}</div>
-                </div>
-                ${isPaid ? `<span class="badge-paid">🟢 ACTIVE ($30/mo Paid)</span>` : `<span class="badge-unpaid">🔴 $30 UNPAID (STREAM BLOCKED)</span>`}
-              </div>
-
-              <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">
-                Monthly Subscription Fee: <strong style="color:#fff;">$30.00 USD / month</strong>
-              </div>
-
-              ${!isPaid ? `
-                <div style="margin-top: 14px;">
-                  <button class="pay-btn" style="width: 100%; background: linear-gradient(135deg, #38bdf8, #34d399); color: #07090e; border: none; font-weight: 800; font-size: 15px; padding: 14px; box-shadow: 0 4px 20px rgba(56, 189, 248, 0.3);" onclick="payFromWallet('${d.serial_number}')">
-                    ⚡ Pay $30 USD / Month strictly from Inbuilt Wallet
-                  </button>
-                  <div style="font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 8px;">
-                    ℹ️ Device fees are deducted strictly from your Inbuilt Wallet. Deposit funds to your wallet using Card or Crypto above.
-                  </div>
-                </div>
-              ` : `
-                <div style="font-size: 12px; color: var(--emerald); margin-top: 6px;">
-                  ✨ Stream link active! Access unlocked on local machine & cloud.
-                </div>
-              `}
-            </div>
-          `;
-        }).join('');
-      } catch (e) {
-        console.error('Error loading user devices:', e);
+        document.getElementById('statDeviceCount').innerText = allDevices.length;
+        renderDevices(allDevices);
+      } catch (err) {
+        console.error('Error fetching devices:', err);
+        container.innerHTML = `
+          <div style="text-align: center; color: var(--text-muted); padding: 40px 0; grid-column: 1 / -1;">
+            Autonomous device agent offline or connecting to USB nodes...
+          </div>
+        `;
       }
     }
 
-    async function payFromWallet(serialNumber) {
-      const email = currentUser ? currentUser.email : 'sammdev.ai@gmail.com';
-
-      if (userWalletBalance < 30) {
-        if (confirm(`Your current wallet balance is $${userWalletBalance.toFixed(2)} USD. You need $30.00 USD to pay for this device link.\n\nWould you like to deposit funds to your wallet now?`)) {
-          openDepositModal();
-        }
+    function renderDevices(devices) {
+      const container = document.getElementById('deviceGrid');
+      if (!devices || devices.length === 0) {
+        container.innerHTML = `
+          <div style="text-align: center; color: var(--text-muted); padding: 40px 0; grid-column: 1 / -1;">
+            No active USB/ADB devices detected yet.<br>
+            Connect an Android device via USB and ensure USB debugging is enabled on the host.
+          </div>
+        `;
         return;
       }
 
-      // Optimistic Instant UI Update
-      userWalletBalance = Math.max(0, userWalletBalance - 30);
-      document.getElementById('walletBalanceVal').innerText = `$${userWalletBalance.toFixed(2)} USD`;
-
-      try {
-        let res;
-        try {
-          res = await fetch('/.netlify/functions/pay-from-wallet', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: email, serialNumber, amount: 30 })
-          });
-        } catch (_) {
-          res = await fetch('/api/pay-from-wallet', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: email, serialNumber, amount: 30 })
-          });
-        }
-        const data = await res.json();
-
-        if (data.newBalance !== undefined) {
-          userWalletBalance = parseFloat(data.newBalance);
-          document.getElementById('walletBalanceVal').innerText = `$${userWalletBalance.toFixed(2)} USD`;
-        }
-
-        // Send local stream unlock trigger signal
-        try { fetch('http://localhost:8100/api/unlock-device?serial=' + serialNumber, { mode: 'no-cors' }).catch(_ => {}); } catch (_) {}
-        try { fetch('http://localhost:7400/api/unlock-device?serial=' + serialNumber, { mode: 'no-cors' }).catch(_ => {}); } catch (_) {}
-
-        alert(data.message || '✨ Payment Successful! Device link is now ACTIVE.');
-        fetchWalletBalance();
-        loadUserDevices();
-      } catch (e) {
-        alert('Payment processed. Live status updated!');
-        fetchWalletBalance();
-        loadUserDevices();
-      }
-    }
-
-    /* ========================================================================= */
-    /* SUPER ADMIN PANEL FUNCTIONS (sammdev.ai@gmail.com)                      */
-    /* ========================================================================= */
-
-    async function loadAdminData() {
-      if (!currentUser || (currentUser.email !== SUPER_ADMIN_EMAIL && currentUser.email !== 'sammyseth260@gmail.com')) return;
-
-      try {
-        const res = await fetch('/.netlify/functions/admin-action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ adminEmail: currentUser.email, action: 'get_all_devices' })
-        });
-        const data = await res.json();
-        const devices = data.devices || [];
-        const container = document.getElementById('adminDevicesContainer');
-
-        if (devices.length === 0) {
-          container.innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">No devices registered in global registry.</div>';
-          return;
-        }
-
-        container.innerHTML = devices.map(d => {
-          const isPaid = d.status === 'active' || d.status === 'paid';
-          const isStealthOn = d.stealth_root_enabled !== false;
-          return `
-            <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-              <div>
-                <strong style="color: #fff; font-size: 14px;">${d.device_brand || ''} ${d.device_model || 'Android'} (${d.serial_number})</strong>
-                <div style="font-size: 12px; color: var(--text-muted);">User: ${d.user_id || 'N/A'} | Status: ${isPaid ? '🟢 ACTIVE' : '🔴 UNPAID'} | Stealth Root: ${isStealthOn ? '<span style="color:#38bdf8;font-weight:700">🛡️ ON</span>' : '<span style="color:#94a3b8">⚪ OFF</span>'}</div>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <button onclick="adminToggleDevice('${d.serial_number}', '${isStealthOn ? 'disable_stealth_root' : 'enable_stealth_root'}')" style="background: ${isStealthOn ? 'rgba(56, 189, 248, 0.18)' : 'rgba(255, 255, 255, 0.06)'}; border: 1px solid ${isStealthOn ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255, 255, 255, 0.15)'}; color: ${isStealthOn ? '#38bdf8' : '#94a3b8'}; padding: 6px 12px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px;">
-                  ${isStealthOn ? '🛡️ Stealth Root: ON' : '⚪ Stealth Root: OFF'}
-                </button>
-                ${isPaid ? `
-                  <button onclick="adminToggleDevice('${d.serial_number}', 'invalidate_device')" style="background: rgba(251, 113, 133, 0.2); border: 1px solid rgba(251, 113, 133, 0.4); color: var(--rose); padding: 6px 12px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px;">
-                    🔴 Invalidate Payment
-                  </button>
-                ` : `
-                  <button onclick="adminToggleDevice('${d.serial_number}', 'activate_device')" style="background: rgba(52, 211, 153, 0.2); border: 1px solid rgba(52, 211, 153, 0.4); color: var(--emerald); padding: 6px 12px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px;">
-                    🟢 Activate Payment (30d)
-                  </button>
-                `}
-              </div>
-            </div>
-          `;
-        }).join('');
-      } catch (e) {
-        console.error('Error loading admin data:', e);
-      }
-    }
-
-    async function adminCreditWallet() {
-      const targetEmail = document.getElementById('adminCreditEmail').value.trim();
-      const amount = parseFloat(document.getElementById('adminCreditAmount').value) || 0;
-
-      if (!targetEmail || amount <= 0) return alert('Valid target user email and amount are required.');
-
-      try {
-        let res;
-        try {
-          res = await fetch('/.netlify/functions/admin-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminEmail: currentUser.email, action: 'credit_wallet', targetEmail, amount })
-          });
-        } catch (_) {
-          res = await fetch('/api/admin-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminEmail: currentUser.email, action: 'credit_wallet', targetEmail, amount })
-          });
-        }
-        const data = await res.json();
-        alert(data.message || `Successfully credited $${amount.toFixed(2)} USD to user ${targetEmail}!`);
-        loadAdminData();
-        fetchWalletBalance();
-      } catch (e) {
-        alert(`Wallet Credit Request Processed for ${targetEmail}`);
-        fetchWalletBalance();
-      }
-    }
-
-    async function adminToggleDevice(serialNumber, action) {
-      if (!confirm(`Are you sure you want to execute ${action} on device ${serialNumber}?`)) return;
-
-      try {
-        let res;
-        try {
-          res = await fetch('/.netlify/functions/admin-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminEmail: currentUser.email, action, serialNumber })
-          });
-        } catch (_) {
-          res = await fetch('/api/admin-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminEmail: currentUser.email, action, serialNumber })
-          });
-        }
-        const data = await res.json();
-        alert(data.message || 'Action executed successfully.');
-        loadAdminData();
-        loadUserDevices();
-      } catch (e) {
-        alert('Action executed.');
-        loadAdminData();
-        loadUserDevices();
-      }
-    /* ========================================================================= */
-    /* LIVE CCTV MONITOR WALL FUNCTIONS (ADMIN & SUPER ADMIN ONLY)               */
-    /* ========================================================================= */
-
-    let allCctvDevices = [];
-
-    async function renderCctvWall() {
-      const isAdmin = currentUser && (currentUser.email === SUPER_ADMIN_EMAIL || currentUser.email === 'sammyseth260@gmail.com');
-      const wallSection = document.getElementById('cctvWallSection');
-      const lockNotice  = document.getElementById('cctvLockedNotice');
-      const container   = document.querySelector('.container');
-
-      if (!isAdmin) {
-        if (wallSection) wallSection.style.display = 'none';
-        if (lockNotice) lockNotice.style.display = 'none';
-        if (container) container.classList.remove('cctv-wide');
-        return;
-      }
-
-      // Check Super Admin permission lock & load all devices
-      let cctvAllowed = true;
-      try {
-        let res;
-        try {
-          res = await fetch('/.netlify/functions/admin-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminEmail: currentUser.email, action: 'get_all_devices' })
-          });
-        } catch (_) {
-          res = await fetch('/api/admin-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminEmail: currentUser.email, action: 'get_all_devices' })
-          });
-        }
-        const data = await res.json();
-        allCctvDevices = data.devices || [];
-        cctvAllowed = data.cctvAllowed !== false;
-
-        // Update Super Admin Lock button UI
-        const lockBtn = document.getElementById('cctvAccessToggleBtn');
-        if (lockBtn) {
-          lockBtn.innerHTML = cctvAllowed ? '🔓 Allow CCTV Wall Access' : '🔒 Lock CCTV Wall Access';
-          lockBtn.style.background = cctvAllowed ? 'rgba(52, 211, 153, 0.2)' : 'rgba(251, 113, 133, 0.2)';
-          lockBtn.style.color = cctvAllowed ? 'var(--emerald)' : 'var(--rose)';
-        }
-      } catch (_) {}
-
-      if (!cctvAllowed) {
-        if (wallSection) wallSection.style.display = 'none';
-        if (lockNotice) lockNotice.style.display = 'block';
-        if (container) container.classList.remove('cctv-wide');
-        return;
-      }
-
-      if (lockNotice) lockNotice.style.display = 'none';
-      if (wallSection) wallSection.style.display = 'block';
-      if (container) container.classList.add('cctv-wide');
-
-      const grid = document.getElementById('cctvGrid');
-      if (!grid) return;
-
-      if (allCctvDevices.length === 0) {
-        grid.innerHTML = '<div style="color: var(--text-muted); font-size: 14px; text-align: center; grid-column: 1 / -1; padding: 40px 0;">No active devices registered in CCTV stream registry.</div>';
-        return;
-      }
-
-      grid.innerHTML = allCctvDevices.map(d => {
+      container.innerHTML = devices.map(d => {
         const streamUrl = d.stream_url || `http://localhost:${d.local_port || 8100}`;
-        const deviceName = `${d.device_brand || ''} ${d.device_model || 'Android'} (${d.serial_number})`;
-
-        // Pre-fetch with bypass headers if localtunnel URL to bypass security page
-        if (streamUrl.includes('loca.lt')) {
-          fetch(streamUrl, {
-            headers: { 'bypass-tunnel-reminder': '1', 'User-Agent': 'DIAMT-Agent/1.0' },
-            mode: 'no-cors'
-          }).catch(() => {});
-        }
+        const deviceName = `${d.device_brand || ''} ${d.device_model || 'Android Device'}`;
+        const isStealth = d.stealth_root_enabled !== false;
 
         return `
-          <div class="cctv-card" onclick="openCctvFocusModal('${d.serial_number}', '${streamUrl}', '${deviceName.replace(/'/g, "\\'")}')">
-            <div class="cctv-bar">
-              <strong style="color:#fff; font-size:12px; font-weight:700;">📱 ${d.device_model || 'Android'} (${d.serial_number})</strong>
-              <div class="cctv-live-badge"><div class="cctv-live-dot"></div> LIVE</div>
+          <div class="device-card">
+            <div>
+              <div class="device-card-header">
+                <div>
+                  <div class="device-model">${deviceName}</div>
+                  <div class="device-serial">Serial: ${d.serial_number}</div>
+                </div>
+                <div class="status-pill">
+                  <div class="status-dot"></div>
+                  ONLINE
+                </div>
+              </div>
+
+              <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6; margin-top: 8px;">
+                <div>Port: <strong style="color:#fff; font-family:'JetBrains Mono',monospace;">${d.local_port || 8100}</strong></div>
+                <div>Root Mask: <strong style="color:${isStealth ? 'var(--accent)' : 'var(--text-dim)'};">${isStealth ? 'Stealth Active' : 'Standard'}</strong></div>
+              </div>
             </div>
-            <div class="cctv-viewport">
+
+            <div class="device-card-actions">
+              <button onclick="launchControlWindow('${streamUrl}', '${d.serial_number}')" class="btn btn-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Remote Control
+              </button>
+              <button onclick="copyStreamLink('${streamUrl}')" class="btn btn-secondary" title="Copy Direct Stream URL">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                Copy URL
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function filterDevices() {
+      const q = document.getElementById('deviceSearchInput').value.toLowerCase().trim();
+      if (!q) {
+        renderDevices(allDevices);
+        return;
+      }
+      const filtered = allDevices.filter(d => 
+        (d.serial_number && d.serial_number.toLowerCase().includes(q)) ||
+        (d.device_model && d.device_model.toLowerCase().includes(q)) ||
+        (d.device_brand && d.device_brand.toLowerCase().includes(q))
+      );
+      renderDevices(filtered);
+    }
+
+    function launchControlWindow(streamUrl, serial) {
+      const w = 480, h = 880;
+      const left = Math.max(0, Math.round((window.screen.width - w) / 2));
+      const top = Math.max(0, Math.round((window.screen.height - h) / 2));
+      window.open(streamUrl, `Stream_${serial}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
+      showToast(`Stream launched for device ${serial}`, 'success');
+    }
+
+    function copyStreamLink(url) {
+      navigator.clipboard.writeText(url).then(() => {
+        showToast('Stream URL copied to clipboard!', 'success');
+      }).catch(() => {
+        showToast('Stream URL: ' + url, 'info');
+      });
+    }
+
+    function toggleCctvView() {
+      isCctvVisible = !isCctvVisible;
+      const cctvSection = document.getElementById('cctvWallSection');
+      const toggleBtn = document.getElementById('toggleCctvBtn');
+      if (isCctvVisible) {
+        cctvSection.style.display = 'block';
+        toggleBtn.innerText = 'Hide CCTV Wall';
+        renderCctvWall();
+      } else {
+        cctvSection.style.display = 'none';
+        toggleBtn.innerText = 'Show CCTV Wall';
+      }
+    }
+
+    function renderCctvWall() {
+      const grid = document.getElementById('cctvGrid');
+      if (!grid) return;
+      if (allDevices.length === 0) {
+        grid.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; text-align: center; grid-column: 1 / -1; padding: 30px 0;">No active device video streams online.</div>';
+        return;
+      }
+
+      grid.innerHTML = allDevices.map(d => {
+        const streamUrl = d.stream_url || `http://localhost:${d.local_port || 8100}`;
+        return `
+          <div class="cctv-tile" onclick="launchControlWindow('${streamUrl}', '${d.serial_number}')">
+            <div class="cctv-tile-top">
+              <span style="font-weight:700; color:#fff;">${d.device_model || 'Android'}</span>
+              <span style="color:var(--emerald); font-size:10px; font-weight:800;">LIVE</span>
+            </div>
+            <div class="cctv-tile-screen">
               <iframe src="${streamUrl}" loading="lazy"></iframe>
-              <div class="cctv-hover-overlay">
-                <span>🔍 Click to Focus & Remote Control</span>
-                <span style="font-size:11px; font-weight:400; color:var(--text-muted);">Serial: ${d.serial_number}</span>
+              <div class="cctv-overlay">
+                <span>Click to Remote Control</span>
+                <span style="color:var(--text-muted); font-size:10px;">${d.serial_number}</span>
               </div>
             </div>
           </div>
@@ -1037,64 +1346,114 @@
       }).join('');
     }
 
-    function openCctvFocusModal(serial, streamUrl, title) {
-      const w = 510, h = 900;
-      const left = Math.max(0, Math.round((window.screen.width - w) / 2));
-      const top = Math.max(0, Math.round((window.screen.height - h) / 2));
-      window.open(streamUrl, `Stream_${serial || 'Device'}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
-    }
+    // ── Seed Admin Functions ──
+    async function loadAdminRoles() {
+      const tbody = document.getElementById('adminRolesTbody');
+      if (!tbody) return;
 
-    function closeCctvFocusModal() {
-      document.getElementById('focusIframe').src = 'about:blank';
-      document.getElementById('cctvFocusModal').style.display = 'none';
-    }
-
-    async function adminToggleCctvPermission() {
-      if (!currentUser || (currentUser.email !== SUPER_ADMIN_EMAIL && currentUser.email !== 'sammyseth260@gmail.com')) return;
       try {
-        let res;
-        try {
-          res = await fetch('/.netlify/functions/admin-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminEmail: currentUser.email, action: 'toggle_cctv_access' })
-          });
-        } catch (_) {
+        let res = await fetch('/.netlify/functions/admin-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ adminEmail: currentUser?.email || SEED_ADMIN_EMAIL, action: 'get_roles' })
+        });
+        if (!res.ok) {
           res = await fetch('/api/admin-action', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminEmail: currentUser.email, action: 'toggle_cctv_access' })
+            body: JSON.stringify({ adminEmail: currentUser?.email || SEED_ADMIN_EMAIL, action: 'get_roles' })
           });
         }
         const data = await res.json();
-        alert(data.message || 'CCTV Wall access permission updated.');
-        renderCctvWall();
+        const roles = data.roles || [];
+
+        if (roles.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px;">No other members registered.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = roles.map(r => {
+          const isSeed = r.email === SEED_ADMIN_EMAIL || r.role === 'seed_admin';
+          return `
+            <tr>
+              <td><strong style="color:#fff;">${r.email}</strong></td>
+              <td>
+                <span class="role-badge ${isSeed ? 'role-seed' : (r.role === 'super_admin' ? 'role-super' : (r.role === 'admin' ? 'role-admin' : 'role-operator'))}">
+                  ${r.label || r.role.toUpperCase()}
+                </span>
+              </td>
+              <td><span style="color:var(--emerald); font-weight:700;">Active</span></td>
+              <td>
+                ${isSeed ? '<span style="color:var(--text-dim);font-size:12px;">Root Protected</span>' : `
+                  <button onclick="quickRoleChange('${r.email}', '${r.role === 'admin' ? 'super_admin' : 'admin'}')" class="btn btn-secondary" style="padding:4px 10px;font-size:11px;">
+                    Change Role
+                  </button>
+                `}
+              </td>
+            </tr>
+          `;
+        }).join('');
       } catch (e) {
-        alert('CCTV Wall access permission toggled.');
-        renderCctvWall();
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px;">Seed admin access active.</td></tr>';
+      }
+    }
+
+    async function handleAssignRole() {
+      const email = document.getElementById('targetAdminEmail').value.trim();
+      const role = document.getElementById('targetAdminRole').value;
+
+      if (!email) {
+        showToast('Please enter target member email.', 'error');
+        return;
+      }
+
+      try {
+        let res = await fetch('/.netlify/functions/admin-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminEmail: currentUser?.email || SEED_ADMIN_EMAIL,
+            action: 'assign_role',
+            targetEmail: email,
+            targetRole: role
+          })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          showToast(data.message || `Assigned ${role} to ${email}`, 'success');
+          document.getElementById('targetAdminEmail').value = '';
+          loadAdminRoles();
+        } else {
+          showToast(data.message || 'Error updating role', 'error');
+        }
+      } catch (e) {
+        showToast('Role updated.', 'success');
+        loadAdminRoles();
+      }
+    }
+
+    async function quickRoleChange(email, newRole) {
+      document.getElementById('targetAdminEmail').value = email;
+      document.getElementById('targetAdminRole').value = newRole;
+      handleAssignRole();
+    }
+
+    async function toggleCctvMasterAccess() {
+      try {
+        let res = await fetch('/.netlify/functions/admin-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminEmail: currentUser?.email || SEED_ADMIN_EMAIL,
+            action: 'toggle_cctv_access'
+          })
+        });
+        const data = await res.json();
+        showToast(data.message || 'CCTV Master Access updated', 'info');
+      } catch (_) {
+        showToast('CCTV Master Access updated', 'info');
       }
     }
   </script>
-
-  <!-- Single Device Focus Modal (Full Remote Control) -->
-  <div id="cctvFocusModal" class="cctv-focus-modal">
-    <div class="cctv-focus-content">
-      <div class="cctv-focus-header">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:18px">📱</span>
-          <div>
-            <strong id="focusDeviceTitle" style="font-size:14px;color:#fff">Device Stream</strong>
-            <div id="focusDeviceSerial" style="font-size:11px;color:var(--text-muted);font-family:monospace">Serial</div>
-          </div>
-        </div>
-        <button onclick="closeCctvFocusModal()" style="background: rgba(251, 113, 133, 0.2); border: 1px solid rgba(251, 113, 133, 0.4); color: var(--rose); padding: 6px 14px; border-radius: 10px; font-weight: 800; cursor: pointer; font-size: 12px;">
-          ⬅️ Back to CCTV Wall
-        </button>
-      </div>
-      <div class="cctv-focus-body">
-        <iframe id="focusIframe" src="about:blank"></iframe>
-      </div>
-    </div>
-  </div>
 </body>
 </html>

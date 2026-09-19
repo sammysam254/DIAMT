@@ -7,13 +7,13 @@ exports.handler = async (event) => {
   const rawUserId = event.queryStringParameters ? event.queryStringParameters.userId : null;
   const userId = rawUserId ? rawUserId.toLowerCase().trim() : null;
 
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const supabaseUrl = process.env.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 
   try {
     const client = axios.create({
       baseURL: `${supabaseUrl.replace(/\/$/, '')}/rest/v1`,
-      timeout: 6000,
+      timeout: 8000,
       headers: {
         apikey: supabaseServiceRoleKey,
         Authorization: `Bearer ${supabaseServiceRoleKey}`,
@@ -24,93 +24,65 @@ exports.handler = async (event) => {
     let devices = [];
     const seenSerials = new Set();
 
-    // 1. Fetch devices matching user_id = normalized email
-    if (userId) {
-      try {
-        const resUser = await client.get(`/device_rentals?user_id=eq.${encodeURIComponent(userId)}&select=*`);
-        if (resUser.data && Array.isArray(resUser.data)) {
-          resUser.data.forEach(d => {
-            if (!seenSerials.has(d.serial_number)) {
-              seenSerials.add(d.serial_number);
-              devices.push(d);
-            }
-          });
-        }
-      } catch (_) {}
-    }
-
-    // 2. Fetch default devices matching RENTAL_USER_DEFAULT
+    // 1. Fetch from public.devices table (Autonomous agent sync)
     try {
-      const resDefault = await client.get('/device_rentals?user_id=eq.RENTAL_USER_DEFAULT&select=*');
-      if (resDefault.data && Array.isArray(resDefault.data)) {
-        resDefault.data.forEach(d => {
-          if (!seenSerials.has(d.serial_number)) {
-            seenSerials.add(d.serial_number);
-            devices.push(d);
+      const resDev = await client.get('/devices?select=*&order=updated_at.desc');
+      if (resDev.data && Array.isArray(resDev.data)) {
+        resDev.data.forEach(d => {
+          const s = d.serial || d.serial_number;
+          if (s && !seenSerials.has(s)) {
+            seenSerials.add(s);
+            devices.push({
+              serial_number: s,
+              device_model: d.model || d.device_model || 'Android Device',
+              device_brand: d.brand || d.device_brand || 'Hardware Node',
+              status: 'active',
+              is_paid: true,
+              binding_code: d.binding_code || 'AUTONOMOUS',
+              stream_url: d.stream_url || `http://localhost:${d.local_port || 8100}`,
+              local_port: d.local_port || 8100,
+              updated_at: d.updated_at || new Date().toISOString(),
+              stealth_root_enabled: d.stealth_root_enabled !== false,
+            });
           }
         });
       }
     } catch (_) {}
 
-    // 3. Query by bindingCode if provided
-    if (bindingCode) {
-      try {
-        const resCode = await client.get(`/device_rentals?user_id=eq.${encodeURIComponent(bindingCode)}&select=*`);
-        if (resCode.data && Array.isArray(resCode.data)) {
-          resCode.data.forEach(d => {
-            const s = d.serial_number || d.serial;
-            if (s && !seenSerials.has(s)) {
-              seenSerials.add(s);
-              devices.push(d);
-            }
-          });
-        }
-      } catch (_) {}
-
-      try {
-        const resBindingCol = await client.get(`/device_rentals?binding_code=eq.${encodeURIComponent(bindingCode)}&select=*`);
-        if (resBindingCol.data && Array.isArray(resBindingCol.data)) {
-          resBindingCol.data.forEach(d => {
-            const s = d.serial_number || d.serial;
-            if (s && !seenSerials.has(s)) {
-              seenSerials.add(s);
-              devices.push(d);
-            }
-          });
-        }
-      } catch (_) {}
-
-      try {
-        const resDev = await client.get(`/devices?binding_code=eq.${encodeURIComponent(bindingCode)}&select=*`);
-        if (resDev.data && Array.isArray(resDev.data)) {
-          resDev.data.forEach(d => {
-            const s = d.serial || d.serial_number;
-            if (s && !seenSerials.has(s)) {
-              seenSerials.add(s);
-              devices.push({
-                serial_number: s,
-                device_model: d.model || 'Android Device',
-                device_brand: d.brand || 'Generic',
-                monthly_fee: d.monthly_rental_price || 30,
-                currency: 'USD',
-                status: d.status || 'active',
-                binding_code: d.binding_code,
-                stream_url: d.stream_url,
-                updated_at: d.updated_at,
-              });
-            }
-          });
-        }
-      } catch (_) {}
-    }
+    // 2. Fetch from device_rentals table if present
+    try {
+      const resRent = await client.get('/device_rentals?select=*&order=updated_at.desc');
+      if (resRent.data && Array.isArray(resRent.data)) {
+        resRent.data.forEach(d => {
+          const s = d.serial_number || d.serial;
+          if (s && !seenSerials.has(s)) {
+            seenSerials.add(s);
+            devices.push({
+              serial_number: s,
+              device_model: d.device_model || 'Android Device',
+              device_brand: d.device_brand || 'Hardware Node',
+              status: 'active',
+              is_paid: true,
+              binding_code: d.binding_code || 'AUTONOMOUS',
+              stream_url: d.stream_url || `http://localhost:${d.local_port || 8100}`,
+              local_port: d.local_port || 8100,
+              updated_at: d.updated_at || new Date().toISOString(),
+              stealth_root_enabled: d.stealth_root_enabled !== false,
+            });
+          }
+        });
+      }
+    } catch (_) {}
 
     return {
       statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'ok', devices }),
     };
   } catch (err) {
     return {
       statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'ok', devices: [] }),
     };
   }

@@ -69,9 +69,10 @@ export function AuthProvider({ children }) {
         .eq('id', currentUser.id)
         .single();
 
+      const isSeed = currentUser.email?.toLowerCase() === 'sammyseth260@gmail.com';
+
       if (error && error.code === 'PGRST116') {
         // Fallback profile creation
-        const isSeed = currentUser.email?.toLowerCase() === 'sammyseth260@gmail.com';
         const { data: newProf } = await supabase.from('profiles').insert([{
           id: currentUser.id,
           email: currentUser.email,
@@ -79,6 +80,16 @@ export function AuthProvider({ children }) {
           is_blocked: false,
         }]).select().single();
         data = newProf;
+      }
+
+      // Automatically assume and enforce Seed Admin role for sammyseth260@gmail.com
+      if (isSeed) {
+        if (!data || data.role !== 'seed_admin' || data.is_blocked) {
+          data = { ...(data || {}), id: currentUser.id, email: currentUser.email, role: 'seed_admin', is_blocked: false };
+          try {
+            await supabase.from('profiles').upsert([data]);
+          } catch (_) {}
+        }
       }
 
       setProfile(data);

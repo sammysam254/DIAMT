@@ -10,9 +10,36 @@ import MyDevices from './pages/MyDevices';
 import AdminRentalHub from './pages/AdminRentalHub';
 
 const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-  if (loading) return <div style={{ padding: '40px', color: '#94a3b8', textAlign: 'center' }}>Loading rentals app...</div>;
-  if (!user) return <Navigate to="/login" replace />;
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg-main, #070b16)',
+        color: '#fff',
+        gap: '14px'
+      }}>
+        <div style={{
+          width: '44px',
+          height: '44px',
+          borderRadius: '12px',
+          background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 0 20px rgba(56, 189, 248, 0.4)'
+        }}>
+          <span style={{ fontWeight: 900, color: '#fff', fontSize: '20px' }}>D</span>
+        </div>
+        <div style={{ fontWeight: 800, fontSize: '16px', letterSpacing: '0.4px' }}>
+          DIAMT <span style={{ color: 'var(--primary, #38bdf8)' }}>MARKETPLACE</span>
+        </div>
+      </div>
+    );
+  }
   return children;
 };
 
