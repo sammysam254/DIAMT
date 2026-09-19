@@ -42,15 +42,15 @@ function decrypt(encryptedText) {
   }
 }
 
-// Production Credentials Payload (Configured via config.json or Environment Variables)
+// Production Credentials Payload (Strictly DIAMT Cloud Platform)
 const SECURE_PAYLOAD = {
-  encryptedSupabaseUrl: encrypt(process.env.SUPABASE_URL || ''),
-  encryptedSupabaseAnonKey: encrypt(process.env.SUPABASE_ANON_KEY || ''),
-  encryptedSupabaseServiceRoleKey: encrypt(process.env.SUPABASE_SERVICE_ROLE_KEY || ''),
-  encryptedAppUrl: encrypt(process.env.APP_URL || ''),
+  encryptedSupabaseUrl: encrypt(process.env.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co'),
+  encryptedSupabaseAnonKey: encrypt(process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk'),
+  encryptedSupabaseServiceRoleKey: encrypt(process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTc5NTY1MCwiZXhwIjoyMTA1MzcxNjUwfQ.ok_mAqsFkfvP-NyZRiiPmF_eL2blTYI2shnsDAmkefw'),
+  encryptedAppUrl: encrypt(process.env.APP_URL || 'https://diamt.netlify.app'),
   encryptedPaystackPublicKey: encrypt(process.env.PAYSTACK_PUBLIC_KEY || ''),
   encryptedNowPaymentsKey: encrypt(process.env.NOWPAYMENTS_API_KEY || ''),
-  encryptedAdminEmail: encrypt(process.env.ADMIN_EMAIL || ''),
+  encryptedAdminEmail: encrypt(process.env.ADMIN_EMAIL || 'sammyseth260@gmail.com'),
 };
 
 /**

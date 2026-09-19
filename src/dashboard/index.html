@@ -511,27 +511,33 @@
                 <span>🟢</span> STREAM READY & ONLINE
               </div>
 
-              <!-- Action Row 1: Primary Watch & Control -->
-              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
-                <button onclick="openInlineViewer('${d.serial}', '${d.brand || ''} ${d.model || ''}', '${d.port}')" class="btn-action btn-primary" style="padding: 8px 16px; font-size: 12px;">
-                  ▶ Watch & Control Here
-                </button>
-                <a href="${localStreamPath}" target="_blank" class="btn-action" style="padding: 8px 14px; font-size: 12px;">
-                  ↗ Open in Tab
-                </a>
+              <!-- Featured Cloudflare Fast Link Banner -->
+              <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;">
+                <div style="font-size: 11px; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+                  <span>🌐 Worldwide Cloudflare Stream Link</span>
+                  <span style="font-size: 10px; padding: 2px 6px; border-radius: 10px; background: rgba(56, 189, 248, 0.2);">ACTIVE EVERYWHERE</span>
+                </div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #cbd5e1; word-break: break-all; margin-bottom: 8px;">
+                  ${publicUrl}
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <a href="${publicUrl}" target="_blank" class="btn-action btn-primary" style="padding: 6px 14px; font-size: 11px;">
+                    ↗ Open Worldwide Stream
+                  </a>
+                  <button onclick="navigator.clipboard.writeText('${publicUrl}'); alert('Copied Cloudflare Worldwide Link!');" class="btn-action" style="padding: 6px 12px; font-size: 11px;">
+                    📋 Copy Link
+                  </button>
+                </div>
               </div>
 
-              <!-- Action Row 2: Secondary / Direct Links -->
-              <div style="display: flex; gap: 6px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
-                <a href="${directPortUrl}" target="_blank" class="btn-action" style="font-size: 11px; padding: 5px 10px; color: #94a3b8;" title="Direct port link on localhost">
-                  ⚡ Direct Port (${d.port})
-                </a>
-                <a href="${publicUrl}" target="_blank" class="btn-action" style="font-size: 11px; padding: 5px 10px; color: #94a3b8;" title="Public Cloudflare Tunnel URL">
-                  🌐 Public Cloud Link
-                </a>
-                <button onclick="navigator.clipboard.writeText('${publicUrl}'); alert('Copied public stream link!');" class="btn-action" style="font-size: 11px; padding: 5px 10px; color: #94a3b8;" title="Copy Public Link">
-                  📋 Copy
+              <!-- Local Stream & Direct Controls -->
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
+                <button onclick="openInlineViewer('${d.serial}', '${d.brand || ''} ${d.model || ''}', '${d.port}')" class="btn-action" style="padding: 6px 12px; font-size: 11px;">
+                  ▶ Inline Monitor
                 </button>
+                <a href="${localStreamPath}" target="_blank" class="btn-action" style="padding: 6px 12px; font-size: 11px;">
+                  🖥️ Local Tab (Port ${d.port})
+                </a>
               </div>
             </div>
           </div>

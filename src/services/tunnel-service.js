@@ -133,8 +133,9 @@ function createCloudflaredTunnel(port) {
 
     logger.info(`[+] Establishing Cloudflare network tunnel for localhost:${port} via ${path.basename(binPath)}`);
 
-    const token = config.cloudflareToken || config.cloudflaredToken || config.token || '';
-    const rawDomain = config.customDomain || config.domain || '';
+    const currentCfg = loadConfig();
+    const token = currentCfg.cloudflareToken || currentCfg.cloudflaredToken || currentCfg.token || '';
+    const rawDomain = currentCfg.customDomain || currentCfg.domain || '';
     const domain = rawDomain ? rawDomain.replace(/^https?:\/\//, '') : '';
 
     const args = token 

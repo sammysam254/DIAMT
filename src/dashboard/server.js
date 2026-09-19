@@ -129,7 +129,7 @@ function startDashboardServer(port = 7400) {
 
     server = http.createServer(async (req, res) => {
       try {
-        // Enable CORS & Security headers (permitting frame embedding on dennoh.site)
+        // Enable CORS & Security headers (permitting frame embedding on diamt.cloud)
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
       res.setHeader('X-Content-Type-Options', 'nosniff');
