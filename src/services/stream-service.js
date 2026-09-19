@@ -177,6 +177,209 @@ function handleControl(type, data, serial, engine) {
 }
 
 
+function buildGatewayLandingHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DIAMT Device Gateway</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: radial-gradient(circle at 50% 20%, #0f1f3d 0%, #060b17 100%);
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 20px;
+      padding: 40px 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(37, 99, 235, 0.15);
+      text-align: center;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #38bdf8;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 24px;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 8px #38bdf8;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #ffffff;
+      margin-bottom: 12px;
+    }
+    p {
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .form-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    input {
+      flex: 1;
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: #ffffff;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+    input:focus {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+    button {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:hover {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      transform: translateY(-1px);
+    }
+    .info-box {
+      background: rgba(30, 41, 59, 0.4);
+      border: 1px dashed rgba(148, 163, 184, 0.25);
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 12px;
+      color: #64748b;
+      word-break: break-all;
+    }
+    .info-box code {
+      color: #38bdf8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge"><span class="dot"></span> DIAMT DEVICE GATEWAY</div>
+    <h1>Direct Device URL Required</h1>
+    <p>Individual device streams are secured and can only be accessed using their specific device URL with a valid device UDID.</p>
+    <form onsubmit="event.preventDefault(); const v = document.getElementById('udidInput').value.trim(); if(v) window.location.href = '/?udid=' + encodeURIComponent(v);">
+      <div class="form-group">
+        <input id="udidInput" type="text" placeholder="Enter Device UDID (e.g. R8YWA0A09JW)" required autocomplete="off" />
+        <button type="submit">Open Stream</button>
+      </div>
+    </form>
+    <div class="info-box">
+      Stream Link Format:<br>
+      <code>https://devicecontrol.diamt.site/?udid=&lt;DEVICE_UDID&gt;</code>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+function buildDeviceNotFoundHtml(reqUdid) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Device Offline - DIAMT</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: radial-gradient(circle at 50% 20%, #1e1b2e 0%, #08070d 100%);
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: rgba(24, 18, 37, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(244, 63, 94, 0.25);
+      border-radius: 20px;
+      padding: 40px 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+      text-align: center;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      border-radius: 9999px;
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: #fb7185;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 24px;
+    }
+    h1 { font-size: 22px; font-weight: 800; color: #ffffff; margin-bottom: 12px; }
+    p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+    code { color: #f43f5e; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; }
+    a {
+      display: inline-block;
+      background: #2563eb;
+      color: white;
+      text-decoration: none;
+      padding: 11px 24px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">DEVICE NOT ACTIVE</div>
+    <h1>Device Offline or Unassigned</h1>
+    <p>No active stream was found for device <code>${reqUdid}</code>. Please ensure the device is connected to the USB hub and recognized by DIAMT Agent.</p>
+    <a href="/">Back to Gateway</a>
+  </div>
+</body>
+</html>`;
+}
+
 // ─── Player HTML (WebCodecs H264 decoder + screencap fallback) ───────────────
 
 function buildPlayerHtml(serial, screenW, screenH) {
@@ -1236,8 +1439,22 @@ async function startStreamServer(serial, port) {
       return;
     }
 
-    const reqUdid = url.searchParams.get('udid');
-    const targetSession = (reqUdid && activeServers.get(reqUdid)) ? activeServers.get(reqUdid) : { server, wss, engine, serial };
+    const reqUdid = (url.searchParams.get('udid') || '').trim();
+
+    // STRICT ISOLATION: A device stream must only be accessed through its exact device URL (?udid=SERIAL)
+    if (!reqUdid) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(buildGatewayLandingHtml());
+      return;
+    }
+
+    const targetSession = activeServers.get(reqUdid) || (reqUdid === serial ? { server, wss, engine, serial } : null);
+    if (!targetSession) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(buildDeviceNotFoundHtml(reqUdid));
+      return;
+    }
+
     const effectiveSerial = targetSession.serial || serial;
     const effectiveEngine = targetSession.engine || engine;
 
@@ -1287,8 +1504,18 @@ async function startStreamServer(serial, port) {
     let isPinValid = true;
     const isValidWs = true;
 
-    const reqWsUdid = wsUrl.searchParams.get('udid');
-    const targetWsSession = (reqWsUdid && activeServers.get(reqWsUdid)) ? activeServers.get(reqWsUdid) : { engine, serial };
+    const reqWsUdid = (wsUrl.searchParams.get('udid') || '').trim();
+    if (!reqWsUdid) {
+      ws.close(4000, 'Device UDID Required');
+      return;
+    }
+
+    const targetWsSession = activeServers.get(reqWsUdid) || (reqWsUdid === serial ? { engine, serial } : null);
+    if (!targetWsSession) {
+      ws.close(4004, 'Device Not Found Or Offline');
+      return;
+    }
+
     const effectiveWsSerial = targetWsSession.serial || serial;
     const effectiveWsEngine = targetWsSession.engine || engine;
 
