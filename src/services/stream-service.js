@@ -9,6 +9,7 @@ const logger = require('../utils/logger');
 const ScrcpyEngine = require('./scrcpy-engine');
 const bindingService = require('./binding-service');
 const licenseService = require('./license-service');
+const cache = require('./cache-service');
 
 // ─── Config & ADB ────────────────────────────────────────────────────────────
 
@@ -177,98 +178,101 @@ function handleControl(type, data, serial, engine) {
 }
 
 
-// ─── Server-Side Realtime Device Credential Verification ─────────────────────
-
-const credentialCache = new Map(); // Map<serial, { validKeys: Set, validPins: Set, at: number }>
+// ─── Server-Side Realtime Device Credential Verification (Redis-backed) ──────
 
 async function verifyDeviceAccess(serial, inputCredential) {
   if (!serial) return false;
   const input = (inputCredential || '').trim();
   if (!input) return false;
 
-  // Check 5-second in-memory cache to avoid excessive DB reads while reacting promptly to admin resets
-  const cached = credentialCache.get(serial);
-  if (cached && (Date.now() - cached.at < 5000)) {
-    if (cached.validPins.has(input) || cached.validKeys.has(input)) return true;
-    for (const k of cached.validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
+  // 1. Redis / in-memory cache check (30s TTL)
+  const cacheKey = `cred:${serial}:data`;
+  const cached = await cache.get(cacheKey);
+  if (cached) {
+    const { validKeys = [], validPins = [], status: devStatus } = cached;
+    if (devStatus === 'suspended' || devStatus === 'blocked' || devStatus === 'revoked') return false;
+    if (validPins.includes(input) || validKeys.includes(input)) return true;
+    for (const k of validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
+    // Cache hit but input not found — credential invalid
+    return false;
   }
 
+  // 2. Cache miss — query Supabase
   const cfg = loadConfig();
-  const url = cfg.supabaseUrl;
-  const key = cfg.supabaseServiceRoleKey || cfg.supabaseAnonKey;
-  if (!url || !key) return false;
+  const supaUrl = cfg.supabaseUrl;
+  const supaKey = cfg.supabaseServiceRoleKey || cfg.supabaseAnonKey;
+  if (!supaUrl || !supaKey) return false;
 
   try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/devices?serial=eq.${encodeURIComponent(serial)}&select=id,status,stream_url`, {
-      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    const res = await fetch(`${supaUrl.replace(/\/$/, '')}/rest/v1/devices?serial=eq.${encodeURIComponent(serial)}&select=id,status,stream_url`, {
+      headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}` }
     });
     if (!res.ok) return false;
     const devices = await res.json();
     if (!Array.isArray(devices) || devices.length === 0) return false;
 
     const dev = devices[0];
-    if (dev.status === 'suspended' || dev.status === 'blocked' || dev.status === 'revoked') {
-      return false;
-    }
+    const devStatus = dev.status || 'online';
 
-    const validKeys = new Set();
-    const validPins = new Set();
+    const validKeys = [];
+    const validPins = [];
 
+    // Parse credentials from devices.stream_url
     const currentStreamUrl = dev.stream_url || '';
-    const matchKey = currentStreamUrl.match(/[?&]key=([^&]+)/i);
-    const matchPin = currentStreamUrl.match(/[?&]pin=([^&]+)/i);
+    const matchKey   = currentStreamUrl.match(/[?&]key=([^&]+)/i);
+    const matchPin   = currentStreamUrl.match(/[?&]pin=([^&]+)/i);
     const matchToken = currentStreamUrl.match(/[?&]token=([^&]+)/i);
-    if (matchKey) validKeys.add(decodeURIComponent(matchKey[1]).trim());
-    if (matchPin) validPins.add(decodeURIComponent(matchPin[1]).trim());
-    if (matchToken) validKeys.add(decodeURIComponent(matchToken[1]).trim());
+    if (matchKey)   validKeys.push(decodeURIComponent(matchKey[1]).trim());
+    if (matchPin)   validPins.push(decodeURIComponent(matchPin[1]).trim());
+    if (matchToken) validKeys.push(decodeURIComponent(matchToken[1]).trim());
 
-    // Check device_assignments table for access_password
+    // Parse credentials from device_assignments.access_password
     if (dev.id) {
       try {
-        const assignRes = await fetch(`${url.replace(/\/$/, '')}/rest/v1/device_assignments?device_id=eq.${encodeURIComponent(dev.id)}&select=access_password`, {
-          headers: { apikey: key, Authorization: `Bearer ${key}` }
+        const aRes = await fetch(`${supaUrl.replace(/\/$/, '')}/rest/v1/device_assignments?device_id=eq.${encodeURIComponent(dev.id)}&select=access_password`, {
+          headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}` }
         });
-        if (assignRes.ok) {
-          const assignments = await assignRes.json();
+        if (aRes.ok) {
+          const assignments = await aRes.json();
           if (Array.isArray(assignments)) {
             for (const a of assignments) {
-              if (a.access_password) validPins.add(String(a.access_password).trim());
+              if (a.access_password) validPins.push(String(a.access_password).trim());
             }
           }
         }
       } catch (_) {}
     }
 
-    // Check device_rentals table for active stream credentials
+    // Parse credentials from active device_rentals
     try {
-      const rentRes = await fetch(`${url.replace(/\/$/, '')}/rest/v1/device_rentals?serial_number=eq.${encodeURIComponent(serial)}&select=status,stream_url,expires_at`, {
-        headers: { apikey: key, Authorization: `Bearer ${key}` }
+      const rRes = await fetch(`${supaUrl.replace(/\/$/, '')}/rest/v1/device_rentals?serial_number=eq.${encodeURIComponent(serial)}&select=status,stream_url,expires_at`, {
+        headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}` }
       });
-      if (rentRes.ok) {
-        const rentals = await rentRes.json();
+      if (rRes.ok) {
+        const rentals = await rRes.json();
         if (Array.isArray(rentals)) {
           for (const r of rentals) {
-            if (r.status === 'active' || r.status === 'paid') {
-              if (r.expires_at && new Date(r.expires_at) < new Date()) continue;
+            if ((r.status === 'active' || r.status === 'paid') && !(r.expires_at && new Date(r.expires_at) < new Date())) {
               const rUrl = r.stream_url || '';
-              const rKey = rUrl.match(/[?&]key=([^&]+)/i);
-              const rPin = rUrl.match(/[?&]pin=([^&]+)/i);
+              const rKey   = rUrl.match(/[?&]key=([^&]+)/i);
+              const rPin   = rUrl.match(/[?&]pin=([^&]+)/i);
               const rToken = rUrl.match(/[?&]token=([^&]+)/i);
-              if (rKey) validKeys.add(decodeURIComponent(rKey[1]).trim());
-              if (rPin) validPins.add(decodeURIComponent(rPin[1]).trim());
-              if (rToken) validKeys.add(decodeURIComponent(rToken[1]).trim());
+              if (rKey)   validKeys.push(decodeURIComponent(rKey[1]).trim());
+              if (rPin)   validPins.push(decodeURIComponent(rPin[1]).trim());
+              if (rToken) validKeys.push(decodeURIComponent(rToken[1]).trim());
             }
           }
         }
       }
     } catch (_) {}
 
-    credentialCache.set(serial, { validKeys, validPins, at: Date.now() });
+    // 3. Store in Redis / in-memory cache (30s TTL)
+    await cache.set(cacheKey, { validKeys, validPins, status: devStatus }, cache.TTL.CREDENTIALS);
 
-    if (validPins.has(input) || validKeys.has(input)) return true;
+    if (devStatus === 'suspended' || devStatus === 'blocked' || devStatus === 'revoked') return false;
+    if (validPins.includes(input) || validKeys.includes(input)) return true;
     for (const k of validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
     for (const p of validPins) { if (p === input) return true; }
-
     return false;
   } catch (err) {
     logger.warn(`[StreamService] Credential validation error for ${serial}: ${err.message}`);

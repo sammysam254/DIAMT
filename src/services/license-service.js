@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const logger = require('../utils/logger');
+const cache = require('./cache-service');
 
 // ─── DNS-over-HTTPS (DoH) Client ──────────────────────────────────────────
 // Prevent survey apps from analyzing DNS queries to detect infrastructure
@@ -179,38 +180,50 @@ async function syncDeviceToCloud(params) {
   if (!client) return;
 
   const syncSignature = `${serial}:${model || ''}:${brand || ''}:${streamUrl || ''}:${localUrl || ''}:${port || ''}:${bindingCode || ''}:${status || ''}`;
-  const lastState = lastDeviceSyncState.get(serial);
-  // Skip redundant cloud sync if device state hasn't changed and synced in the last 15 minutes
-  if (lastState && lastState.signature === syncSignature && (Date.now() - lastState.at < 15 * 60 * 1000)) {
-    return;
-  }
+
+  // Check Redis / in-memory sync state cache (15 min TTL) before hitting Supabase
+  const syncCacheKey = `sync:${serial}`;
+  const lastSync = await cache.get(syncCacheKey);
+  if (lastSync && lastSync.signature === syncSignature) return;
 
   try {
     let finalStreamUrl = streamUrl || null;
 
-    // Check if an existing rotated stream_url with key= or pin= exists in Supabase for this device
-    try {
-      const exRes = await client.get(`/devices?serial=eq.${encodeURIComponent(serial)}&select=stream_url`);
-      if (exRes.data && Array.isArray(exRes.data) && exRes.data.length > 0 && exRes.data[0].stream_url) {
-        const dbUrl = exRes.data[0].stream_url;
-        if (dbUrl.includes('key=') || dbUrl.includes('pin=')) {
-          // Preserve secure rotation key & pin while upgrading domain to live Cloudflare tunnel
-          try {
-            const parsedDb = new URL(dbUrl);
-            const parsedNew = new URL(streamUrl);
-            parsedDb.protocol = parsedNew.protocol;
-            parsedDb.host = parsedNew.host;
-            finalStreamUrl = parsedDb.toString();
-          } catch (_) {
-            finalStreamUrl = streamUrl;
-          }
-          const matchKey = dbUrl.match(/key=([^&]+)/);
-          if (matchKey && matchKey[1]) ROTATED_STREAM_KEYS.set(serial, matchKey[1]);
-          const matchPin = dbUrl.match(/pin=([^&]+)/);
-          if (matchPin && matchPin[1]) ROTATED_STREAM_PINS.set(serial, matchPin[1]);
+    // Check Redis cache for existing device stream_url before querying Supabase
+    let dbStreamUrl = null;
+    const deviceCacheKey = `device:${serial}`;
+    const cachedDevice = await cache.get(deviceCacheKey);
+    if (cachedDevice && cachedDevice.stream_url) {
+      dbStreamUrl = cachedDevice.stream_url;
+    } else {
+      try {
+        const exRes = await client.get(`/devices?serial=eq.${encodeURIComponent(serial)}&select=stream_url`);
+        if (exRes.data && Array.isArray(exRes.data) && exRes.data.length > 0 && exRes.data[0].stream_url) {
+          dbStreamUrl = exRes.data[0].stream_url;
+          // Cache device info
+          await cache.set(deviceCacheKey, { stream_url: dbStreamUrl }, cache.TTL.DEVICE_INFO);
         }
+      } catch (_) {}
+    }
+
+    if (dbStreamUrl) {
+      // Preserve secure rotation key & pin while upgrading domain to live Cloudflare tunnel
+      if (dbStreamUrl.includes('key=') || dbStreamUrl.includes('pin=')) {
+        try {
+          const parsedDb = new URL(dbStreamUrl);
+          const parsedNew = new URL(streamUrl);
+          parsedDb.protocol = parsedNew.protocol;
+          parsedDb.host = parsedNew.host;
+          finalStreamUrl = parsedDb.toString();
+        } catch (_) {
+          finalStreamUrl = streamUrl;
+        }
+        const matchKey = dbStreamUrl.match(/key=([^&]+)/);
+        if (matchKey && matchKey[1]) ROTATED_STREAM_KEYS.set(serial, matchKey[1]);
+        const matchPin = dbStreamUrl.match(/pin=([^&]+)/);
+        if (matchPin && matchPin[1]) ROTATED_STREAM_PINS.set(serial, matchPin[1]);
       }
-    } catch (_) {}
+    }
 
     // 1. Sync to public.devices table (used by website dashboards)
     const devicesPayload = {
@@ -231,15 +244,22 @@ async function syncDeviceToCloud(params) {
       headers: { Prefer: 'resolution=merge-duplicates' },
     });
 
-    // 2. Check machine_bindings to find owner user_id if machine is bound to a user account
+    // Cache machine binding lookup (5 min TTL)
     let ownerUserId = 'RENTAL_USER_DEFAULT';
     if (bindingCode) {
-      try {
-        const mbRes = await client.get(`/machine_bindings?binding_code=eq.${encodeURIComponent(bindingCode)}&select=user_id`);
-        if (mbRes.data && Array.isArray(mbRes.data) && mbRes.data.length > 0 && mbRes.data[0].user_id) {
-          ownerUserId = mbRes.data[0].user_id;
-        }
-      } catch (_) {}
+      const mbCacheKey = `mb:${bindingCode}`;
+      const cachedMb = await cache.get(mbCacheKey);
+      if (cachedMb) {
+        ownerUserId = cachedMb.user_id || ownerUserId;
+      } else {
+        try {
+          const mbRes = await client.get(`/machine_bindings?binding_code=eq.${encodeURIComponent(bindingCode)}&select=user_id`);
+          if (mbRes.data && Array.isArray(mbRes.data) && mbRes.data.length > 0 && mbRes.data[0].user_id) {
+            ownerUserId = mbRes.data[0].user_id;
+            await cache.set(mbCacheKey, { user_id: ownerUserId }, cache.TTL.LICENSE);
+          }
+        } catch (_) {}
+      }
     }
 
     // 3. Sync to public.device_rentals table (used by netlify admin portal & rental hub)
@@ -278,7 +298,10 @@ async function syncDeviceToCloud(params) {
       logger.warn(`[LicenseService] device_rentals sync notice for ${serial}: ${rentalErr.message}`);
     }
 
+    // Persist sync state in Redis (15 min TTL) to prevent redundant Supabase writes
+    await cache.set(syncCacheKey, { signature: syncSignature, at: Date.now() }, cache.TTL.SYNC_STATE);
     lastDeviceSyncState.set(serial, { signature: syncSignature, at: Date.now() });
+
     logger.info(`[LicenseService] Device ${serial} synced to cloud (devices & device_rentals updated, url: ${finalStreamUrl})`);
   } catch (err) {
     logger.warn(`[LicenseService] Device sync notice for ${serial}: ${err.message}`);
