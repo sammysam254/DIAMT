@@ -171,10 +171,26 @@ async function handleDeviceAdd(device) {
     const { streamProcess, localUrl } = await startStreamServer(serial, port);
     logger.info(`Stream server started for ${serial}: ${localUrl}`);
 
-    // 5. Named tunnel / local stream URL
-    const rawDomain = (config.customDomain || config.domain || `localhost:${port}`).replace(/^https?:\/\//, '');
-    const protocol = rawDomain.includes('localhost') || rawDomain.includes('127.0.0.1') ? 'http' : 'https';
-    const publicUrl = `${protocol}://${rawDomain}`;
+    // 5. Establish fast Cloudflare tunnel or local stream URL
+    let publicUrl = `http://localhost:${port}`;
+    let tunnelProcess = null;
+
+    try {
+      if (config.domain && !config.domain.includes('localhost') && !config.domain.includes('127.0.0.1')) {
+        const rawDomain = config.domain.replace(/^https?:\/\//, '');
+        publicUrl = `https://${rawDomain}`;
+      } else {
+        const tunnel = await createTunnel(port);
+        if (tunnel && tunnel.publicUrl) {
+          publicUrl = tunnel.publicUrl;
+          tunnelProcess = tunnel.tunnelProcess;
+          logger.info(`[+] Fast Cloudflare tunnel active for ${serial}: ${publicUrl}`);
+        }
+      }
+    } catch (tErr) {
+      logger.warn(`Tunnel notice for ${serial} (using local endpoint): ${tErr.message}`);
+    }
+
     const streamUrl = buildStreamUrl(publicUrl, port, realSerial || serial);
 
     logger.info(`[OK] Stream URL for ${serial}: ${streamUrl}`);
@@ -182,7 +198,7 @@ async function handleDeviceAdd(device) {
     // 7. Register with process manager (under both serial and realSerial if different)
     const sessionObj = {
       streamProcess,
-      tunnelProcess: null,
+      tunnelProcess,
       port,
       publicUrl,
       streamUrl,
