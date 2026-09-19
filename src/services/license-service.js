@@ -193,18 +193,21 @@ async function syncDeviceToCloud(params) {
       const exRes = await client.get(`/devices?serial=eq.${encodeURIComponent(serial)}&select=stream_url`);
       if (exRes.data && Array.isArray(exRes.data) && exRes.data.length > 0 && exRes.data[0].stream_url) {
         const dbUrl = exRes.data[0].stream_url;
-        if (dbUrl.includes('key=')) {
-          finalStreamUrl = dbUrl;
+        if (dbUrl.includes('key=') || dbUrl.includes('pin=')) {
+          // Preserve secure rotation key & pin while upgrading domain to live Cloudflare tunnel
+          try {
+            const parsedDb = new URL(dbUrl);
+            const parsedNew = new URL(streamUrl);
+            parsedDb.protocol = parsedNew.protocol;
+            parsedDb.host = parsedNew.host;
+            finalStreamUrl = parsedDb.toString();
+          } catch (_) {
+            finalStreamUrl = streamUrl;
+          }
           const matchKey = dbUrl.match(/key=([^&]+)/);
-          if (matchKey && matchKey[1]) {
-            ROTATED_STREAM_KEYS.set(serial, matchKey[1]);
-          }
-        }
-        if (dbUrl.includes('pin=')) {
+          if (matchKey && matchKey[1]) ROTATED_STREAM_KEYS.set(serial, matchKey[1]);
           const matchPin = dbUrl.match(/pin=([^&]+)/);
-          if (matchPin && matchPin[1]) {
-            ROTATED_STREAM_PINS.set(serial, matchPin[1]);
-          }
+          if (matchPin && matchPin[1]) ROTATED_STREAM_PINS.set(serial, matchPin[1]);
         }
       }
     } catch (_) {}
