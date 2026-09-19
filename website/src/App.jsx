@@ -9,42 +9,18 @@ import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import WorkerDashboard from './pages/WorkerDashboard';
 import BlockedScreen from './pages/BlockedScreen';
+import DiamtLoader from './components/DiamtLoader';
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, profile, loading } = useAuth();
 
   if (loading) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg-main, #070b16)',
-        color: 'var(--text-main, #f8fafc)',
-        gap: '16px'
-      }}>
-        <div style={{
-          width: '50px',
-          height: '50px',
-          borderRadius: '14px',
-          background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 0 25px rgba(56, 189, 248, 0.4)',
-          marginBottom: '8px'
-        }}>
-          <span style={{ fontWeight: 900, color: '#fff', fontSize: '22px' }}>D</span>
-        </div>
-        <div style={{ fontWeight: 800, fontSize: '18px', letterSpacing: '0.5px' }}>
-          DIAMT <span style={{ color: 'var(--primary, #38bdf8)' }}>CLOUD</span>
-        </div>
-        <div style={{ fontSize: '13px', color: 'var(--text-muted, #94a3b8)' }}>
-          Synchronizing Device Farm Hub...
-        </div>
-      </div>
+      <DiamtLoader 
+        fullScreen={true} 
+        text="SYNCHRONIZING SECURE HARDWARE CLOUD" 
+        subtext="Authenticating DIAMT Autonomous Device Farm Nodes..." 
+      />
     );
   }
 

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Smartphone, Lock, Unlock, ExternalLink, RefreshCw, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import SEO from '../components/SEO';
+import DiamtLoader from '../components/DiamtLoader';
 
 export default function WorkerDashboard() {
   const { profile } = useAuth();
@@ -132,7 +133,9 @@ export default function WorkerDashboard() {
       </header>
 
       {loading ? (
-        <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>Loading assigned devices...</div>
+        <div style={{ padding: '48px 0' }}>
+          <DiamtLoader text="LOCATING ASSIGNED DEVICES" subtext="Decrypting secure access tokens for worker node..." size="small" />
+        </div>
       ) : assignments.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-muted)' }}>
           <Lock size={44} style={{ marginBottom: '14px', opacity: 0.4 }} />

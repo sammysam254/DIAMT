@@ -6,6 +6,7 @@ import { Shield, Key, CheckCircle, XCircle, Users, RefreshCw, Lock, Unlock, User
 import CctvWall from '../components/CctvWall';
 import DeviceAllocationSection from '../components/DeviceAllocationSection';
 import SystemLogsModal from '../components/SystemLogsModal';
+import DiamtLoader from '../components/DiamtLoader';
 import { generate16CharKey, generate6DigitPin, rotateUrlWithKeyAndPin } from '../lib/keyGenerator';
 
 export default function SeedAdminDashboard() {
@@ -307,7 +308,9 @@ export default function SeedAdminDashboard() {
         </h3>
 
         {loading ? (
-          <div>Loading devices...</div>
+          <div style={{ padding: '32px 0' }}>
+            <DiamtLoader text="RETRIEVING REGISTERED HARDWARE" subtext="Synchronizing devices from DIAMT cloud nodes..." size="small" />
+          </div>
         ) : devices.length === 0 ? (
           <div style={{ color: 'var(--text-muted)' }}>No devices registered yet.</div>
         ) : (
@@ -427,7 +430,9 @@ export default function SeedAdminDashboard() {
         </div>
 
         {loading ? (
-          <div>Loading machine bindings...</div>
+          <div style={{ padding: '32px 0' }}>
+            <DiamtLoader text="RETRIEVING MACHINE REGISTRY" subtext="Synchronizing worker nodes and host identities..." size="small" />
+          </div>
         ) : bindings.length === 0 ? (
           <div style={{ color: 'var(--text-muted)' }}>No machine binding codes registered yet. Start the setup script on a computer to bind.</div>
         ) : (

@@ -6,6 +6,7 @@ import { Server, Key, Smartphone, Users, RefreshCw, Link2, ExternalLink, UserX, 
 import CctvWall from '../components/CctvWall';
 import DeviceAllocationSection from '../components/DeviceAllocationSection';
 import SystemLogsModal from '../components/SystemLogsModal';
+import DiamtLoader from '../components/DiamtLoader';
 import { generate16CharKey, generate6DigitPin, rotateUrlWithKeyAndPin } from '../lib/keyGenerator';
 
 export default function SuperAdminDashboard() {
@@ -260,7 +261,9 @@ export default function SuperAdminDashboard() {
         </h3>
 
         {loading ? (
-          <div>Loading devices...</div>
+          <div style={{ padding: '32px 0' }}>
+            <DiamtLoader text="FETCHING HARDWARE GRID" subtext="Synchronizing connected devices from DIAMT cloud..." size="small" />
+          </div>
         ) : devices.length === 0 ? (
           <div style={{ color: 'var(--text-muted)' }}>No devices connected. Launch your DIAMT Agent desktop app to connect devices automatically.</div>
         ) : (

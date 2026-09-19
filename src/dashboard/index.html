@@ -176,6 +176,107 @@
     .modal-body iframe {
       width: 100%; height: 100%; border: none; display: block;
     }
+    /* DIAMT Signature Quantum Orbital Loader */
+    .diamt-loader-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+      grid-column: 1 / -1;
+    }
+    .diamt-loader-core {
+      position: relative;
+      width: 72px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .diamt-orbit-ring {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .diamt-orbit-ring.outer {
+      inset: 0;
+      border: 2px solid transparent;
+      border-top-color: #38bdf8;
+      border-right-color: #2563eb;
+      animation: diamtOrbitSpin 1.6s cubic-bezier(0.65, 0.05, 0.36, 1) infinite;
+    }
+    .diamt-orbit-ring.inner {
+      inset: 8px;
+      border: 1.5px dashed rgba(56, 189, 248, 0.4);
+      border-bottom-color: #818cf8;
+      animation: diamtOrbitReverse 2.4s linear infinite;
+    }
+    .diamt-core-emblem {
+      position: relative;
+      z-index: 2;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #1d4ed8 0%, #0284c7 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+      animation: diamtCorePulse 2.8s ease-in-out infinite;
+    }
+    .diamt-core-svg {
+      width: 20px;
+      height: 20px;
+      color: #ffffff;
+    }
+    .diamt-loader-brand {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+    .diamt-loader-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #93c5fd;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      letter-spacing: 1px;
+    }
+    .diamt-pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 10px #38bdf8;
+      animation: diamtPulseDot 1.4s ease-in-out infinite;
+    }
+    .diamt-loader-subtext {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    @keyframes diamtOrbitSpin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes diamtOrbitReverse {
+      0% { transform: rotate(360deg); }
+      100% { transform: rotate(0deg); }
+    }
+    @keyframes diamtCorePulse {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.4)); }
+      50% { transform: scale(1.06); filter: drop-shadow(0 0 20px rgba(56, 189, 248, 0.8)); }
+    }
+    @keyframes diamtPulseDot {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
   </style>
 </head>
 <body>
@@ -183,7 +284,13 @@
   <main class="container">
     <header class="navbar">
       <div class="brand">
-        <div class="brand-icon">📱</div>
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" style="width: 24px; height: 24px; color: #fff;">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
         <div>
           <h1 class="brand-text">DIAMT Agent</h1>
           <div style="font-size: 12px; color: var(--text-dim);">Local Machine Control Center</div>
@@ -241,10 +348,21 @@
       </div>
 
       <div id="devicesContainer" class="devices-grid">
-        <div class="empty-state">
-          <div style="font-size: 40px; margin-bottom: 12px;">📱</div>
-          <div style="font-size: 16px; font-weight: 700;">Scanning for Android Devices...</div>
-          <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Connect Android phones via USB with USB Debugging enabled.</div>
+        <div class="diamt-loader-container">
+          <div class="diamt-loader-core">
+            <div class="diamt-orbit-ring outer"></div>
+            <div class="diamt-orbit-ring inner"></div>
+            <div class="diamt-core-emblem">
+              <svg viewBox="0 0 24 24" fill="none" class="diamt-core-svg">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="diamt-loader-brand">DIAMT <span style="color: #38bdf8;">AGENT</span></div>
+          <div class="diamt-loader-title"><span class="diamt-pulse-dot"></span>INTERROGATING USB BUS</div>
+          <div class="diamt-loader-subtext">Scanning connected hardware and WebRTC streaming nodes...</div>
         </div>
       </div>
     </section>
@@ -281,6 +399,27 @@
     let currentSessionToken = '';
     let activeStreamUrl = '';
 
+    function getLoaderHtml(text = 'INTERROGATING USB & ADB BUS', subtext = 'Enumerating hardware nodes and video pipelines...') {
+      return `
+        <div class="diamt-loader-container">
+          <div class="diamt-loader-core">
+            <div class="diamt-orbit-ring outer"></div>
+            <div class="diamt-orbit-ring inner"></div>
+            <div class="diamt-core-emblem">
+              <svg viewBox="0 0 24 24" fill="none" class="diamt-core-svg">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="diamt-loader-brand">DIAMT <span style="color: #38bdf8;">SYSTEM</span></div>
+          <div class="diamt-loader-title"><span class="diamt-pulse-dot"></span>${text}</div>
+          <div class="diamt-loader-subtext">${subtext}</div>
+        </div>
+      `;
+    }
+
     async function fetchDevices() {
       try {
         const res = await fetch('/api/devices');
@@ -315,7 +454,13 @@
       if (isRemoteHost || (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) {
         container.innerHTML = `
           <div class="empty-state" style="border-color: rgba(56, 189, 248, 0.3);">
-            <div style="font-size: 40px; margin-bottom: 12px;">🛡️</div>
+            <div style="margin-bottom: 12px; display: flex; justify-content: center;">
+              <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+                <svg viewBox="0 0 24 24" fill="none" style="width: 24px; height: 24px;">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </div>
             <div style="font-size: 16px; font-weight: 700; color: var(--primary);">Cloud Stream Protection Active</div>
             <div style="font-size: 13px; color: var(--text-muted); margin-top: 6px; line-height: 1.6;">
               Device streams are active and routed to your online account. For security, individual device streams are managed exclusively through your online website dashboard.
@@ -328,7 +473,14 @@
       if (!devices || devices.length === 0) {
         container.innerHTML = `
           <div class="empty-state">
-            <div style="font-size: 40px; margin-bottom: 12px;">📱</div>
+            <div style="margin-bottom: 12px; display: flex; justify-content: center;">
+              <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: #3b82f6;">
+                <svg viewBox="0 0 24 24" fill="none" style="width: 24px; height: 24px;">
+                  <rect x="5" y="2" width="14" height="20" rx="2" stroke="currentColor" stroke-width="2"/>
+                  <line x1="12" y1="18" x2="12.01" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+            </div>
             <div style="font-size: 16px; font-weight: 700;">No Devices Connected</div>
             <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Plug in Android phones via USB with USB Debugging turned on.</div>
           </div>
