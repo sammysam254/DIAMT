@@ -30,7 +30,7 @@ export default function RentalsLayout({ children }) {
             ⚡
           </div>
           <div>
-            <div style={{ fontWeight: 800, fontSize: '15px', letterSpacing: '-0.3px', color: '#fff' }}>FlexPulse</div>
+            <div style={{ fontWeight: 800, fontSize: '15px', letterSpacing: '-0.3px', color: '#fff' }}>DIAMT</div>
             <div style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 700, lineHeight: 1 }}>RENTALS STORE</div>
           </div>
         </div>
@@ -57,8 +57,8 @@ export default function RentalsLayout({ children }) {
               ⚡
             </div>
             <div>
-              <div style={{ fontWeight: 800, fontSize: '16px', letterSpacing: '-0.3px' }}>FlexPulse</div>
-              <div style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: 700 }}>RENTALS STORE</div>
+              <div style={{ fontWeight: 800, fontSize: '16px', letterSpacing: '-0.3px' }}>DIAMT</div>
+              <div style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: 700 }}>DEVICE RENTALS</div>
             </div>
           </div>
           {mobileMenuOpen && (

@@ -1,10 +1,4 @@
-# DeviceFarm Agent — One-Click Installer
-
-## Direct Download Link
-
-**[📥 Click here to download DeviceFarm-Agent-Setup.bat](https://raw.githubusercontent.com/sammysam254/devicefarm-agent/main/DeviceFarm-Agent-Setup.bat)**
-
-Right-click the link above and select "Save link as..." to download the installer.
+# DIAMT Agent — One-Click Installer
 
 ## What It Does
 
@@ -13,11 +7,11 @@ This single `.bat` file is all you need. When you run it, it will automatically:
 1. ✅ Install Git (if missing)
 2. ✅ Install Node.js LTS (if missing)  
 3. ✅ Install Android Debug Bridge (ADB)
-4. ✅ Clone the agent code from GitHub
+4. ✅ Setup the agent code
 5. ✅ Download scrcpy-server.jar for streaming
 6. ✅ Install all dependencies (npm packages + Electron)
-7. ✅ Verify payment ($30/month rental)
-8. ✅ Launch the DeviceFarm agent
+7. ✅ Launch the DIAMT agent and begin autonomous cloud device sync
+
 
 ## Installation Steps
 

@@ -5,8 +5,8 @@ const axios = require('axios');
 const memoryWallets = new Map();
 
 function getSupabaseClient() {
-  const supabaseUrl = process.env.SUPABASE_URL || 'https://lazdyihryfvrlczczvxz.supabase.co';
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhemR5aWhyeWZ2cmxjemN6dnh6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NzM3NjE2OCwiZXhwIjoyMTAyOTUyMTY4fQ.6hAOEa2_nUTQh_Z3oU2e8QX2nP5EwzHmKiEZ06X7UWc';
+  const supabaseUrl = process.env.SUPABASE_URL || '';
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
   return axios.create({
     baseURL: `${supabaseUrl.replace(/\/$/, '')}/rest/v1`,

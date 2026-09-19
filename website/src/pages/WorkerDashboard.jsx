@@ -111,7 +111,7 @@ export default function WorkerDashboard() {
   return (
     <DashboardLayout>
       <SEO
-        title="Worker Control Dashboard — FlexPulse Cloud"
+        title="Worker Control Dashboard — DIAMT Cloud"
         description="Assigned devices control center."
         noIndex={true}
       />

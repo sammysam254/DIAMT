@@ -21,8 +21,8 @@ exports.handler = async (event) => {
       };
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL || 'https://lazdyihryfvrlczczvxz.supabase.co';
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhemR5aWhyeWZ2cmxjemN6dnh6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NzM3NjE2OCwiZXhwIjoyMTAyOTUyMTY4fQ.6hAOEa2_nUTQh_Z3oU2e8QX2nP5EwzHmKiEZ06X7UWc';
+    const supabaseUrl = process.env.SUPABASE_URL || '';
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 
     const client = axios.create({
       baseURL: `${supabaseUrl.replace(/\/$/, '')}/rest/v1`,
@@ -207,7 +207,7 @@ exports.handler = async (event) => {
       try {
         const checkRes = await client.get(`/device_rentals?serial_number=eq.${encodeURIComponent(serialNumber)}&select=stream_url`);
         let currentUrl = (checkRes.data && checkRes.data.length > 0) ? checkRes.data[0].stream_url : '';
-        let baseUrl = currentUrl ? currentUrl.split('?')[0] : 'https://agent.dennoh.site/';
+        let baseUrl = currentUrl ? currentUrl.split('?')[0] : (process.env.STREAM_BASE_URL || 'http://localhost:8100/');
         if (!baseUrl.endsWith('/')) baseUrl += '/';
         let newStreamUrl = `${baseUrl}?udid=${encodeURIComponent(serialNumber)}&key=${newKey}&pin=${newPin}`;
 

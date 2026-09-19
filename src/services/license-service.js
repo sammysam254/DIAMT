@@ -160,54 +160,13 @@ function getSupabaseClient() {
  * Returns { isActive, mode, bindingCode, note }
  */
 async function checkLicenseStatus(bindingCode) {
-  const cached = licenseCache.get(bindingCode);
-  if (cached && Date.now() - cached.at < TWO_DAYS_MS) {
-    return cached.value;
-  }
-
-  const client = getSupabaseClient();
-
-  // If Supabase not configured — standalone / free mode
-  if (!client) {
-    const result = { isActive: true, mode: 'standalone', bindingCode, note: 'No Supabase configured — standalone mode' };
-    licenseCache.set(bindingCode, { value: result, at: Date.now() });
-    saveDiskLicenseCache();
-    return result;
-  }
-
-  try {
-    // Only query required columns to minimize egress
-    const res = await client.get(
-      `/machine_bindings?binding_code=eq.${encodeURIComponent(bindingCode)}&select=is_licensed,license_mode,license_note&limit=1`
-    );
-    const rows = res.data;
-
-    if (!rows || rows.length === 0) {
-      // No binding record yet in cloud — treat as free/active
-      const result = { isActive: true, mode: 'free', bindingCode, note: 'Unbound machine — active free mode' };
-      licenseCache.set(bindingCode, { value: result, at: Date.now() });
-      saveDiskLicenseCache();
-      return result;
-    }
-
-    const lic = rows[0];
-    const isActive = lic.is_licensed !== false;
-    const result = {
-      isActive,
-      mode: lic.license_mode || 'licensed',
-      bindingCode,
-      note: isActive ? 'Licensed and active' : ('Revoked: ' + (lic.license_note || 'License revoked by seed admin')),
-    };
-    licenseCache.set(bindingCode, { value: result, at: Date.now() });
-    saveDiskLicenseCache();
-    return result;
-  } catch (err) {
-    logger.warn(`[LicenseService] License check note for ${bindingCode}: ${err.message}`);
-    const result = { isActive: true, mode: 'offline_grace', bindingCode, note: 'Supabase notice — active grace mode' };
-    licenseCache.set(bindingCode, { value: result, at: Date.now() });
-    saveDiskLicenseCache();
-    return result;
-  }
+  // In standalone DIAMT cloud deployment, machines run autonomously without binding code licensing restrictions
+  return {
+    isActive: true,
+    mode: 'standalone',
+    bindingCode: bindingCode || 'DIAMT-STANDALONE',
+    note: 'DIAMT Active Standalone Mode',
+  };
 }
 
 /**

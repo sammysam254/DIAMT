@@ -23,7 +23,7 @@ export default function Login() {
     try {
       await login(email, password);
       playWelcomeSound();
-      setWelcomeMsg(`Welcome back to FlexPulse!`);
+      setWelcomeMsg(`Welcome back to DIAMT!`);
       setTimeout(() => {
         navigate('/store');
       }, 1500);
@@ -36,9 +36,8 @@ export default function Login() {
   return (
     <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <SEO
-        title="Sign In — FlexPulse Device Rentals Marketplace"
+        title="Sign In — DIAMT Device Rentals Marketplace"
         description="Sign in to manage your rented dedicated Android devices, access remote WebRTC streams, and view active monthly rentals."
-        canonical="https://rentals.dennoh.site/login"
       />
       <div className="card" style={{ maxWidth: '420px', width: '100%', padding: '36px' }}>
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>

@@ -24,7 +24,7 @@ export function generate6DigitPin() {
 
 // Constructs stream URL with 16-character key and 6-digit PIN
 export function rotateUrlWithKeyAndPin(currentUrl, serial, newKey, newPin) {
-  const baseUrl = currentUrl ? currentUrl.split('?')[0] : 'https://agent.dennoh.site/';
+  const baseUrl = currentUrl ? currentUrl.split('?')[0] : (typeof window !== 'undefined' ? `${window.location.origin}/` : 'http://localhost:8100/');
   const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
   return `${cleanBase}?udid=${encodeURIComponent(serial)}&key=${encodeURIComponent(newKey)}&pin=${encodeURIComponent(newPin)}`;
 }

@@ -3,30 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FlexPulse DeviceFarm Agent — Local Machine Control Center</title>
-  <meta name="description" content="Local control center and hardware agent dashboard for managing USB-connected Android devices, hardware binding, and WebRTC streaming.">
+  <title>DIAMT Agent — Local Machine Control Center</title>
+  <meta name="description" content="Local control center and hardware agent dashboard for managing USB-connected Android devices and WebRTC streaming.">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#07090e">
+  <meta name="theme-color" content="#0b132b">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-dark: #07090e;
-      --bg-card: rgba(15, 23, 42, 0.75);
-      --bg-card-hover: rgba(30, 41, 59, 0.8);
-      --border-color: rgba(255, 255, 255, 0.08);
-      --border-accent: rgba(56, 189, 248, 0.25);
-      --primary: #38bdf8;
-      --primary-glow: rgba(56, 189, 248, 0.35);
-      --purple: #c084fc;
+      --bg-dark: #0b132b;
+      --bg-card: rgba(19, 34, 71, 0.75);
+      --bg-card-hover: rgba(27, 42, 84, 0.85);
+      --border-color: rgba(59, 130, 246, 0.2);
+      --border-accent: rgba(59, 130, 246, 0.45);
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-glow: rgba(37, 99, 235, 0.4);
+      --purple: #818cf8;
       --pink: #f472b6;
-      --emerald: #34d399;
-      --amber: #fbbf24;
-      --rose: #fb7185;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #ef4444;
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
       --text-dim: #64748b;
-      --gradient-brand: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+      --gradient-brand: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #60a5fa 100%);
       --radius-lg: 20px;
       --radius-md: 14px;
       --radius-sm: 8px;
@@ -184,7 +185,7 @@
       <div class="brand">
         <div class="brand-icon">📱</div>
         <div>
-          <h1 class="brand-text">DeviceFarm Agent</h1>
+          <h1 class="brand-text">DIAMT Agent</h1>
           <div style="font-size: 12px; color: var(--text-dim);">Local Machine Control Center</div>
         </div>
       </div>
@@ -214,21 +215,21 @@
       </div>
     </section>
 
-    <!-- Machine Binding Code Banner -->
-    <section class="binding-banner" aria-label="Machine Binding Info">
+    <!-- Autonomous Cloud Sync Banner -->
+    <section class="binding-banner" aria-label="Machine Cloud Sync Info">
       <div>
         <div style="font-size: 12px; font-weight: 800; color: var(--primary); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px;">
-          🔑 MACHINE BINDING CODE (STATIC HARDWARE CODE)
+          ⚡ AUTONOMOUS CLOUD AUTO-SYNC: ACTIVE
         </div>
-        <div style="font-size: 34px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #fff; letter-spacing: 4px;" id="localBindingCodeBig">
-          Loading...
+        <div style="font-size: 30px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #fff; letter-spacing: 3px;" id="localBindingCodeBig">
+          ONLINE & CONNECTED
         </div>
         <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-          Enter this code on your online website dashboard to claim this machine and manage device streams online.
+          All connected Android devices synchronize directly to your DIAMT Cloud Dashboard in real time without requiring manual machine binding codes.
         </div>
       </div>
-      <button class="btn-action btn-primary" style="padding: 12px 20px; font-size: 14px;" onclick="copyBindingCode()">
-        📋 Copy 8-Digit Code
+      <button class="btn-action btn-primary" style="padding: 12px 20px; font-size: 14px;" onclick="fetchDevices()">
+        🔄 Sync Devices Now
       </button>
     </section>
 
@@ -340,7 +341,7 @@
         const token = currentSessionToken || '';
         const localStreamPath = `/?udid=${encodeURIComponent(d.serial)}&pin=${encodeURIComponent(pin)}&token=${encodeURIComponent(token)}`;
         const directPortUrl = `http://localhost:${d.port}/?pin=${encodeURIComponent(pin)}&token=${encodeURIComponent(token)}`;
-        const publicUrl = d.streamUrl || `https://agent.dennoh.site/?udid=${encodeURIComponent(d.serial)}&pin=${encodeURIComponent(pin)}`;
+        const publicUrl = d.streamUrl || `${window.location.origin}/?udid=${encodeURIComponent(d.serial)}`;
 
         return `
           <div class="device-card">

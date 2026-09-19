@@ -42,15 +42,15 @@ function decrypt(encryptedText) {
   }
 }
 
-// Pre-encrypted Production Credentials Payload
+// Production Credentials Payload (Configured via config.json or Environment Variables)
 const SECURE_PAYLOAD = {
-  encryptedSupabaseUrl: encrypt('https://lazdyihryfvrlczczvxz.supabase.co'),
-  encryptedSupabaseAnonKey: encrypt('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhemR5aWhyeWZ2cmxjemN6dnh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNzYxNjgsImV4cCI6MjEwMjk1MjE2OH0.fUBdMbDgV8e0Fk4mfVB8DqQc88vrw8oA6MdHXHFsXAs'),
-  encryptedSupabaseServiceRoleKey: encrypt('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhemR5aWhyeWZ2cmxjemN6dnh6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NzM3NjE2OCwiZXhwIjoyMTAyOTUyMTY4fQ.6hAOEa2_nUTQh_Z3oU2e8QX2nP5EwzHmKiEZ06X7UWc'),
-  encryptedAppUrl: encrypt('https://devicepay.netlify.app'),
-  encryptedPaystackPublicKey: encrypt('pk_live_558e1ed8114c63c09b135b1523443ecfffb60524'),
-  encryptedNowPaymentsKey: encrypt('QNJ3N44-2JP4AKM-PGPJXCK-3AQPC3T'),
-  encryptedAdminEmail: encrypt('sammyseth260@gmail.com'),
+  encryptedSupabaseUrl: encrypt(process.env.SUPABASE_URL || ''),
+  encryptedSupabaseAnonKey: encrypt(process.env.SUPABASE_ANON_KEY || ''),
+  encryptedSupabaseServiceRoleKey: encrypt(process.env.SUPABASE_SERVICE_ROLE_KEY || ''),
+  encryptedAppUrl: encrypt(process.env.APP_URL || ''),
+  encryptedPaystackPublicKey: encrypt(process.env.PAYSTACK_PUBLIC_KEY || ''),
+  encryptedNowPaymentsKey: encrypt(process.env.NOWPAYMENTS_API_KEY || ''),
+  encryptedAdminEmail: encrypt(process.env.ADMIN_EMAIL || ''),
 };
 
 /**
@@ -58,13 +58,13 @@ const SECURE_PAYLOAD = {
  */
 function getDecryptedSystemCredentials() {
   return {
-    supabaseUrl: decrypt(SECURE_PAYLOAD.encryptedSupabaseUrl),
-    supabaseAnonKey: decrypt(SECURE_PAYLOAD.encryptedSupabaseAnonKey),
-    supabaseServiceRoleKey: decrypt(SECURE_PAYLOAD.encryptedSupabaseServiceRoleKey),
-    appUrl: decrypt(SECURE_PAYLOAD.encryptedAppUrl),
-    paystackPublicKey: decrypt(SECURE_PAYLOAD.encryptedPaystackPublicKey),
-    nowPaymentsApiKey: decrypt(SECURE_PAYLOAD.encryptedNowPaymentsKey),
-    adminEmail: decrypt(SECURE_PAYLOAD.encryptedAdminEmail),
+    supabaseUrl: decrypt(SECURE_PAYLOAD.encryptedSupabaseUrl) || process.env.SUPABASE_URL || '',
+    supabaseAnonKey: decrypt(SECURE_PAYLOAD.encryptedSupabaseAnonKey) || process.env.SUPABASE_ANON_KEY || '',
+    supabaseServiceRoleKey: decrypt(SECURE_PAYLOAD.encryptedSupabaseServiceRoleKey) || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+    appUrl: decrypt(SECURE_PAYLOAD.encryptedAppUrl) || process.env.APP_URL || '',
+    paystackPublicKey: decrypt(SECURE_PAYLOAD.encryptedPaystackPublicKey) || process.env.PAYSTACK_PUBLIC_KEY || '',
+    nowPaymentsApiKey: decrypt(SECURE_PAYLOAD.encryptedNowPaymentsKey) || process.env.NOWPAYMENTS_API_KEY || '',
+    adminEmail: decrypt(SECURE_PAYLOAD.encryptedAdminEmail) || process.env.ADMIN_EMAIL || '',
   };
 }
 
@@ -73,3 +73,4 @@ module.exports = {
   decrypt,
   getDecryptedSystemCredentials,
 };
+

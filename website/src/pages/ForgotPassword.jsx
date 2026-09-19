@@ -103,9 +103,8 @@ export default function ForgotPassword() {
       background: 'radial-gradient(circle at top, rgba(56,189,248,0.1), transparent)'
     }}>
       <SEO
-        title="Forgot Password — FlexPulse Platform"
+        title="Forgot Password — DIAMT Platform"
         description="Choose between email reset link or 6-digit verification code to reset your password."
-        canonical="https://dennoh.site/forgot-password"
       />
       <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '36px 28px' }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>

@@ -90,9 +90,7 @@ export default function ForgotPassword() {
   return (
     <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <SEO
-        title="Reset Password — FlexPulse Device Rentals"
-        description="Choose between email reset link or 6-digit verification code to reset your password."
-        canonical="https://rentals.dennoh.site/forgot-password"
+        title="Reset Password — DIAMT Device Rentals"
       />
       <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '36px' }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>

@@ -92,8 +92,7 @@ export function AuthProvider({ children }) {
   const login = (email, password) => supabase.auth.signInWithPassword({ email, password });
   const signup = (email, password) => supabase.auth.signUp({ email, password });
   const resetPassword = (email) => {
-    const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    const siteUrl = isLocal ? (import.meta.env.VITE_SITE_URL || 'https://dennoh.site') : window.location.origin;
+    const siteUrl = import.meta.env.VITE_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : '');
     const redirectUrl = `${siteUrl.replace(/\/$/, '')}/reset-password`;
     return supabase.auth.resetPasswordForEmail(email, {
       redirectTo: redirectUrl,

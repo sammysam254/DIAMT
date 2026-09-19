@@ -1,6 +1,6 @@
-# FlexPulse Branding Assets
+# DIAMT Branding Assets
 
-Replace the files in this directory with your FlexPulse branding:
+Replace the files in this directory with your DIAMT branding:
 
 ## Files to replace:
 
@@ -12,7 +12,7 @@ Replace the files in this directory with your FlexPulse branding:
 - Location to upload: `website/public/favicon.svg` (or rename your file accordingly in `index.html`)
 
 ### Logo
-- Create a new logo file for FlexPulse
+- Create a new logo file for DIAMT
 - Recommended location: `website/public/logo.png` (or logo.svg)
 - Recommended size: 200x50 pixels minimum
 - Format: PNG or SVG
@@ -28,4 +28,4 @@ Replace the files in this directory with your FlexPulse branding:
 
 ## Current references:
 - Favicon link in `index.html`: `<link rel="icon" type="image/svg+xml" href="/favicon.svg" />`
-- All "DeviceFarm" text has been replaced with "FlexPulse"
+- All text has been configured for "DIAMT"

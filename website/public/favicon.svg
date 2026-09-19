@@ -1,27 +1,17 @@
 <svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-  <!-- Orange background -->
-  <rect width="256" height="256" fill="#F59E0B" rx="56"/>
+  <defs>
+    <linearGradient id="diamtFavicon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <!-- Twilight Sapphire background -->
+  <rect width="256" height="256" fill="url(#diamtFavicon)" rx="56"/>
   
-  <!-- Power button outline circles -->
-  <circle cx="128" cy="140" r="35" fill="none" stroke="white" stroke-width="12"/>
-  <circle cx="128" cy="140" r="52" fill="none" stroke="white" stroke-width="12"/>
-  
-  <!-- Center power button -->
-  <circle cx="128" cy="140" r="16" fill="white"/>
-  
-  <!-- Three upward arrows -->
-  <!-- Left arrow -->
-  <g transform="translate(85, 60)">
-    <path d="M 0 20 L 0 0 M -8 12 L 0 0 L 8 12" stroke="white" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  </g>
-  
-  <!-- Center arrow -->
-  <g transform="translate(128, 40)">
-    <path d="M 0 25 L 0 0 M -10 15 L 0 0 L 10 15" stroke="white" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  </g>
-  
-  <!-- Right arrow -->
-  <g transform="translate(171, 60)">
-    <path d="M 0 20 L 0 0 M -8 12 L 0 0 L 8 12" stroke="white" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  </g>
+  <!-- Modern device streaming badge -->
+  <rect x="64" y="44" width="128" height="168" rx="20" fill="none" stroke="white" stroke-width="12"/>
+  <circle cx="128" cy="180" r="10" fill="white"/>
+  <line x1="104" y1="64" x2="152" y2="64" stroke="white" stroke-width="8" stroke-linecap="round"/>
+  <!-- Central Pulse Wave -->
+  <path d="M 88 120 L 112 120 L 122 96 L 134 144 L 144 120 L 168 120" stroke="#93c5fd" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>

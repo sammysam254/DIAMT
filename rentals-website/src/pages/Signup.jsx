@@ -32,7 +32,7 @@ export default function Signup() {
       // If user session is established immediately without email confirmation
       if (data?.session) {
         playWelcomeSound();
-        setWelcomeMsg(`Welcome to FlexPulse, ${email}!`);
+        setWelcomeMsg(`Welcome to DIAMT, ${email}!`);
         setTimeout(() => navigate('/store'), 2000);
       } else if (verifyMode === 'link') {
         setLinkSentMsg(`Account registered! We've sent a verification link to ${email}. Please check your email inbox and click the link to activate your account.`);
@@ -79,7 +79,7 @@ export default function Signup() {
     try {
       await verifyOtp(email, token, 'signup');
       playWelcomeSound();
-      setWelcomeMsg(`Welcome to FlexPulse, ${email}!`);
+      setWelcomeMsg(`Welcome to DIAMT, ${email}!`);
       setTimeout(() => navigate('/store'), 2000);
     } catch (err) {
       setError(err.message || 'Invalid or expired verification code.');
@@ -91,9 +91,8 @@ export default function Signup() {
   return (
     <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <SEO
-        title="Create Account — FlexPulse Device Rentals"
-        description="Register and choose your verification method (6-Digit Code or Email Link) to access FlexPulse."
-        canonical="https://rentals.dennoh.site/signup"
+        title="Create Account — DIAMT Device Rentals"
+        description="Register and choose your verification method (6-Digit Code or Email Link) to access DIAMT."
       />
       <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '36px' }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
@@ -101,13 +100,13 @@ export default function Signup() {
             width: '52px',
             height: '52px',
             borderRadius: '16px',
-            background: 'linear-gradient(135deg, #0ea5e9, #a855f7)',
+            background: 'linear-gradient(135deg, var(--primary), var(--primary-hover))',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '24px',
             marginBottom: '12px',
-            boxShadow: '0 8px 24px rgba(14,165,233,0.3)'
+            boxShadow: '0 8px 24px rgba(37, 99, 235, 0.35)'
           }}>
             ⚡
           </div>
@@ -115,7 +114,7 @@ export default function Signup() {
             {welcomeMsg ? 'Account Verified' : (step === 2 && verifyMode === 'code' ? 'Verify Email Code' : 'Create Account')}
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
-            {welcomeMsg ? 'Welcome aboard' : (step === 2 && verifyMode === 'code' ? `Enter the 6-digit code sent to ${email}` : 'Join FlexPulse Device Rentals Marketplace')}
+            {welcomeMsg ? 'Welcome aboard' : (step === 2 && verifyMode === 'code' ? `Enter the 6-digit code sent to ${email}` : 'Join DIAMT Device Rentals Marketplace')}
           </p>
         </div>
 

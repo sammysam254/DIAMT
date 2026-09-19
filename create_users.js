@@ -1,7 +1,15 @@
-'use strict';
+let cfg = {};
+try {
+  cfg = require('./config.json');
+} catch (_) {}
 
-const url = 'https://lazdyihryfvrlczczvxz.supabase.co';
-const serviceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhemR5aWhyeWZ2cmxjemN6dnh6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NzM3NjE2OCwiZXhwIjoyMTAyOTUyMTY4fQ.6hAOEa2_nUTQh_Z3oU2e8QX2nP5EwzHmKiEZ06X7UWc';
+const url = process.env.SUPABASE_URL || cfg.supabaseUrl || '';
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || cfg.supabaseServiceRoleKey || '';
+
+if (!url || !serviceKey) {
+  console.error('Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in config.json or environment variables.');
+  process.exit(1);
+}
 
 const USERS = [
   { id: '76eeb120-1ea5-44a5-b924-0f5968ad5ae6', email: 'sammyseth260@gmail.com', pwdHash: '$2a$10$R8Ja2HH2xNgIP0JKf03AvurGuS2w/ynGyCwnrKXxiP.gucV57p2y.' },

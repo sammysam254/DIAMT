@@ -58,9 +58,8 @@ export default function ResetPassword() {
       background: 'radial-gradient(circle at top, rgba(56,189,248,0.1), transparent)'
     }}>
       <SEO
-        title="Set New Password — FlexPulse Platform"
+        title="Set New Password — DIAMT Platform"
         description="Enter your new password to complete account recovery."
-        canonical="https://dennoh.site/reset-password"
       />
       <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '36px 28px' }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>

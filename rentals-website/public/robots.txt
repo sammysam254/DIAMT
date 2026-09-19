@@ -7,4 +7,4 @@ Allow: /signup
 Disallow: /my-devices
 Disallow: /admin-rentals
 
-Sitemap: https://rentals.dennoh.site/sitemap.xml
+Sitemap: /sitemap.xml

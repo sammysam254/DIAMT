@@ -23,7 +23,7 @@ export default function SuperAdminDashboard() {
   const loadData = async (isInitial = false) => {
     if (isInitial) setLoading(true);
     try {
-      const isSeed = profile?.role === 'seed_admin' || profile?.email?.toLowerCase() === 'sammyseth260@gmail.com';
+      const isSeed = profile?.role === 'seed_admin' || profile?.role === 'super_admin';
       let bQuery = supabase.from('machine_bindings').select('*');
       if (!isSeed && profile?.id) {
         bQuery = bQuery.eq('super_admin_id', profile.id);
@@ -199,21 +199,21 @@ export default function SuperAdminDashboard() {
 
   return (
     <DashboardLayout>
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Server size={24} color="var(--primary)" />
-            <h1 style={{ fontSize: '24px', fontWeight: 800 }}>Super Admin Machine Hub</h1>
+            <h1 style={{ fontSize: '24px', fontWeight: 800 }}>DIAMT Cloud Device Hub</h1>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>
-            Add 8-digit binding codes from setup scripts to fetch and manage connected devices.
+            Autonomous Real-Time Android Hardware Device Streaming & Cloud Orchestration
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button 
             onClick={() => setLogsModalOpen(true)} 
             className="btn btn-secondary"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(37, 99, 235, 0.15)', color: '#60a5fa', borderColor: 'rgba(59, 130, 246, 0.3)' }}
           >
             <Activity size={16} /> Live System Logs
           </button>
@@ -223,24 +223,26 @@ export default function SuperAdminDashboard() {
         </div>
       </div>
 
-      {/* Claim Machine Binding Code */}
-      <div className="card" style={{ marginBottom: '28px' }}>
-        <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Key size={18} color="var(--warning)" /> Bind New Computer Machine
-        </h3>
-        <form onSubmit={handleClaimBinding} style={{ display: 'flex', gap: '12px', maxWidth: '540px' }}>
-          <input 
-            type="text" 
-            className="input-field" 
-            maxLength={8}
-            placeholder="Enter 8-digit binding code (e.g. 53361175)" 
-            value={bindingCodeInput}
-            onChange={e => setBindingCodeInput(e.target.value)}
-          />
-          <button type="submit" className="btn btn-primary" style={{ whiteSpace: 'nowrap' }}>
-            <Link2 size={16} /> Claim Machine
-          </button>
-        </form>
+      {/* Autonomous Cloud Sync Status Banner */}
+      <div className="card" style={{ marginBottom: '28px', background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.12) 0%, rgba(30, 41, 59, 0.4) 100%)', border: '1px solid rgba(59, 130, 246, 0.35)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 10px #10b981' }}></span>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--text-main)' }}>
+                Autonomous Cloud Auto-Sync Active
+              </h3>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '6px' }}>
+              All devices connected to your DIAMT Desktop Agent are synchronized directly to this dashboard in real time without requiring manual machine binding codes.
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '13px', color: 'var(--text-muted)', background: 'rgba(15, 23, 42, 0.6)', padding: '6px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              Online Devices: <strong style={{ color: 'var(--primary)' }}>{devices.filter(d => d.status === 'online').length}</strong>
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Real-time Security CCTV Camera Wall */}
@@ -260,7 +262,7 @@ export default function SuperAdminDashboard() {
         {loading ? (
           <div>Loading devices...</div>
         ) : devices.length === 0 ? (
-          <div style={{ color: 'var(--text-muted)' }}>No devices connected. Run `FlexPulse-Agent-Setup.bat` on your computer to connect devices.</div>
+          <div style={{ color: 'var(--text-muted)' }}>No devices connected. Launch your DIAMT Agent desktop app to connect devices automatically.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', textAlign: 'left' }}>

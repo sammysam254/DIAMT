@@ -136,7 +136,7 @@ function startDashboardServer(port = 7400) {
       res.setHeader('X-XSS-Protection', '1; mode=block');
       res.setHeader('Referrer-Policy', 'no-referrer');
       res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=()');
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'self' https://dennoh.site https://*.dennoh.site http://localhost:*;");
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors *;");
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -338,7 +338,7 @@ function startDashboardServer(port = 7400) {
                 <div class="box">
                   <strong>Why am I seeing this?</strong><br>
                   • This device is plugged into a different computer (e.g. your remote USA host).<br>
-                  • To stream this remote device, open it via your cloud dashboard or <code>https://agent.dennoh.site/?udid=${requestedSerial}</code> once that host is running.
+                  • To stream this remote device, open it via your DIAMT cloud dashboard once that host is running.
                 </div>
                 <a href="/" class="btn">View Local Dashboard</a>
               </div>

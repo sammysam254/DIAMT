@@ -1,6 +1,6 @@
-FlexPulse Logo Placeholder
+DIAMT Logo Placeholder
 
-Upload your FlexPulse logo files here:
+Upload your DIAMT logo files here:
 - logo.png
 - logo.svg
 - logo-dark.png (optional, for dark theme)

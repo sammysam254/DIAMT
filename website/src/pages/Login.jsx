@@ -34,7 +34,7 @@ export default function Login() {
         if (err) throw err;
         if (data?.session) {
           playWelcomeSound();
-          setWelcomeMsg(`Welcome to FlexPulse, ${email}!`);
+          setWelcomeMsg(`Welcome to DIAMT, ${email}!`);
           setTimeout(() => navigate('/worker'), 1800);
         } else if (verifyMode === 'link') {
           setLinkSentMsg(`Account registered! We've sent a verification link to ${email}. Please check your email inbox and click the link to activate your account.`);
@@ -46,7 +46,7 @@ export default function Login() {
         const { error: logErr } = await login(email, password);
         if (logErr) throw logErr;
         playWelcomeSound();
-        setWelcomeMsg(`Welcome back to FlexPulse!`);
+        setWelcomeMsg(`Welcome back to DIAMT!`);
         setTimeout(() => navigate('/worker'), 1800);
       }
     } catch (err) {
@@ -87,7 +87,7 @@ export default function Login() {
       const { error: err } = await verifyOtp(email, token, 'signup');
       if (err) throw err;
       playWelcomeSound();
-      setWelcomeMsg(`Welcome to FlexPulse, ${email}!`);
+      setWelcomeMsg(`Welcome to DIAMT, ${email}!`);
       setTimeout(() => navigate('/worker'), 1800);
     } catch (err) {
       setError(err.message || 'Invalid or expired verification code.');
@@ -106,9 +106,8 @@ export default function Login() {
       background: 'radial-gradient(circle at top, rgba(56,189,248,0.1), transparent)'
     }}>
       <SEO
-        title="Access Portal — FlexPulse Cloud Device Farm"
-        description="Sign in to FlexPulse Cloud Platform to access dedicated device streaming, WebRTC controls, and agent monitoring."
-        canonical="https://dennoh.site/login"
+        title="Access Portal — DIAMT Cloud Platform"
+        description="Sign in to DIAMT Cloud Platform to access dedicated device streaming, WebRTC controls, and agent monitoring."
       />
       <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '36px 28px' }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
@@ -122,11 +121,11 @@ export default function Login() {
             justifyContent: 'center',
             marginBottom: '12px',
             color: '#fff',
-            boxShadow: '0 8px 24px rgba(56, 189, 248, 0.3)'
+            boxShadow: '0 8px 24px rgba(37, 99, 235, 0.35)'
           }}>
             <Smartphone size={28} />
           </div>
-          <h2 style={{ fontSize: '24px', fontWeight: 800 }}>FlexPulse Access</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 800 }}>DIAMT Cloud Access</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
             {welcomeMsg ? 'Authentication Verified' : (step === 2 && verifyMode === 'code' ? `Enter code sent to ${email}` : (isSignUp ? 'Choose verification method & create account' : 'Log in to access your device dashboard'))}
           </p>

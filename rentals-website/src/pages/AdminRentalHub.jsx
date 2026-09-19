@@ -126,7 +126,7 @@ export default function AdminRentalHub() {
     const newKey = generate16CharKey();
     const newPin = generate6DigitPin();
     const currentUrl = device.stream_url || '';
-    let baseUrl = currentUrl ? currentUrl.split('?')[0] : 'https://agent.dennoh.site/';
+    let baseUrl = currentUrl ? currentUrl.split('?')[0] : (typeof window !== 'undefined' ? `${window.location.origin}/` : 'http://localhost:8100/');
     if (!baseUrl.endsWith('/')) baseUrl += '/';
     const newStreamUrl = `${baseUrl}?udid=${encodeURIComponent(device.serial)}&key=${newKey}&pin=${newPin}`;
 
@@ -163,7 +163,7 @@ export default function AdminRentalHub() {
   return (
     <RentalsLayout>
       <SEO
-        title="Admin Rental Control Hub — FlexPulse"
+        title="Admin Rental Control Hub — DIAMT"
         description="Super Admin rental management hub for setting rental rates and managing store releases."
         noIndex={true}
       />

@@ -113,9 +113,16 @@ function getOrGenerateBindingCode() {
   if (cfg.machineBindingCode && /^\d{8}$/.test(cfg.machineBindingCode)) {
     return cfg.machineBindingCode;
   }
-  cfg.machineBindingCode = '94879348';
-  saveConfig(cfg);
-  return '94879348';
+  try {
+    const netInfo = getHardwareNetworkInfo();
+    const hash = crypto.createHash('sha256').update((netInfo.mac || '') + (os.hostname() || 'DIAMT')).digest('hex');
+    const numericCode = String((parseInt(hash.slice(0, 8), 16) % 90000000) + 10000000);
+    cfg.machineBindingCode = numericCode;
+    saveConfig(cfg);
+    return numericCode;
+  } catch (_) {
+    return '10000001';
+  }
 }
 
 let machineHeartbeatTimer = null;

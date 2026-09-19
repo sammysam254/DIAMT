@@ -18,14 +18,14 @@ export default function SEO({
   keywords,
   canonical,
   ogType = 'website',
-  ogImage = 'https://rentals.dennoh.site/og-banner.png',
+  ogImage = '/og-banner.png',
   jsonLd,
   noIndex = false
 }) {
   useEffect(() => {
     // 1. Update Title
     if (title) {
-      document.title = title.includes('FlexPulse') ? title : `${title} | FlexPulse Rentals`;
+      document.title = title.includes('DIAMT') ? title : `${title} | DIAMT Rentals`;
     }
 
     // 2. Update Helper Meta Functions

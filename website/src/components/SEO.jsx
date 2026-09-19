@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 
 /**
- * SEO Component for dynamic head management in main FlexPulse website.
+ * SEO Component for dynamic head management in main DIAMT website.
  */
 export default function SEO({
   title,
@@ -9,14 +9,14 @@ export default function SEO({
   keywords,
   canonical,
   ogType = 'website',
-  ogImage = 'https://dennoh.site/og-banner.png',
+  ogImage = '/og-banner.png',
   jsonLd,
   noIndex = false
 }) {
   useEffect(() => {
     // 1. Update Title
     if (title) {
-      document.title = title.includes('FlexPulse') ? title : `${title} | FlexPulse Platform`;
+      document.title = title.includes('DIAMT') ? title : `${title} | DIAMT Cloud`;
     }
 
     // 2. Helper function

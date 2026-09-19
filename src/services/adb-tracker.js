@@ -86,14 +86,23 @@ async function handleDeviceAdd(device) {
     const axios = require('axios');
     let isStealthOn = true;
     try {
-      const supabaseUrl = process.env.SUPABASE_URL || 'https://lazdyihryfvrlczczvxz.supabase.co';
-      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhemR5aWhyeWZ2cmxjemN6dnh6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NzM3NjE2OCwiZXhwIjoyMTAyOTUyMTY4fQ.6hAOEa2_nUTQh_Z3oU2e8QX2nP5EwzHmKiEZ06X7UWc';
-      const res = await axios.get(`${supabaseUrl}/rest/v1/device_rentals?serial_number=eq.${encodeURIComponent(serial)}&select=stealth_root_enabled`, {
-        headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
-        timeout: 3000
-      });
-      if (res.data && res.data.length > 0 && res.data[0].stealth_root_enabled === false) {
-        isStealthOn = false;
+      let cfg = {};
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const cfgPath = path.join(process.cwd(), 'config.json');
+        if (fs.existsSync(cfgPath)) cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      } catch (_) {}
+      const supabaseUrl = process.env.SUPABASE_URL || cfg.supabaseUrl;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || cfg.supabaseServiceRoleKey;
+      if (supabaseUrl && supabaseKey) {
+        const res = await axios.get(`${supabaseUrl}/rest/v1/device_rentals?serial_number=eq.${encodeURIComponent(serial)}&select=stealth_root_enabled`, {
+          headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+          timeout: 3000
+        });
+        if (res.data && res.data.length > 0 && res.data[0].stealth_root_enabled === false) {
+          isStealthOn = false;
+        }
       }
     } catch (_) {}
 
@@ -162,9 +171,10 @@ async function handleDeviceAdd(device) {
     const { streamProcess, localUrl } = await startStreamServer(serial, port);
     logger.info(`Stream server started for ${serial}: ${localUrl}`);
 
-    // 5. Named Cloudflare tunnel stream URL (routed via port 7400 reverse proxy)
-    const domain = (config.customDomain || config.domain || 'agent.dennoh.site').replace(/^https?:\/\//, '');
-    const publicUrl = `https://${domain}`;
+    // 5. Named tunnel / local stream URL
+    const rawDomain = (config.customDomain || config.domain || `localhost:${port}`).replace(/^https?:\/\//, '');
+    const protocol = rawDomain.includes('localhost') || rawDomain.includes('127.0.0.1') ? 'http' : 'https';
+    const publicUrl = `${protocol}://${rawDomain}`;
     const streamUrl = buildStreamUrl(publicUrl, port, realSerial || serial);
 
     logger.info(`[OK] Stream URL for ${serial}: ${streamUrl}`);

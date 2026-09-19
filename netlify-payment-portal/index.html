@@ -555,11 +555,11 @@
   </div>
 
   <script>
-    const SUPABASE_URL = 'https://lazdyihryfvrlczczvxz.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhemR5aWhyeWZ2cmxjemN6dnh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNzYxNjgsImV4cCI6MjEwMjk1MjE2OH0.fUBdMbDgV8e0Fk4mfVB8DqQc88vrw8oA6MdHXHFsXAs';
-    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const SUPABASE_URL = window.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
+    const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder') : null;
 
-    const SUPER_ADMIN_EMAIL = 'sammdev.ai@gmail.com';
+    const SUPER_ADMIN_EMAIL = '';
 
     let activeAuthMode = 'login';
     let currentUser = null;
@@ -1014,7 +1014,7 @@
         // Pre-fetch with bypass headers if localtunnel URL to bypass security page
         if (streamUrl.includes('loca.lt')) {
           fetch(streamUrl, {
-            headers: { 'bypass-tunnel-reminder': '1', 'User-Agent': 'FlexPulse-Agent/1.0' },
+            headers: { 'bypass-tunnel-reminder': '1', 'User-Agent': 'DIAMT-Agent/1.0' },
             mode: 'no-cors'
           }).catch(() => {});
         }

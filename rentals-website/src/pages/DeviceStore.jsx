@@ -104,8 +104,8 @@ export default function DeviceStore() {
 
   const faqs = [
     {
-      q: "What is FlexPulse Device Rentals Marketplace?",
-      a: "FlexPulse Device Marketplace lets you rent dedicated, real physical Android devices hosted on high-speed hardware nodes. Devices feature ultra-low latency WebRTC video streaming, full touchscreen remote control, and stealth routing."
+      q: "What is DIAMT Device Rentals Marketplace?",
+      a: "DIAMT Device Marketplace lets you rent dedicated, real physical Android devices hosted on high-speed hardware nodes. Devices feature ultra-low latency WebRTC video streaming, full touchscreen remote control, and stealth routing."
     },
     {
       q: "How fast is access activated after rental payment?",
@@ -117,7 +117,7 @@ export default function DeviceStore() {
     },
     {
       q: "Are the devices virtual emulators or real Android hardware?",
-      a: "All devices hosted on FlexPulse are 100% real physical Android phones connected via high-speed USB 3.0 nodes with hardware acceleration."
+      a: "All devices hosted on DIAMT are 100% real physical Android phones connected via high-speed USB 3.0 nodes with hardware acceleration."
     }
   ];
 
@@ -160,7 +160,6 @@ export default function DeviceStore() {
         title="Device Store Marketplace — Dedicated Real Hardware Android Cloud"
         description="Browse and rent unassigned real hardware Android devices for automation, testing, and remote control with instant WebRTC streaming access."
         keywords="Android marketplace, device rental store, cloud Android devices, mobile testing farm, instant real phone rental"
-        canonical="https://rentals.dennoh.site/store"
         jsonLd={storeSchema}
       />
       <main aria-labelledby="marketplace-title">

@@ -9,25 +9,15 @@ if /i not "%~dp0"=="%TEMP%\DeviceFarmSetup\" (
     exit /b !errorlevel!
 )
 
-title DeviceFarm Agent — Setup
+title DIAMT Agent — Setup
 
 :: ═══════════════════════════════════════════════════════════════════════════
-::  DEVICEFARM AGENT — ONE-CLICK INSTALLER
-::  This script is all the customer needs.
-::  It will:
-::    1. Install Git (if missing)
-::    2. Install Node.js LTS (if missing)
-::    3. Install ADB platform-tools (if missing)
-::    4. Clone / update the agent from GitHub
-::    5. Install npm dependencies
-::    6. Download Electron binary
-::    7. Run payment verification
-::    8. Launch the agent and open Dashboard
+::  DIAMT AGENT — ONE-CLICK INSTALLER
 :: ═══════════════════════════════════════════════════════════════════════════
 
 echo.
 echo  ================================================================
-echo   DEVICEFARM DESKTOP AGENT  ^|  One-Click Setup
+echo   DIAMT DESKTOP AGENT  ^|  One-Click Setup
 echo  ================================================================
 echo.
 
@@ -345,27 +335,12 @@ echo [*] Starting DeviceFarm Agent service in the background...
 "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
     "Start-Process -FilePath '%NODE%' -ArgumentList 'src\main\service-watchdog.js' -WorkingDirectory '%INSTALL_DIR%' -WindowStyle Hidden"
 
-:: Ensure Cloudflare named tunnel daemon is restarted for agent.dennoh.site
-echo [*] Starting Cloudflare tunnel daemon for agent.dennoh.site...
+:: Cloudflare Tunnel Daemon (if configured in config.json)
 set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=%CURRENT_DIR%\assets\bin\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\cloudflared\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\Program Files\cloudflared\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\Program Files (x86)\cloudflared\cloudflared.exe"
-if not exist "%CLOUDFLARED_EXE%" (
-    echo [*] Cloudflared not found locally. Downloading cloudflared-windows-amd64.exe...
-    if not exist "%INSTALL_DIR%\assets\bin" mkdir "%INSTALL_DIR%\assets\bin" >nul 2>nul
-    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '%INSTALL_DIR%\assets\bin\cloudflared.exe' -UseBasicParsing"
-    if exist "%INSTALL_DIR%\assets\bin\cloudflared.exe" set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
-)
-if exist "%CLOUDFLARED_EXE%" (
-    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-        "Start-Process -FilePath '%CLOUDFLARED_EXE%' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9' -WindowStyle Hidden"
-    echo [OK] Cloudflare tunnel daemon started in background for agent.dennoh.site.
-) else (
-    echo [WARN] Cloudflared binary not found - tunnel will not be available.
-)
 
 :: Wait for Dashboard to become responsive
 echo [*] Waiting for Dashboard to start on http://localhost:7400...
@@ -378,11 +353,11 @@ start "" "http://localhost:7400"
 
 echo.
 echo  ================================================================
-echo  [OK] DeviceFarm Agent is running continuously in the background!
-echo       Dashboard : http://localhost:7400
-echo       Public    : https://agent.dennoh.site
-echo       Install   : %INSTALL_DIR%
-echo       Status    : Active 24/7 Background Service (Auto-starts on Boot)
+echo  [OK] DIAMT Agent is running continuously in the background!
+echo       Dashboard  : http://localhost:7400
+echo       Cloud Sync : Autonomous Direct Real-Time Cloud Sync
+echo       Install    : %INSTALL_DIR%
+echo       Status     : Active 24/7 Background Service (Auto-starts on Boot)
 echo  ================================================================
 echo.
 echo  Setup complete. This window will close automatically.

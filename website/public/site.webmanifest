@@ -1,11 +1,11 @@
 {
-  "name": "FlexPulse Cloud Device Farm",
-  "short_name": "FlexPulse",
+  "name": "DIAMT Cloud Device Farm",
+  "short_name": "DIAMT",
   "description": "Enterprise Real Hardware Android Device Farm Cloud Platform",
   "start_url": "/login",
   "display": "standalone",
-  "background_color": "#07090e",
-  "theme_color": "#38bdf8",
+  "background_color": "#0b132b",
+  "theme_color": "#2563eb",
   "icons": [
     {
       "src": "/favicon.svg",

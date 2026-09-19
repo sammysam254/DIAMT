@@ -7,13 +7,13 @@
   <xsl:template match="/">
     <html lang="en">
       <head>
-        <title>XML Sitemap — FlexPulse Cloud Platform (dennoh.site)</title>
+        <title>XML Sitemap — DIAMT Cloud Platform</title>
         <meta charset="UTF-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
         <style>
           body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #07090e;
+            background-color: #0b132b;
             color: #f8fafc;
             margin: 0;
             padding: 40px 24px;
@@ -82,7 +82,7 @@
       <body>
         <div class="container">
           <h1>⚡ XML Sitemap Index</h1>
-          <p>This XML sitemap lists public URLs available for search engine indexing on <b>dennoh.site</b>.</p>
+          <p>This XML sitemap lists public URLs available for search engine indexing on DIAMT Cloud.</p>
           <table>
             <thead>
               <tr>
