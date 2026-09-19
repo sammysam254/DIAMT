@@ -1236,24 +1236,29 @@ async function startStreamServer(serial, port) {
       return;
     }
 
+    const reqUdid = url.searchParams.get('udid');
+    const targetSession = (reqUdid && activeServers.get(reqUdid)) ? activeServers.get(reqUdid) : { server, wss, engine, serial };
+    const effectiveSerial = targetSession.serial || serial;
+    const effectiveEngine = targetSession.engine || engine;
+
     if (p === '/screen.jpg') {
-      const frame = await captureOneFrame(serial);
+      const frame = await captureOneFrame(effectiveSerial);
       if (frame) { res.writeHead(200, {'Content-Type':'image/png','Cache-Control':'no-cache'}); res.end(frame); }
       else        { res.writeHead(500); res.end('Capture error'); }
       return;
     }
 
     if (p === '/control') {
-      handleControl(url.searchParams.get('type'), url.searchParams, serial, engine);
+      handleControl(url.searchParams.get('type'), url.searchParams, effectiveSerial, effectiveEngine);
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end('{"status":"ok"}'); return;
     }
 
     res.writeHead(200, {'Content-Type':'text/html'});
     // Prefer the negotiated stream resolution; fall back to physical screen size.
-    const playerW = engine.videoWidth  > 0 ? engine.videoWidth  : engine.screenWidth;
-    const playerH = engine.videoHeight > 0 ? engine.videoHeight : engine.screenHeight;
-    res.end(buildPlayerHtml(serial, playerW, playerH));
+    const playerW = effectiveEngine.videoWidth  > 0 ? effectiveEngine.videoWidth  : effectiveEngine.screenWidth;
+    const playerH = effectiveEngine.videoHeight > 0 ? effectiveEngine.videoHeight : effectiveEngine.screenHeight;
+    res.end(buildPlayerHtml(effectiveSerial, playerW, playerH));
   });
 
   // ── WebSocket — relay H264 + audio from scrcpy engine to browser ─────────
@@ -1282,17 +1287,22 @@ async function startStreamServer(serial, port) {
     let isPinValid = true;
     const isValidWs = true;
 
-    logger.info(`[StreamServer] WS connected for ${serial}`);
-    engine.addClient(ws);
+    const reqWsUdid = wsUrl.searchParams.get('udid');
+    const targetWsSession = (reqWsUdid && activeServers.get(reqWsUdid)) ? activeServers.get(reqWsUdid) : { engine, serial };
+    const effectiveWsSerial = targetWsSession.serial || serial;
+    const effectiveWsEngine = targetWsSession.engine || engine;
+
+    logger.info(`[StreamServer] WS connected for ${effectiveWsSerial}`);
+    effectiveWsEngine.addClient(ws);
 
     ws.on('message', (msg) => {
       try {
         const data = JSON.parse(msg.toString());
-        handleControl(data.type, data, serial, engine);
+        handleControl(data.type, data, effectiveWsSerial, effectiveWsEngine);
       } catch (_) {}
     });
-    ws.on('close', () => { engine.removeClient(ws); clearInterval(licCheckTimer); });
-    ws.on('error', () => { engine.removeClient(ws); clearInterval(licCheckTimer); });
+    ws.on('close', () => { effectiveWsEngine.removeClient(ws); clearInterval(licCheckTimer); });
+    ws.on('error', () => { effectiveWsEngine.removeClient(ws); clearInterval(licCheckTimer); });
   });
 
   return new Promise((resolve, reject) => {
@@ -1306,7 +1316,7 @@ async function startStreamServer(serial, port) {
     server.listen(port, '0.0.0.0', () => {
       const localUrl = `http://localhost:${port}`;
       logger.info(`[StreamServer] Listening at ${localUrl}`);
-      activeServers.set(serial, { server, wss, engine });
+      activeServers.set(serial, { server, wss, engine, serial });
 
       const streamProcess = {
         pid: port, exitCode: null,

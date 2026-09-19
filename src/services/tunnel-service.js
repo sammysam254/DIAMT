@@ -122,6 +122,7 @@ function ensureCloudflaredAvailable() {
 /** Regex to capture trycloudflare.com URL (excluding Cloudflare internal api.trycloudflare.com) */
 const TUNNEL_URL_REGEX = /https?:\/\/(?!api\.)[a-zA-Z0-9-]+\.trycloudflare\.com/;
 const TUNNEL_TIMEOUT_MS = 15000;
+let activeTokenTunnelProcess = null;
 
 function createCloudflaredTunnel(port) {
   return new Promise(async (resolve, reject) => {
@@ -134,9 +135,15 @@ function createCloudflaredTunnel(port) {
     logger.info(`[+] Establishing Cloudflare network tunnel for localhost:${port} via ${path.basename(binPath)}`);
 
     const currentCfg = loadConfig();
-    const token = currentCfg.cloudflareToken || currentCfg.cloudflaredToken || currentCfg.token || '';
-    const rawDomain = currentCfg.customDomain || currentCfg.domain || '';
-    const domain = rawDomain ? rawDomain.replace(/^https?:\/\//, '') : '';
+    const token = currentCfg.cloudflareToken || currentCfg.cloudflaredToken || currentCfg.token || process.env.CLOUDFLARE_TUNNEL_TOKEN || '';
+    const rawDomain = currentCfg.customDomain || currentCfg.domain || process.env.DEVICE_DOMAIN || '';
+    const domain = rawDomain ? rawDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
+
+    if (token && activeTokenTunnelProcess && activeTokenTunnelProcess.exitCode === null) {
+      const publicUrl = `https://${domain}`;
+      logger.info(`[OK] Reusing active Cloudflare Zero Trust token tunnel: ${publicUrl}`);
+      return resolve({ publicUrl, tunnelProcess: activeTokenTunnelProcess });
+    }
 
     const args = token 
       ? ['tunnel', 'run', '--token', token]
@@ -147,6 +154,11 @@ function createCloudflaredTunnel(port) {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       });
+
+      if (token) {
+        activeTokenTunnelProcess = tunnelProcess;
+        tunnelProcess.on('exit', () => { activeTokenTunnelProcess = null; });
+      }
 
       let resolved = false;
       let combinedOutput = '';

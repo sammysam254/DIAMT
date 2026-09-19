@@ -177,16 +177,17 @@ async function handleDeviceAdd(device) {
 
     try {
       const activeCfg = loadConfig();
-      if (activeCfg.domain && !activeCfg.domain.includes('localhost') && !activeCfg.domain.includes('127.0.0.1')) {
-        const rawDomain = activeCfg.domain.replace(/^https?:\/\//, '');
-        publicUrl = `https://${rawDomain}`;
-      } else {
-        const tunnel = await createTunnel(port);
-        if (tunnel && tunnel.publicUrl) {
-          publicUrl = tunnel.publicUrl;
-          tunnelProcess = tunnel.tunnelProcess;
-          logger.info(`[+] Fast Cloudflare tunnel active for ${serial}: ${publicUrl}`);
-        }
+      const rawCustomDomain = activeCfg.domain || activeCfg.customDomain || '';
+      const hasCustomDomain = Boolean(rawCustomDomain && !rawCustomDomain.includes('localhost') && !rawCustomDomain.includes('127.0.0.1'));
+      const cleanCustomDomain = hasCustomDomain ? rawCustomDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
+
+      const tunnel = await createTunnel(port);
+      if (tunnel && tunnel.publicUrl) {
+        tunnelProcess = tunnel.tunnelProcess;
+        publicUrl = cleanCustomDomain ? `https://${cleanCustomDomain}` : tunnel.publicUrl;
+        logger.info(`[+] Fast Cloudflare tunnel active for ${serial}: ${publicUrl}`);
+      } else if (cleanCustomDomain) {
+        publicUrl = `https://${cleanCustomDomain}`;
       }
     } catch (tErr) {
       logger.warn(`Tunnel notice for ${serial} (using local endpoint): ${tErr.message}`);
