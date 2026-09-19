@@ -1120,7 +1120,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
     // Sync desktop sidebar mute button
     const btn = document.getElementById('muteBtn');
     if (btn) {
-      btn.textContent = isMuted ? '🔇' : '🔊';
+      btn.innerHTML = isMuted
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
       btn.title = isMuted ? 'Unmute audio' : 'Mute audio';
       btn.style.color = isMuted ? '#f87171' : '';
       btn.style.borderColor = isMuted ? 'rgba(248,113,113,.5)' : '';
@@ -1128,8 +1130,10 @@ function buildPlayerHtml(serial, screenW, screenH) {
     // Sync mobile bottom bar mute button
     const iconM = document.getElementById('muteBtnMIcon');
     const btnM  = document.getElementById('muteBtnM');
-    if (iconM) iconM.textContent = isMuted ? '🔇' : '🔊';
-    if (btnM)  {
+    if (iconM) iconM.innerHTML = isMuted
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+    if (btnM) {
       btnM.style.color = isMuted ? '#f87171' : '';
       btnM.style.borderColor = isMuted ? 'rgba(248,113,113,.5)' : '';
     }
@@ -1679,10 +1683,12 @@ async function startStreamServer(serial, port) {
 
   // Start scrcpy engine asynchronously so stream server port listens immediately
   const engine = new ScrcpyEngine(serial);
+  engine.enableAudio = true;  // Stream Opus audio to remote browsers
   const videoPort = port + 1000;
   engine.start(videoPort)
     .then(() => logger.info(`[StreamServer] ScrcpyEngine ready for ${serial}`))
     .catch((err) => logger.warn(`[StreamServer] ScrcpyEngine failed for ${serial}: ${err.message}`));
+
 
   // ── HTTP handler ──────────────────────────────────────────────────────────
   const server = http.createServer(async (req, res) => {
