@@ -177,205 +177,619 @@ function handleControl(type, data, serial, engine) {
 }
 
 
-function buildGatewayLandingHtml() {
+// ─── Server-Side Realtime Device Credential Verification ─────────────────────
+
+const credentialCache = new Map(); // Map<serial, { validKeys: Set, validPins: Set, at: number }>
+
+async function verifyDeviceAccess(serial, inputCredential) {
+  if (!serial) return false;
+  const input = (inputCredential || '').trim();
+  if (!input) return false;
+
+  // Check 5-second in-memory cache to avoid excessive DB reads while reacting promptly to admin resets
+  const cached = credentialCache.get(serial);
+  if (cached && (Date.now() - cached.at < 5000)) {
+    if (cached.validPins.has(input) || cached.validKeys.has(input)) return true;
+    for (const k of cached.validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
+  }
+
+  const cfg = loadConfig();
+  const url = cfg.supabaseUrl;
+  const key = cfg.supabaseServiceRoleKey || cfg.supabaseAnonKey;
+  if (!url || !key) return false;
+
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/devices?serial=eq.${encodeURIComponent(serial)}&select=id,status,stream_url`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    if (!res.ok) return false;
+    const devices = await res.json();
+    if (!Array.isArray(devices) || devices.length === 0) return false;
+
+    const dev = devices[0];
+    if (dev.status === 'suspended' || dev.status === 'blocked' || dev.status === 'revoked') {
+      return false;
+    }
+
+    const validKeys = new Set();
+    const validPins = new Set();
+
+    const currentStreamUrl = dev.stream_url || '';
+    const matchKey = currentStreamUrl.match(/[?&]key=([^&]+)/i);
+    const matchPin = currentStreamUrl.match(/[?&]pin=([^&]+)/i);
+    const matchToken = currentStreamUrl.match(/[?&]token=([^&]+)/i);
+    if (matchKey) validKeys.add(decodeURIComponent(matchKey[1]).trim());
+    if (matchPin) validPins.add(decodeURIComponent(matchPin[1]).trim());
+    if (matchToken) validKeys.add(decodeURIComponent(matchToken[1]).trim());
+
+    // Check device_assignments table for access_password
+    if (dev.id) {
+      try {
+        const assignRes = await fetch(`${url.replace(/\/$/, '')}/rest/v1/device_assignments?device_id=eq.${encodeURIComponent(dev.id)}&select=access_password`, {
+          headers: { apikey: key, Authorization: `Bearer ${key}` }
+        });
+        if (assignRes.ok) {
+          const assignments = await assignRes.json();
+          if (Array.isArray(assignments)) {
+            for (const a of assignments) {
+              if (a.access_password) validPins.add(String(a.access_password).trim());
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Check device_rentals table for active stream credentials
+    try {
+      const rentRes = await fetch(`${url.replace(/\/$/, '')}/rest/v1/device_rentals?serial_number=eq.${encodeURIComponent(serial)}&select=status,stream_url,expires_at`, {
+        headers: { apikey: key, Authorization: `Bearer ${key}` }
+      });
+      if (rentRes.ok) {
+        const rentals = await rentRes.json();
+        if (Array.isArray(rentals)) {
+          for (const r of rentals) {
+            if (r.status === 'active' || r.status === 'paid') {
+              if (r.expires_at && new Date(r.expires_at) < new Date()) continue;
+              const rUrl = r.stream_url || '';
+              const rKey = rUrl.match(/[?&]key=([^&]+)/i);
+              const rPin = rUrl.match(/[?&]pin=([^&]+)/i);
+              const rToken = rUrl.match(/[?&]token=([^&]+)/i);
+              if (rKey) validKeys.add(decodeURIComponent(rKey[1]).trim());
+              if (rPin) validPins.add(decodeURIComponent(rPin[1]).trim());
+              if (rToken) validKeys.add(decodeURIComponent(rToken[1]).trim());
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    credentialCache.set(serial, { validKeys, validPins, at: Date.now() });
+
+    if (validPins.has(input) || validKeys.has(input)) return true;
+    for (const k of validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
+    for (const p of validPins) { if (p === input) return true; }
+
+    return false;
+  } catch (err) {
+    logger.warn(`[StreamService] Credential validation error for ${serial}: ${err.message}`);
+    return false;
+  }
+}
+
+// ─── 5 Auto-Sliding Cards Presentation (Vertex Digital) ─────────────────────
+
+function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, customNotice) {
+  const prefillSerial = serial ? serial.replace(/"/g, '&quot;') : '';
+  const statusMessage = customNotice || (isRevokedOrInvalid 
+    ? 'Access credentials for this device were revoked or reset by an administrator. Please provide an active PIN.'
+    : 'Direct device authorization required. Individual streams are protected by dynamic cryptographic verification.');
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DIAMT Device Gateway</title>
+  <title>Vertex Digital — Enterprise Systems &amp; Management</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       min-height: 100vh;
-      background: radial-gradient(circle at 50% 20%, #0f1f3d 0%, #060b17 100%);
+      background: radial-gradient(circle at 50% 15%, #0f1c3f 0%, #060913 100%);
       color: #f8fafc;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      overflow-x: hidden;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      align-items: center;
+    }
+
+    /* Top Brand Header */
+    .brand-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 12px 20px;
+      background: rgba(15, 23, 42, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 14px;
+    }
+    .brand-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 10px #38bdf8;
+    }
+    .brand-name {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #f8fafc;
+    }
+    .brand-contact {
+      font-size: 13px;
+      font-weight: 600;
+      color: #38bdf8;
+      text-decoration: none;
+      letter-spacing: 0.3px;
+    }
+    .brand-contact:hover {
+      text-decoration: underline;
+    }
+
+    /* Notice Banner if access was revoked/reset */
+    .notice-banner {
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(225, 29, 72, 0.12);
+      border: 1px solid rgba(225, 29, 72, 0.3);
+      border-radius: 12px;
+      font-size: 13px;
+      color: #fda4af;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    /* 5-Card Auto-Sliding Carousel */
+    .carousel-wrapper {
+      position: relative;
+      width: 100%;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 22px;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(37, 99, 235, 0.15);
+      overflow: hidden;
+      min-height: 320px;
+    }
+
+    .carousel-viewport {
+      width: 100%;
+      overflow: hidden;
+      position: relative;
+      min-height: 270px;
+    }
+
+    .carousel-track {
+      display: flex;
+      transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+      width: 500%;
+    }
+
+    .carousel-slide {
+      width: 20%;
+      padding: 38px 36px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    .slide-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: #38bdf8;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      align-self: flex-start;
+    }
+
+    .slide-title {
+      font-size: 24px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -0.4px;
+      line-height: 1.3;
+      margin-bottom: 14px;
+    }
+
+    .slide-text {
+      font-size: 14px;
+      line-height: 1.7;
+      color: #94a3b8;
+      margin-bottom: 22px;
+    }
+
+    .slide-footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .info-pill {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      color: #cbd5e1;
+    }
+    .info-pill.highlight {
+      background: rgba(37, 99, 235, 0.2);
+      border-color: rgba(56, 189, 248, 0.35);
+      color: #38bdf8;
+    }
+
+    /* Carousel Controls & Dots */
+    .carousel-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 28px 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .carousel-dots {
+      display: flex;
+      gap: 8px;
+    }
+
+    .dot-btn {
+      width: 24px;
+      height: 6px;
+      border-radius: 4px;
+      background: rgba(148, 163, 184, 0.25);
+      border: none;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      padding: 0;
+    }
+    .dot-btn.active {
+      width: 38px;
+      background: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+    }
+
+    .nav-arrows {
+      display: flex;
+      gap: 8px;
+    }
+
+    .arrow-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #f8fafc;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 20px;
+      transition: all 0.2s;
     }
-    .card {
-      background: rgba(15, 23, 42, 0.85);
-      backdrop-filter: blur(16px);
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      border-radius: 20px;
-      padding: 40px 32px;
-      max-width: 480px;
-      width: 100%;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(37, 99, 235, 0.15);
-      text-align: center;
-    }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 5px 14px;
-      border-radius: 9999px;
-      background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.3);
+    .arrow-btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: #38bdf8;
       color: #38bdf8;
-      font-size: 12px;
+    }
+
+    /* Unlock Form at bottom */
+    .auth-card {
+      width: 100%;
+      padding: 22px 28px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: 18px;
+    }
+
+    .auth-title {
+      font-size: 13px;
       font-weight: 700;
       letter-spacing: 0.5px;
-      margin-bottom: 24px;
-    }
-    .dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #38bdf8;
-      box-shadow: 0 0 8px #38bdf8;
-    }
-    h1 {
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #ffffff;
+      text-transform: uppercase;
+      color: #94a3b8;
       margin-bottom: 12px;
     }
-    p {
-      color: #94a3b8;
-      font-size: 14px;
-      line-height: 1.6;
-      margin-bottom: 24px;
-    }
-    .form-group {
+
+    .auth-form {
       display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
+      gap: 10px;
     }
-    input {
+
+    .auth-input {
       flex: 1;
       background: rgba(30, 41, 59, 0.7);
       border: 1px solid rgba(148, 163, 184, 0.2);
       border-radius: 10px;
       padding: 12px 16px;
-      color: #ffffff;
       font-size: 14px;
+      color: #ffffff;
       outline: none;
       transition: all 0.2s;
     }
-    input:focus {
+    .auth-input:focus {
       border-color: #38bdf8;
       box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
     }
-    button {
+
+    .auth-submit {
       background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-      color: white;
       border: none;
       border-radius: 10px;
-      padding: 12px 20px;
+      padding: 12px 22px;
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 700;
+      color: #ffffff;
       cursor: pointer;
       transition: all 0.2s;
+      white-space: nowrap;
     }
-    button:hover {
+    .auth-submit:hover {
       background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
       transform: translateY(-1px);
     }
-    .info-box {
-      background: rgba(30, 41, 59, 0.4);
-      border: 1px dashed rgba(148, 163, 184, 0.25);
-      border-radius: 12px;
-      padding: 14px;
-      font-size: 12px;
-      color: #64748b;
-      word-break: break-all;
-    }
-    .info-box code {
-      color: #38bdf8;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="badge"><span class="dot"></span> DIAMT DEVICE GATEWAY</div>
-    <h1>Direct Device URL Required</h1>
-    <p>Individual device streams are secured and can only be accessed using their specific device URL with a valid device UDID.</p>
-    <form onsubmit="event.preventDefault(); const v = document.getElementById('udidInput').value.trim(); if(v) window.location.href = '/?udid=' + encodeURIComponent(v);">
-      <div class="form-group">
-        <input id="udidInput" type="text" placeholder="Enter Device UDID (e.g. R8YWA0A09JW)" required autocomplete="off" />
-        <button type="submit">Open Stream</button>
-      </div>
-    </form>
-    <div class="info-box">
-      Stream Link Format:<br>
-      <code>https://devicecontrol.diamt.site/?udid=&lt;DEVICE_UDID&gt;</code>
-    </div>
-  </div>
-</body>
-</html>`;
-}
 
-function buildDeviceNotFoundHtml(reqUdid) {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Device Offline - DIAMT</title>
-  <style>
-    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      min-height: 100vh;
-      background: radial-gradient(circle at 50% 20%, #1e1b2e 0%, #08070d 100%);
-      color: #f8fafc;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .card {
-      background: rgba(24, 18, 37, 0.85);
-      backdrop-filter: blur(16px);
-      border: 1px solid rgba(244, 63, 94, 0.25);
-      border-radius: 20px;
-      padding: 40px 32px;
-      max-width: 480px;
-      width: 100%;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-      text-align: center;
-    }
-    .badge {
+    .call-btn {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 5px 14px;
-      border-radius: 9999px;
-      background: rgba(244, 63, 94, 0.12);
-      border: 1px solid rgba(244, 63, 94, 0.3);
-      color: #fb7185;
-      font-size: 12px;
-      font-weight: 700;
-      margin-bottom: 24px;
-    }
-    h1 { font-size: 22px; font-weight: 800; color: #ffffff; margin-bottom: 12px; }
-    p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
-    code { color: #f43f5e; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; }
-    a {
-      display: inline-block;
-      background: #2563eb;
-      color: white;
-      text-decoration: none;
-      padding: 11px 24px;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      margin-top: 10px;
+      padding: 11px 18px;
       border-radius: 10px;
-      font-size: 14px;
-      font-weight: 600;
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #38bdf8;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .call-btn:hover {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: #38bdf8;
+    }
+
+    @media (max-width: 600px) {
+      .carousel-slide { padding: 26px 20px 16px; }
+      .slide-title { font-size: 20px; }
+      .auth-form { flex-direction: column; }
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="badge">DEVICE NOT ACTIVE</div>
-    <h1>Device Offline or Unassigned</h1>
-    <p>No active stream was found for device <code>${reqUdid}</code>. Please ensure the device is connected to the USB hub and recognized by DIAMT Agent.</p>
-    <a href="/">Back to Gateway</a>
+  <div class="container">
+
+    <!-- Top Header Bar -->
+    <div class="brand-bar">
+      <div class="brand-left">
+        <span class="status-dot"></span>
+        <span class="brand-name">VERTEX DIGITAL</span>
+      </div>
+      <a href="tel:0706499848" class="brand-contact">Call 0706499848</a>
+    </div>
+
+    <!-- Notice Banner -->
+    <div class="notice-banner">
+      ${statusMessage}
+    </div>
+
+    <!-- 5 Auto-Sliding Cards Carousel -->
+    <div class="carousel-wrapper" id="carouselWrapper">
+      <div class="carousel-viewport">
+        <div class="carousel-track" id="track">
+
+          <!-- Card 1: System Management & Infrastructure -->
+          <div class="carousel-slide">
+            <div>
+              <span class="slide-badge">SYSTEM MANAGEMENT &amp; INFRASTRUCTURE</span>
+              <h2 class="slide-title">Designed &amp; Managed by Vertex Digital</h2>
+              <p class="slide-text">This system is designed and managed by Vertex Digital. Call 0706499848 for softwares and systems. Complete platform orchestration, device monitoring, and high-availability operations managed by lead developer Sam.</p>
+            </div>
+            <div class="slide-footer">
+              <span class="info-pill highlight">Developer: Sam</span>
+              <span class="info-pill highlight">Call: 0706499848</span>
+              <span class="info-pill">Vertex Digital</span>
+            </div>
+          </div>
+
+          <!-- Card 2: Mobile Device Virtualization -->
+          <div class="carousel-slide">
+            <div>
+              <span class="slide-badge">MOBILE DEVICE VIRTUALIZATION</span>
+              <h2 class="slide-title">Low-Latency Hardware Streaming</h2>
+              <p class="slide-text">This system is designed and managed by Vertex Digital. Call 0706499848 for softwares and systems. Featuring sub-second H.264 video encoding, dynamic touch relays, and multi-node hardware clustering developed by Sam.</p>
+            </div>
+            <div class="slide-footer">
+              <span class="info-pill highlight">Developer: Sam</span>
+              <span class="info-pill highlight">Call: 0706499848</span>
+              <span class="info-pill">Hardware Virtualization</span>
+            </div>
+          </div>
+
+          <!-- Card 3: Dynamic Access Control & Security -->
+          <div class="carousel-slide">
+            <div>
+              <span class="slide-badge">DYNAMIC ACCESS CONTROL &amp; SECURITY</span>
+              <h2 class="slide-title">Server-Side Token Verification</h2>
+              <p class="slide-text">This system is designed and managed by Vertex Digital. Call 0706499848 for softwares and systems. Protected by server-side verification: when an administrator resets credentials, unauthorized access is instantly terminated.</p>
+            </div>
+            <div class="slide-footer">
+              <span class="info-pill highlight">Developer: Sam</span>
+              <span class="info-pill highlight">Call: 0706499848</span>
+              <span class="info-pill">Real-Time Revocation</span>
+            </div>
+          </div>
+
+          <!-- Card 4: Custom Web & Cloud Platforms -->
+          <div class="carousel-slide">
+            <div>
+              <span class="slide-badge">CUSTOM WEB &amp; CLOUD PLATFORMS</span>
+              <h2 class="slide-title">Enterprise Software Development</h2>
+              <p class="slide-text">This system is designed and managed by Vertex Digital. Call 0706499848 for softwares and systems. Full-stack cloud web applications, automated subscriber portals, and enterprise microservices engineered by Sam.</p>
+            </div>
+            <div class="slide-footer">
+              <span class="info-pill highlight">Developer: Sam</span>
+              <span class="info-pill highlight">Call: 0706499848</span>
+              <span class="info-pill">Enterprise Software</span>
+            </div>
+          </div>
+
+          <!-- Card 5: Engineering Consultation & Systems -->
+          <div class="carousel-slide">
+            <div>
+              <span class="slide-badge">ENGINEERING CONSULTATION &amp; SYSTEMS</span>
+              <h2 class="slide-title">Direct Technical Consultation</h2>
+              <p class="slide-text">This system is designed and managed by Vertex Digital. Call 0706499848 for softwares and systems. Contact developer Sam directly at 0706499848 for custom software architecture, system integration, and commercial platforms.</p>
+            </div>
+            <div class="slide-footer">
+              <span class="info-pill highlight">Developer: Sam</span>
+              <span class="info-pill highlight">Call: 0706499848</span>
+              <span class="info-pill">Systems Architecture</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Controls and Indicators -->
+      <div class="carousel-bottom">
+        <div class="carousel-dots" id="dots">
+          <button class="dot-btn active" onclick="goToSlide(0)"></button>
+          <button class="dot-btn" onclick="goToSlide(1)"></button>
+          <button class="dot-btn" onclick="goToSlide(2)"></button>
+          <button class="dot-btn" onclick="goToSlide(3)"></button>
+          <button class="dot-btn" onclick="goToSlide(4)"></button>
+        </div>
+        <div class="nav-arrows">
+          <button class="arrow-btn" onclick="prevSlide()">&larr;</button>
+          <button class="arrow-btn" onclick="nextSlide()">&rarr;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Authorized Access Form -->
+    <div class="auth-card">
+      <div class="auth-title">Authorized Device Stream Access</div>
+      <form class="auth-form" onsubmit="handleUnlock(event)">
+        <input 
+          type="text" 
+          id="udidField" 
+          class="auth-input" 
+          placeholder="Device UDID" 
+          value="${prefillSerial}" 
+          required 
+          autocomplete="off" 
+        />
+        <input 
+          type="password" 
+          id="pinField" 
+          class="auth-input" 
+          placeholder="Current Stream PIN / Key" 
+          required 
+          autocomplete="off" 
+        />
+        <button type="submit" class="auth-submit">Connect</button>
+      </form>
+      <a href="tel:0706499848" class="call-btn">Contact Developer Sam: 0706499848</a>
+    </div>
+
   </div>
+
+  <script>
+    let currentSlide = 0;
+    const totalSlides = 5;
+    const track = document.getElementById('track');
+    const dots = document.querySelectorAll('.dot-btn');
+    let autoSlideInterval = null;
+
+    function updateCarousel() {
+      track.style.transform = 'translateX(-' + (currentSlide * 20) + '%)';
+      dots.forEach((dot, index) => {
+        if (index === currentSlide) dot.classList.add('active');
+        else dot.classList.remove('active');
+      });
+    }
+
+    function goToSlide(index) {
+      currentSlide = (index + totalSlides) % totalSlides;
+      updateCarousel();
+    }
+
+    function nextSlide() {
+      goToSlide(currentSlide + 1);
+    }
+
+    function prevSlide() {
+      goToSlide(currentSlide - 1);
+    }
+
+    function startAutoSlide() {
+      stopAutoSlide();
+      autoSlideInterval = setInterval(nextSlide, 4500);
+    }
+
+    function stopAutoSlide() {
+      if (autoSlideInterval) clearInterval(autoSlideInterval);
+    }
+
+    const wrapper = document.getElementById('carouselWrapper');
+    wrapper.addEventListener('mouseenter', stopAutoSlide);
+    wrapper.addEventListener('mouseleave', startAutoSlide);
+
+    startAutoSlide();
+
+    function handleUnlock(e) {
+      e.preventDefault();
+      const udid = document.getElementById('udidField').value.trim();
+      const pin = document.getElementById('pinField').value.trim();
+      if (!udid || !pin) return;
+      window.location.href = '/?udid=' + encodeURIComponent(udid) + '&pin=' + encodeURIComponent(pin);
+    }
+  </script>
 </body>
 </html>`;
 }
@@ -440,9 +854,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
     <div class="hdr-title" id="hdrTitle">Stream ${serial}</div>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
-    <button tabindex="-1" onfocus="this.blur()" class="hdr-btn" onclick="reconnectStream()" title="Refresh Stream">&#x21BB;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="hdr-btn" onclick="toggleDebugModal()" title="Stream Diagnostics">&#128030;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="hdr-btn" onclick="popOutWindow()" title="Pop Out Chrome Window">&#x2197;</button>
+    <button tabindex="-1" onfocus="this.blur()" class="hdr-btn" onclick="reconnectStream()" title="Refresh Stream"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="hdr-btn" onclick="toggleDebugModal()" title="Stream Diagnostics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="hdr-btn" onclick="popOutWindow()" title="Pop Out Chrome Window"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
     <div class="badge" id="badge"><span class="dot"></span><span id="modeText">CONNECTING</span></div>
     <span style="font-size:10px;color:#64748b;font-family:monospace" id="fps">--fps</span>
   </div>
@@ -455,19 +869,19 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
   <!-- Sleek Dark Control Sidebar (Right Side) -->
   <div class="sidebar">
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="expandNotifications()" title="Notification Bar (Swipe Down)">&#8942;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn btn-red" onclick="key(26)" title="Power">&#9211;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn btn-red" onclick="reboot()" title="Reboot Device">&#128260;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn btn-red" onclick="rotateScreen()" title="Rotate Screen">&#x21BB;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(24)" title="Volume Up">&#128265;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(25)" title="Volume Down">&#128264;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(4)" title="Back">&#x25C0;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(3)" title="Home">&#9711;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(187)" title="Recents">&#9633;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="screenshot()" title="Screenshot">&#128247;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="openText()" title="Send Text / Keyboard">&#9000;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="openUpload()" title="Upload File / APK">&#128228;</button>
-    <button tabindex="-1" onfocus="this.blur()" class="btn" id="muteBtn" onclick="toggleMute()" title="Mute/Unmute Audio">&#128266;</button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="expandNotifications()" title="Notification Bar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn btn-red" onclick="key(26)" title="Power"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn btn-red" onclick="reboot()" title="Reboot Device"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn btn-red" onclick="rotateScreen()" title="Rotate Screen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(24)" title="Volume Up"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="19" y1="12" x2="19" y2="12"/><line x1="15" y1="9" x2="15" y2="15"/><line x1="12" y1="12" x2="18" y2="12"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(25)" title="Volume Down"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="15" y1="12" x2="20" y2="12"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(4)" title="Back"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(3)" title="Home"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="key(187)" title="Recents"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="screenshot()" title="Screenshot"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="openText()" title="Send Text"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6.01" y2="8"/><line x1="10" y1="8" x2="10.01" y2="8"/><line x1="14" y1="8" x2="14.01" y2="8"/><line x1="18" y1="8" x2="18.01" y2="8"/><line x1="7" y1="16" x2="17" y2="16"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" onclick="openUpload()" title="Upload File"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+    <button tabindex="-1" onfocus="this.blur()" class="btn" id="muteBtn" onclick="toggleMute()" title="Audio Mute/Unmute"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
     
     <!-- Vertical Green Volume Slider -->
     <div class="vol-slider-box" title="Volume Slider">
@@ -860,6 +1274,11 @@ function buildPlayerHtml(serial, screenW, screenH) {
             resetDecoder();
             fbRunning = false;
             lastFrameReceivedTime = 0;
+          } else if (msg.type === 'stream_revoked') {
+            console.warn('[Stream] Access revoked by administrator:', msg.reason);
+            try { localStorage.removeItem('device_pin_auth_${serial}'); } catch (_) {}
+            window.location.reload();
+            return;
           }
           return;
         } catch (_) {}
@@ -1205,7 +1624,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (gainNode) gainNode.gain.value = isMuted ? 0 : (currentVolume / 100);
     const btn = document.getElementById('muteBtn');
     if (btn) {
-      btn.textContent = (isMuted || currentVolume === 0) ? '🔇' : '🔊';
+      btn.innerHTML = (isMuted || currentVolume === 0) 
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>' 
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
     }
   }
 
@@ -1269,159 +1690,43 @@ async function startStreamServer(serial, port) {
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:;");
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-    // Standalone DIAMT Stream Handler — Direct Cloud Streaming Without Machine Binding Blocking
-
-
     const url = new URL(req.url, `http://localhost:${port}`);
     const p   = url.pathname;
-    const pinParam   = url.searchParams.get('key') || url.searchParams.get('pin') || url.searchParams.get('token');
-    const tokenParam = url.searchParams.get('token') || req.headers['x-session-token'];
-    const remoteIp = req.socket.remoteAddress || '';
-    const hostHeader = req.headers.host || '';
-    
-    // Cloudflare Tunnel proxies traffic to localhost — inspect Cloudflare & proxy headers to detect remote clients
-    const isCloudflareOrRemote = Boolean(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || (hostHeader && !hostHeader.includes('localhost') && !hostHeader.includes('127.0.0.1')));
-    const isLocalHost = !isCloudflareOrRemote && (remoteIp.includes('127.0.0.1') || remoteIp.includes('::1') || remoteIp.includes('localhost') || hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1'));
+    const reqUdid = (url.searchParams.get('udid') || '').trim();
+    const candidateAuth = (url.searchParams.get('pin') || url.searchParams.get('key') || url.searchParams.get('token') || '').trim();
 
-    const linkStatus = url.searchParams.get('status') || url.searchParams.get('link_status');
-    if (linkStatus === 'suspended' || linkStatus === 'revoked') {
-      res.writeHead(403, { 'Content-Type': 'text/html' });
-      res.end(`
-        <!DOCTYPE html>
-        <html>
-        <head><title>Stream Link Suspended</title></head>
-        <body style="background:#090d16; color:#f8fafc; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
-          <div style="max-width:440px; padding:32px; background:#0f172a; border:1px solid rgba(239,68,68,0.3); border-radius:16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
-            <div style="font-size:48px; margin-bottom:16px;">⛔</div>
-            <h2 style="color:#ef4444; margin-bottom:8px;">Stream Link Suspended</h2>
-            <p style="color:#94a3b8; font-size:14px; line-height:1.6;">
-              This stream link has been suspended or revoked by an Administrator. Contact your Seed Owner or Super Admin for an active link.
-            </p>
-          </div>
-        </body>
-        </html>
-      `);
+    // 1. Bare domain or no UDID provided -> show the 5 auto-sliding cards presentation
+    if (!reqUdid) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(buildVertexCardsHtml(null, null, false));
       return;
     }
 
-    const dashboardServer = require('../dashboard/server');
-    
-    // Check key parameter (16-char), PIN parameter (6-digit), or session token
-    const keyParam = (url.searchParams.get('key') || '').trim();
-    const cleanPinParam = pinParam ? pinParam.trim() : '';
-
-    const referer = req.headers.referer || req.headers.origin || '';
-    const isFromDashboard = !referer || referer.includes('localhost') || referer.includes('127.0.0.1') || true;
-
-    let isPinOrKeyValid = false;
-    if (isLocalHost || isFromDashboard) {
-      isPinOrKeyValid = true;
-    } else if (cleanPinParam || keyParam) {
-      isPinOrKeyValid = await licenseService.validateDevicePin(serial, cleanPinParam || keyParam, bindingCode);
-    }
-
-    const isTokenValid = tokenParam && dashboardServer.SESSION_TOKENS && dashboardServer.SESSION_TOKENS.has(tokenParam);
-    const isValidSession = true; // In standalone mode, authorized device streams connect directly
-
-    if (!isValidSession) {
-      const hasAttemptedPin = Boolean(cleanPinParam);
-      res.writeHead(401, { 'Content-Type': 'text/html' });
-      res.end(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Stream Authorization Required — ${serial}</title>
-          <script>
-            (function() {
-              const serial = '${serial}';
-              const key = 'device_pin_auth_' + serial;
-              const hasPinInUrl = ${hasAttemptedPin ? 'true' : 'false'};
-              if (!hasPinInUrl) {
-                try {
-                  const saved = JSON.parse(localStorage.getItem(key));
-                  // 12 Hours cache check (12 * 60 * 60 * 1000 = 43200000 ms)
-                  if (saved && saved.pin && saved.ts && (Date.now() - saved.ts < 43200000)) {
-                    const u = new URL(window.location.href);
-                    u.searchParams.set('pin', String(saved.pin).trim());
-                    window.location.href = u.toString();
-                  }
-                } catch (_) {}
-              }
-            })();
-
-            function handlePinSubmit(e) {
-              e.preventDefault();
-              const input = document.getElementById('pinInput');
-              const btn = document.getElementById('unlockBtn');
-              const rawVal = input ? input.value : '';
-              const pin = rawVal.trim().replace(/[^a-zA-Z0-9]/g, '');
-
-              if (!pin) {
-                input.focus();
-                input.style.borderColor = '#ef4444';
-                return;
-              }
-
-              btn.disabled = true;
-              btn.textContent = '🔄 Unlocking Stream...';
-              btn.style.opacity = '0.8';
-
-              try {
-                localStorage.setItem('device_pin_auth_${serial}', JSON.stringify({ pin: pin, ts: Date.now() }));
-              } catch (_) {}
-
-              const u = new URL(window.location.href);
-              u.searchParams.set('pin', pin);
-              window.location.href = u.toString();
-            }
-          </script>
-        </head>
-        <body style="background:#090d16; color:#f8fafc; font-family:system-ui,-apple-system,sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:16px; box-sizing:border-box;">
-          <div style="max-width:440px; width:100%; padding:32px 24px; background:#0f172a; border:1px solid rgba(56,189,248,0.3); border-radius:18px; box-shadow: 0 20px 30px -5px rgba(0,0,0,0.6); text-align:center;">
-            <div style="font-size:44px; margin-bottom:14px;">🔐</div>
-            <h2 style="color:#38bdf8; margin:0 0 8px 0; font-size:22px; font-weight:800;">Device Authorization</h2>
-            <p style="color:#94a3b8; font-size:14px; line-height:1.5; margin:0 0 16px 0;">
-              Enter your assigned 6-digit <strong>Stream PIN</strong> to watch and control device <code style="color:#38bdf8; font-family:monospace; background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px;">${serial}</code>.
-            </p>
-
-            ${hasAttemptedPin ? `
-              <div style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); border-radius:8px; padding:10px 12px; margin-bottom:16px; font-size:13px; color:#fca5a5; text-align:center;">
-                ❌ Incorrect PIN. Please check your assigned PIN and try again.
-              </div>
-            ` : ''}
-
-            <form style="margin-top:12px;" onsubmit="handlePinSubmit(event)">
-              <input 
-                id="pinInput" 
-                type="text" 
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                autofocus
-                placeholder="Enter 6-Digit PIN" 
-                maxlength="16" 
-                style="width:100%; padding:14px; border-radius:10px; border:1px solid ${hasAttemptedPin ? 'rgba(239,68,68,0.6)' : 'rgba(255,255,255,0.2)'}; background:rgba(15,23,42,0.9); color:#fff; margin-bottom:14px; font-size:18px; text-align:center; letter-spacing:4px; font-weight:700; box-sizing:border-box; outline:none; transition:border-color 0.2s;"
-                onfocus="this.style.borderColor='#38bdf8'"
-                onblur="this.style.borderColor='${hasAttemptedPin ? 'rgba(239,68,68,0.6)' : 'rgba(255,255,255,0.2)'}'"
-              />
-              <button 
-                id="unlockBtn"
-                type="submit" 
-                style="width:100%; padding:14px; border-radius:10px; border:none; background:linear-gradient(135deg,#38bdf8,#0284c7); color:#0f172a; font-weight:800; font-size:15px; cursor:pointer; box-shadow:0 4px 12px rgba(56,189,248,0.3); transition:transform 0.1s, opacity 0.2s;"
-                onmousedown="this.style.transform='scale(0.98)'"
-                onmouseup="this.style.transform='scale(1)'"
-              >
-                Unlock & Watch Stream
-              </button>
-            </form>
-          </div>
-        </body>
-        </html>
-      `);
+    // 2. Identify active target session for requested device
+    const targetSession = activeServers.get(reqUdid) || (reqUdid === serial ? { server, wss, engine, serial } : null);
+    if (!targetSession) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(buildVertexCardsHtml(reqUdid, candidateAuth, true, `Device ${reqUdid} is offline or no active session exists.`));
       return;
     }
 
+    const effectiveSerial = targetSession.serial || serial;
+    const effectiveEngine = targetSession.engine || engine;
+
+    // 3. Server-side token / PIN verification
+    const isAuthorized = await verifyDeviceAccess(effectiveSerial, candidateAuth);
+    if (!isAuthorized) {
+      res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(buildVertexCardsHtml(
+        effectiveSerial,
+        candidateAuth,
+        true,
+        `Access denied for ${effectiveSerial}. Valid server-confirmed PIN or access token required. If an administrator has reset your credentials, please enter the updated PIN.`
+      ));
+      return;
+    }
+
+    // Handle file upload
     if (p === '/upload' && req.method === 'POST') {
       const chunks = [];
       req.on('data', c => chunks.push(c));
@@ -1429,9 +1734,9 @@ async function startStreamServer(serial, port) {
         const tmp = path.join(process.cwd(), `upload_${Date.now()}.tmp`);
         fs.writeFileSync(tmp, Buffer.concat(chunks));
         const dest = `/sdcard/Download/media_${Date.now()}.jpg`;
-        exec(`"${ADB_BIN}" -s ${serial} push "${tmp}" "${dest}"`, () => {
+        exec(`"${ADB_BIN}" -s ${effectiveSerial} push "${tmp}" "${dest}"`, () => {
           try { fs.unlinkSync(tmp); } catch (_) {}
-          exec(`"${ADB_BIN}" -s ${serial} shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://${dest}`);
+          exec(`"${ADB_BIN}" -s ${effectiveSerial} shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://${dest}`);
           res.writeHead(200, {'Content-Type':'application/json'});
           res.end(JSON.stringify({ status:'ok' }));
         });
@@ -1439,25 +1744,7 @@ async function startStreamServer(serial, port) {
       return;
     }
 
-    const reqUdid = (url.searchParams.get('udid') || '').trim();
-
-    // STRICT ISOLATION: A device stream must only be accessed through its exact device URL (?udid=SERIAL)
-    if (!reqUdid) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildGatewayLandingHtml());
-      return;
-    }
-
-    const targetSession = activeServers.get(reqUdid) || (reqUdid === serial ? { server, wss, engine, serial } : null);
-    if (!targetSession) {
-      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildDeviceNotFoundHtml(reqUdid));
-      return;
-    }
-
-    const effectiveSerial = targetSession.serial || serial;
-    const effectiveEngine = targetSession.engine || engine;
-
+    // Screenshot endpoint
     if (p === '/screen.jpg') {
       const frame = await captureOneFrame(effectiveSerial);
       if (frame) { res.writeHead(200, {'Content-Type':'image/png','Cache-Control':'no-cache'}); res.end(frame); }
@@ -1465,14 +1752,16 @@ async function startStreamServer(serial, port) {
       return;
     }
 
+    // Control endpoint
     if (p === '/control') {
       handleControl(url.searchParams.get('type'), url.searchParams, effectiveSerial, effectiveEngine);
       res.writeHead(200, {'Content-Type':'application/json'});
-      res.end('{"status":"ok"}'); return;
+      res.end('{"status":"ok"}');
+      return;
     }
 
-    res.writeHead(200, {'Content-Type':'text/html'});
-    // Prefer the negotiated stream resolution; fall back to physical screen size.
+    // Render Stream Player
+    res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
     const playerW = effectiveEngine.videoWidth  > 0 ? effectiveEngine.videoWidth  : effectiveEngine.screenWidth;
     const playerH = effectiveEngine.videoHeight > 0 ? effectiveEngine.videoHeight : effectiveEngine.screenHeight;
     res.end(buildPlayerHtml(effectiveSerial, playerW, playerH));
@@ -1482,29 +1771,10 @@ async function startStreamServer(serial, port) {
   const wss = new WebSocket.Server({ server, path: '/ws', perMessageDeflate: false });
 
   wss.on('connection', async (ws, req) => {
-    const bindingCode = bindingService.getOrGenerateBindingCode();
-    const lic = await licenseService.checkLicenseStatus(bindingCode);
-
-    if (!lic.isActive) {
-      ws.close(4003, 'License Revoked');
-      return;
-    }
-
     const wsUrl = new URL(req.url, 'http://localhost');
-    const pinParam = (wsUrl.searchParams.get('key') || wsUrl.searchParams.get('pin') || wsUrl.searchParams.get('token') || '').trim();
-    const tokenParam = wsUrl.searchParams.get('token');
-    const remoteIp = req.socket.remoteAddress || '';
-    const hostHeader = req.headers.host || '';
-    
-    const isCloudflareOrRemote = Boolean(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || (hostHeader && !hostHeader.includes('localhost') && !hostHeader.includes('127.0.0.1')));
-    const isLocalHost = !isCloudflareOrRemote && (remoteIp.includes('127.0.0.1') || remoteIp.includes('::1') || remoteIp.includes('localhost') || hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1'));
-
-    const referer = req.headers.referer || req.headers.origin || '';
-    const dashboardServer = require('../dashboard/server');
-    let isPinValid = true;
-    const isValidWs = true;
-
     const reqWsUdid = (wsUrl.searchParams.get('udid') || '').trim();
+    const candidateWsAuth = (wsUrl.searchParams.get('pin') || wsUrl.searchParams.get('key') || wsUrl.searchParams.get('token') || '').trim();
+
     if (!reqWsUdid) {
       ws.close(4000, 'Device UDID Required');
       return;
@@ -1519,8 +1789,33 @@ async function startStreamServer(serial, port) {
     const effectiveWsSerial = targetWsSession.serial || serial;
     const effectiveWsEngine = targetWsSession.engine || engine;
 
-    logger.info(`[StreamServer] WS connected for ${effectiveWsSerial}`);
+    // Check credential on initial WS connection
+    const isWsAuthorized = await verifyDeviceAccess(effectiveWsSerial, candidateWsAuth);
+    if (!isWsAuthorized) {
+      logger.warn(`[StreamServer] Unauthorized WS connection attempt for ${effectiveWsSerial}`);
+      try {
+        ws.send(JSON.stringify({ type: 'stream_revoked', reason: 'Invalid or reset credentials' }));
+      } catch (_) {}
+      ws.close(4003, 'Unauthorized / Expired Credentials');
+      return;
+    }
+
+    logger.info(`[StreamServer] WS connected and authorized for ${effectiveWsSerial}`);
     effectiveWsEngine.addClient(ws);
+
+    // Heartbeat verification every 10 seconds: if admin resets PIN/key, revoke stream
+    const authWatcherTimer = setInterval(async () => {
+      const stillAuthorized = await verifyDeviceAccess(effectiveWsSerial, candidateWsAuth);
+      if (!stillAuthorized) {
+        logger.warn(`[StreamServer] Credentials revoked by admin for ${effectiveWsSerial}. Terminating active stream.`);
+        try {
+          ws.send(JSON.stringify({ type: 'stream_revoked', reason: 'Credentials reset by admin' }));
+        } catch (_) {}
+        clearInterval(authWatcherTimer);
+        effectiveWsEngine.removeClient(ws);
+        ws.close(4003, 'Credentials Revoked');
+      }
+    }, 10000);
 
     ws.on('message', (msg) => {
       try {
@@ -1528,8 +1823,13 @@ async function startStreamServer(serial, port) {
         handleControl(data.type, data, effectiveWsSerial, effectiveWsEngine);
       } catch (_) {}
     });
-    ws.on('close', () => { effectiveWsEngine.removeClient(ws); clearInterval(licCheckTimer); });
-    ws.on('error', () => { effectiveWsEngine.removeClient(ws); clearInterval(licCheckTimer); });
+
+    const cleanup = () => {
+      effectiveWsEngine.removeClient(ws);
+      clearInterval(authWatcherTimer);
+    };
+    ws.on('close', cleanup);
+    ws.on('error', cleanup);
   });
 
   return new Promise((resolve, reject) => {
