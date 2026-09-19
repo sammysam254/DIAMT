@@ -1,10 +1,9 @@
 [build]
-  base = "netlify-payment-portal"
+  base = "website"
   command = "npm run build"
-  publish = "."
-  functions = "functions"
+  publish = "dist"
 
 [[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
+  from = "/*"
+  to = "/index.html"
   status = 200
