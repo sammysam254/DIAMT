@@ -32,6 +32,45 @@ const ADB_BIN = resolveAdbBin();
 
 const activeServers = new Map();
 
+function findActiveSession(reqUdid, fallbackSerial) {
+  if (!reqUdid && fallbackSerial) return activeServers.get(fallbackSerial) || null;
+  if (!reqUdid) return activeServers.values().next().value || null;
+
+  const raw = String(reqUdid).trim();
+  // 1. Direct exact match
+  if (activeServers.has(raw)) return activeServers.get(raw);
+
+  // 2. Case-insensitive match
+  const lower = raw.toLowerCase();
+  for (const [k, v] of activeServers.entries()) {
+    if (k.toLowerCase() === lower) return v;
+  }
+
+  // 3. OCR-safe normalized match (e.g. 0B0FP... vs OBOFP... where 0/O and 1/I/L are interchangeable)
+  const normalize = s => s.toUpperCase().replace(/0/g, 'O').replace(/[1L]/g, 'I');
+  const normReq = normalize(raw);
+  for (const [k, v] of activeServers.entries()) {
+    if (normalize(k) === normReq) return v;
+  }
+
+  // 4. Substring / partial match
+  for (const [k, v] of activeServers.entries()) {
+    if (k.includes(raw) || raw.includes(k)) return v;
+  }
+
+  // 5. Fallback to fallbackSerial if valid
+  if (fallbackSerial && activeServers.has(fallbackSerial)) {
+    return activeServers.get(fallbackSerial);
+  }
+
+  // 6. Graceful single-device fallback: if only 1 device is active, stream it rather than showing offline
+  if (activeServers.size === 1) {
+    return activeServers.values().next().value;
+  }
+
+  return null;
+}
+
 // ─── Persistent ADB input shell (fallback when scrcpy not ready) ─────────────
 
 const inputShells = new Map();
@@ -1664,8 +1703,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
 // ─── startStreamServer ───────────────────────────────────────────────────────
 
 
-async function startStreamServer(serial, port) {
-  logger.info(`[StreamServer] Starting for ${serial} on port ${port}`);
+async function startStreamServer(serial, port, aliasSerial) {
+  logger.info(`[StreamServer] Starting for ${serial} on port ${port}${aliasSerial ? ` (alias: ${aliasSerial})` : ''}`);
 
   // Start scrcpy engine asynchronously so stream server port listens immediately
   const engine = new ScrcpyEngine(serial);
@@ -1699,7 +1738,7 @@ async function startStreamServer(serial, port) {
     }
 
     // 2. Identify active target session for requested device
-    const targetSession = activeServers.get(reqUdid) || (reqUdid === serial ? { server, wss, engine, serial } : null);
+    const targetSession = findActiveSession(reqUdid, serial);
     if (!targetSession) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(buildVertexCardsHtml(reqUdid, candidateAuth, true, `Device ${reqUdid} is offline or no active session exists.`));
@@ -1776,7 +1815,7 @@ async function startStreamServer(serial, port) {
       return;
     }
 
-    const targetWsSession = activeServers.get(reqWsUdid) || (reqWsUdid === serial ? { engine, serial } : null);
+    const targetWsSession = findActiveSession(reqWsUdid, serial);
     if (!targetWsSession) {
       ws.close(4004, 'Device Not Found Or Offline');
       return;
@@ -1839,7 +1878,11 @@ async function startStreamServer(serial, port) {
     server.listen(port, '0.0.0.0', () => {
       const localUrl = `http://localhost:${port}`;
       logger.info(`[StreamServer] Listening at ${localUrl}`);
-      activeServers.set(serial, { server, wss, engine, serial });
+      const sessionObj = { server, wss, engine, serial };
+      activeServers.set(serial, sessionObj);
+      if (aliasSerial && aliasSerial !== serial) {
+        activeServers.set(aliasSerial, sessionObj);
+      }
 
       const streamProcess = {
         pid: port, exitCode: null,
@@ -1848,6 +1891,7 @@ async function startStreamServer(serial, port) {
           try { wss.close(); } catch (_) {}
           server.close();
           activeServers.delete(serial);
+          if (aliasSerial) activeServers.delete(aliasSerial);
         },
       };
       resolve({ streamProcess, localUrl });

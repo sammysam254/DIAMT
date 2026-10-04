@@ -168,7 +168,7 @@ async function handleDeviceAdd(device) {
     logger.info(`Allocated port ${port} for device ${serial}`);
 
     // 4. Start stream server (always starts — license is enforced at website level)
-    const { streamProcess, localUrl } = await startStreamServer(serial, port);
+    const { streamProcess, localUrl } = await startStreamServer(serial, port, realSerial);
     logger.info(`Stream server started for ${serial}: ${localUrl}`);
 
     // 5. Establish fast Cloudflare tunnel or local stream URL
