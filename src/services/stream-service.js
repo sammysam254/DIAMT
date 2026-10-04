@@ -178,12 +178,92 @@ function handleControl(type, data, serial, engine) {
 }
 
 
-// ─── Server-Side Realtime Device Credential Verification ──────────────────────
+// ─── Server-Side Realtime Device Credential Verification (Redis-backed) ──────
 
 async function verifyDeviceAccess(serial, inputCredential) {
   if (!serial) return false;
-  // Always authorized — ensures devicecontrol streams are permanently accessible
-  return true;
+  const input = (inputCredential || '').trim();
+
+  // If no input credential provided (internal CCTV feed or admin monitor), allow
+  if (!input) return true;
+
+  // 1. Redis / in-memory cache check (30s TTL)
+  const cacheKey = `cred:${serial}:data`;
+  try {
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      const { validKeys = [], validPins = [], status: devStatus } = cached;
+      if (devStatus === 'suspended' || devStatus === 'blocked' || devStatus === 'revoked') return false;
+      if (validPins.includes(input) || validKeys.includes(input)) return true;
+      for (const k of validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
+      for (const p of validPins) { if (p === input) return true; }
+      // Provided PIN or key has been rotated / unallocated -> deny access
+      return false;
+    }
+  } catch (_) {}
+
+  // 2. Cache miss — query Supabase for active credentials
+  const cfg = loadConfig();
+  const supaUrl = cfg.supabaseUrl;
+  const supaKey = cfg.supabaseServiceRoleKey || cfg.supabaseAnonKey;
+  if (!supaUrl || !supaKey) return true;
+
+  try {
+    const res = await fetch(`${supaUrl.replace(/\/$/, '')}/rest/v1/devices?serial=eq.${encodeURIComponent(serial)}&select=id,status,stream_url`, {
+      headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}` }
+    });
+    if (!res.ok) return true;
+    const devices = await res.json();
+    if (!Array.isArray(devices) || devices.length === 0) return true;
+
+    const dev = devices[0];
+    const devStatus = dev.status || 'online';
+
+    const validKeys = [];
+    const validPins = [];
+
+    // Parse active master credentials from devices.stream_url
+    const currentStreamUrl = dev.stream_url || '';
+    const matchKey   = currentStreamUrl.match(/[?&]key=([^&]+)/i);
+    const matchPin   = currentStreamUrl.match(/[?&]pin=([^&]+)/i);
+    const matchToken = currentStreamUrl.match(/[?&]token=([^&]+)/i);
+    if (matchKey)   validKeys.push(decodeURIComponent(matchKey[1]).trim());
+    if (matchPin)   validPins.push(decodeURIComponent(matchPin[1]).trim());
+    if (matchToken) validKeys.push(decodeURIComponent(matchToken[1]).trim());
+
+    // Parse active worker credentials from device_assignments
+    if (dev.id) {
+      try {
+        const aRes = await fetch(`${supaUrl.replace(/\/$/, '')}/rest/v1/device_assignments?device_id=eq.${encodeURIComponent(dev.id)}&select=access_password`, {
+          headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}` }
+        });
+        if (aRes.ok) {
+          const assignments = await aRes.json();
+          if (Array.isArray(assignments)) {
+            for (const a of assignments) {
+              if (a.access_password) validPins.push(String(a.access_password).trim());
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Cache verified credentials for fast sub-millisecond lookups
+    try {
+      await cache.set(cacheKey, { validKeys, validPins, status: devStatus }, cache.TTL.CREDENTIALS);
+    } catch (_) {}
+
+    if (devStatus === 'suspended' || devStatus === 'blocked' || devStatus === 'revoked') return false;
+    if (validPins.includes(input) || validKeys.includes(input)) return true;
+    for (const k of validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
+    for (const p of validPins) { if (p === input) return true; }
+
+    // If credential was provided but is neither the active master key nor an active assignment -> DENIED
+    return false;
+  } catch (err) {
+    logger.warn(`[StreamService] Credential validation warning for ${serial}: ${err.message}`);
+    return true;
+  }
 }
 
 // ─── 5 Auto-Sliding Cards Presentation (Vertex Digital) ─────────────────────

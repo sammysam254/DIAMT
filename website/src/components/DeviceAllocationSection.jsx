@@ -184,15 +184,28 @@ export default function DeviceAllocationSection({ currentUser }) {
       const { error: delErr } = await supabase.from('device_assignments').delete().eq('id', assignmentId);
       if (delErr) throw delErr;
 
-      // 2. Reset device rental status in devices table if assigned
+      // 2. Invalidate old worker credentials: rotate stream URL and PIN, reset rental status
       if (deviceId) {
         try {
+          const targetDev = devices.find(d => d.id === deviceId);
+          const newPin = generate6DigitPin();
+          const newKey = generate16CharKey();
+          const newStreamUrl = rotateUrlWithKeyAndPin(targetDev?.stream_url, targetDev?.serial || deviceId, newKey, newPin);
+
           await supabase.from('devices').update({
             rental_status: 'available',
             rented_by_user_id: null,
             rented_at: null,
+            stream_url: newStreamUrl,
             updated_at: new Date().toISOString()
           }).eq('id', deviceId);
+
+          if (targetDev?.serial) {
+            await supabase.from('device_rentals').update({
+              stream_url: newStreamUrl,
+              updated_at: new Date().toISOString()
+            }).eq('serial_number', targetDev.serial);
+          }
         } catch (_) {}
       }
 
