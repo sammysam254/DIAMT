@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Video, Shield, Maximize2, RefreshCw, X, ArrowLeft, Eye, Play, Trash2 } from 'lucide-react';
+import { Video, Shield, Maximize2, RefreshCw, X, ArrowLeft, Eye, Play, Trash2, ExternalLink, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
   const [devices, setDevices] = useState([]);
@@ -158,6 +158,80 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
           </div>
         </div>
       </div>
+
+      {/* Localtunnel 1-Time Browser Authorization Banner */}
+      {(() => {
+        const locaDevices = devices.filter(d => d.stream_url && d.stream_url.includes('.loca.lt'));
+        if (locaDevices.length === 0) return null;
+        const sampleUrl = locaDevices[0].stream_url;
+
+        return (
+          <div 
+            className="card" 
+            style={{ 
+              background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.12), rgba(30, 41, 59, 0.95))', 
+              borderColor: 'rgba(249, 115, 22, 0.45)', 
+              marginBottom: '20px',
+              padding: '16px 20px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div style={{ display: 'flex', gap: '14px', alignItems: 'center', maxWidth: '780px' }}>
+                <div style={{ 
+                  background: 'rgba(249, 115, 22, 0.2)', 
+                  border: '1px solid rgba(249, 115, 22, 0.4)', 
+                  borderRadius: '10px', 
+                  padding: '10px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center' 
+                }}>
+                  <ShieldCheck size={26} color="#fb923c" />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <strong style={{ color: '#fed7aa', fontSize: '14px' }}>Localtunnel 1-Time Browser Unlock Required</strong>
+                    <span style={{ fontSize: '10px', fontWeight: 800, background: 'rgba(249,115,22,0.3)', color: '#ffedd5', padding: '2px 8px', borderRadius: '100px' }}>
+                      {locaDevices.length} FEEDS ACTIVE
+                    </span>
+                  </div>
+                  <p style={{ color: '#cbd5e1', fontSize: '12.5px', marginTop: '4px', lineHeight: 1.5 }}>
+                    Localtunnel shows a <em>"Friendly Reminder"</em> security screen in browsers until confirmed once. Click below to open 1 feed in a new tab, click <strong>"Click to Continue"</strong> (or submit the IP shown on screen), then hit <strong>"Refresh Feeds"</strong>. All feeds will instantly unlock!
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  onClick={() => {
+                    window.open(sampleUrl, '_blank');
+                  }}
+                  className="btn btn-primary"
+                  style={{ 
+                    background: 'linear-gradient(135deg, #f97316, #ea580c)', 
+                    borderColor: '#ea580c', 
+                    fontSize: '12px', 
+                    padding: '8px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontWeight: 700
+                  }}
+                >
+                  <ExternalLink size={14} /> 1-Click Unlock Localtunnel
+                </button>
+                <button 
+                  onClick={() => fetchDevicesAndLockState(true)} 
+                  className="btn btn-secondary" 
+                  style={{ fontSize: '12px', padding: '8px 14px' }}
+                >
+                  <RefreshCw size={13} /> Refresh Feeds
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Grid View */}
       {loading ? (

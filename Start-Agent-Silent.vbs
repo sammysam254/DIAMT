@@ -46,7 +46,7 @@ If Not fso.FileExists(cloudflaredPath) Then cloudflaredPath = "C:\cloudflared\cl
 If Not fso.FileExists(cloudflaredPath) Then cloudflaredPath = "C:\Program Files\cloudflared\cloudflared.exe"
 If Not fso.FileExists(cloudflaredPath) Then cloudflaredPath = "C:\Program Files (x86)\cloudflared\cloudflared.exe"
 If fso.FileExists(cloudflaredPath) Then
-    shell.Run """" & cloudflaredPath & """ tunnel run --token eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9", 0, False
+    shell.Run """" & cloudflaredPath & """ tunnel run --token eyJhIjoiYzFlMzEyY2Q2YWFjNTNlOWJkYWUzZTY5MmJiMWM4Y2MiLCJ0IjoiZWI3NGIxNjMtMzcxOC00YWEwLWE1NGYtYmE5MDMwZDZkNzYyIiwicyI6Ik5EVmxPV1l3TkRBdE5HSXdZUzAwTldabUxXRTVOMlF0T0dNd1pETmlZMk14WkRrNSJ9", 0, False
 End If
 
 ' 4. Open dashboard in default browser
