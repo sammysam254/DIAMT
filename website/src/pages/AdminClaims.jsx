@@ -17,7 +17,7 @@ import {
   getISOWeekString, getRecentWeekIdentifiers, DAYS_OF_WEEK, 
   getDateForDayInWeek, getTodayDateString 
 } from '../lib/weekUtils';
-import { notifyClaimAction, sendNotificationToUser } from '../lib/notificationService';
+import { notifyClaimAction, sendNotificationToUser, sendNotificationToMultipleUsers } from '../lib/notificationService';
 
 export default function AdminClaims() {
   const { profile } = useAuth();
@@ -272,16 +272,19 @@ export default function AdminClaims() {
     try {
       if (notifTargetWorkerId === 'ALL') {
         const workerList = workers.filter(w => w.role === 'worker');
-        for (const w of workerList) {
-          await sendNotificationToUser({
-            userId: w.id,
-            userEmail: w.email,
-            title: notifTitle.trim(),
-            message: notifMessage.trim(),
-            type: notifType
-          });
-        }
+        await sendNotificationToMultipleUsers(workerList, {
+          title: notifTitle.trim(),
+          message: notifMessage.trim(),
+          type: notifType
+        });
         alert(`✅ Notification dispatched to all ${workerList.length} workers!`);
+      } else if (notifTargetWorkerId === 'ALL_USERS') {
+        await sendNotificationToMultipleUsers(workers, {
+          title: notifTitle.trim(),
+          message: notifMessage.trim(),
+          type: notifType
+        });
+        alert(`✅ Notification dispatched to all ${workers.length} system users & admins!`);
       } else {
         const targetWorker = workers.find(w => w.id === notifTargetWorkerId);
         if (targetWorker) {
@@ -1455,8 +1458,9 @@ export default function AdminClaims() {
                       }}
                     >
                       <option value="ALL">All Active Workers ({workers.filter(w => w.role === 'worker').length} users)</option>
-                      {workers.filter(w => w.role === 'worker').map(w => (
-                        <option key={w.id} value={w.id}>{w.email}</option>
+                      <option value="ALL_USERS">All System Users & Admins ({workers.length} users)</option>
+                      {workers.map(w => (
+                        <option key={w.id} value={w.id}>{w.email} ({w.role || 'worker'})</option>
                       ))}
                     </select>
                   </div>
