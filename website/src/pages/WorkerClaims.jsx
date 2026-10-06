@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { 
   FileText, CheckCircle2, Clock, XCircle, Download, Calendar, 
-  DollarSign, ShieldCheck, AlertCircle, RefreshCw, Send, Award
+  DollarSign, ShieldCheck, AlertCircle, RefreshCw, Send, Award,
+  ArrowRightLeft, AlertTriangle, Check
 } from 'lucide-react';
 import SEO from '../components/SEO';
 import DiamtLoader from '../components/DiamtLoader';
@@ -21,7 +22,9 @@ export default function WorkerClaims() {
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [switchingPlan, setSwitchingPlan] = useState(false);
   const [actionMsg, setActionMsg] = useState(null);
+  const [showPlanModal, setShowPlanModal] = useState(false);
 
   const currentWeek = getISOWeekString();
   const currentDay = getCurrentDayName();
@@ -77,10 +80,12 @@ export default function WorkerClaims() {
     };
   }, [profile, selectedWeek]);
 
-  // Check if today has already been claimed
+  // Check claim states for current week
   const hasClaimedToday = claims.some(c => c.day_of_week === currentDay || c.claim_date === todayDate);
-  const hasWeeklyClaim = claims.some(c => c.plan_type === 'weekly_40');
+  const weeklyClaim = claims.find(c => c.plan_type === 'weekly_40');
+  const hasWeeklyClaim = Boolean(weeklyClaim);
 
+  // Submit Claim (Daily $10 or Weekly $40 on any day)
   const handleMakeClaim = async (dayToClaim = currentDay) => {
     if (!profile) return;
     setSubmitting(true);
@@ -99,6 +104,7 @@ export default function WorkerClaims() {
         amount: planRate,
         plan_type: planType,
         status: 'pending',
+        notes: isWeekly ? `Weekly $40 claim submitted on ${currentDay} (${todayDate})` : null,
         claimed_at: new Date().toISOString()
       };
 
@@ -106,17 +112,55 @@ export default function WorkerClaims() {
 
       if (error) {
         if (error.code === '23505') {
-          throw new Error('A claim for this day or weekly cycle has already been submitted.');
+          throw new Error('A claim for this cycle has already been submitted.');
         }
         throw error;
       }
 
-      setActionMsg({ type: 'success', text: `Claim for ${dayVal} ($${planRate.toFixed(2)}) submitted successfully for administrative review!` });
+      setActionMsg({ 
+        type: 'success', 
+        text: isWeekly 
+          ? `Weekly $40.00 USD claim successfully submitted! Your weekly target is recorded for administrative approval.` 
+          : `Claim for ${dayVal} ($${planRate.toFixed(2)}) submitted successfully for administrative review!` 
+      });
       await loadClaims(false);
     } catch (err) {
       setActionMsg({ type: 'error', text: err.message || 'Failed to submit claim.' });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Plan Switch with Instant Admin Auto-Approval
+  const handleSwitchPlan = async (newPlan) => {
+    if (!profile || newPlan === planType) return;
+    setSwitchingPlan(true);
+    setActionMsg(null);
+
+    try {
+      const planLabel = newPlan === 'weekly_40' ? 'Weekly $40 Plan' : 'Daily $10 Plan';
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          claim_criteria: newPlan,
+          pending_claim_criteria: null,
+          criteria_requested_at: new Date().toISOString(),
+          criteria_change_reason: `Worker switched to ${planLabel} (System auto-approved by admin policy)`
+        })
+        .eq('id', profile.id);
+
+      if (error) throw error;
+
+      setShowPlanModal(false);
+      setActionMsg({
+        type: 'success',
+        text: `Plan successfully updated to ${planLabel}! Auto-approved by administrator.`
+      });
+    } catch (err) {
+      setActionMsg({ type: 'error', text: 'Error changing plan: ' + err.message });
+    } finally {
+      setSwitchingPlan(false);
     }
   };
 
@@ -186,8 +230,29 @@ export default function WorkerClaims() {
               </div>
             </div>
 
-            {/* Week Selector & PDF Action */}
+            {/* Week Selector, Plan Change & PDF Action */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              
+              <button
+                onClick={() => setShowPlanModal(true)}
+                style={{
+                  background: 'rgba(5, 150, 105, 0.12)',
+                  color: '#059669',
+                  border: '1px solid rgba(5, 150, 105, 0.3)',
+                  padding: '9px 14px',
+                  borderRadius: '10px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                <ArrowRightLeft size={15} />
+                Change Plan (Auto-Approved)
+              </button>
+
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-main)', padding: '6px 12px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <Calendar size={16} color="var(--primary)" />
                 <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Week:</span>
@@ -254,6 +319,69 @@ export default function WorkerClaims() {
             </div>
           )}
 
+          {/* Weekly Plan Rule Banner (Explaining any-day $40 submission & auto-suspension warning) */}
+          {planType === 'weekly_40' && (
+            <div style={{
+              background: hasWeeklyClaim ? 'rgba(5, 150, 105, 0.08)' : 'rgba(217, 119, 6, 0.08)',
+              border: `1px solid ${hasWeeklyClaim ? '#059669' : '#d97706'}`,
+              borderRadius: '14px',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '14px'
+            }}>
+              {hasWeeklyClaim ? (
+                <ShieldCheck size={24} color="#059669" style={{ flexShrink: 0, marginTop: '2px' }} />
+              ) : (
+                <AlertTriangle size={24} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
+              )}
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: hasWeeklyClaim ? '#059669' : '#d97706' }}>
+                  {hasWeeklyClaim 
+                    ? `WEEKLY $40.00 USD TARGET CLAIM RECORDED FOR WEEK ${selectedWeek}` 
+                    : `WEEKLY PLAN TARGET RULE: SUBMIT $40.00 USD CLAIM THIS WEEK`}
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                  {hasWeeklyClaim ? (
+                    <span>
+                      Your weekly $40.00 USD claim was submitted on <b>{weeklyClaim.claim_date}</b>. Status: <b>{(weeklyClaim.status || '').toUpperCase()}</b>. No further submissions are required for this week cycle.
+                    </span>
+                  ) : (
+                    <span>
+                      As a subscriber to the Weekly Plan, you can send your <b>$40.00 USD</b> claim on <b>any day within this current week</b>. 
+                      You must submit it before the week concludes; failure to submit will result in <b>automatic account suspension by the system</b>.
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              {!hasWeeklyClaim && selectedWeek === currentWeek && (
+                <button
+                  onClick={() => handleMakeClaim('Weekly')}
+                  disabled={submitting}
+                  style={{
+                    background: 'linear-gradient(135deg, #059669, #10b981)',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '10px 18px',
+                    borderRadius: '10px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: submitting ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 4px 14px rgba(5, 150, 105, 0.3)'
+                  }}
+                >
+                  <Send size={15} />
+                  {submitting ? 'Submitting...' : 'Send $40 Weekly Claim Now'}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* KPI Summary Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
             
@@ -269,7 +397,7 @@ export default function WorkerClaims() {
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-muted)', fontWeight: 700 }}>
-                  Subscribed Plan
+                  Active Plan
                 </span>
                 <Award size={16} color="#059669" />
               </div>
@@ -277,7 +405,9 @@ export default function WorkerClaims() {
                 {planType === 'weekly_40' ? 'Weekly $40 Plan' : 'Daily $10 Plan'}
               </div>
               <span style={{ fontSize: '12px', color: '#059669', fontWeight: 600 }}>
-                Rate: ${planRate.toFixed(2)} per eligible claim
+                {planType === 'weekly_40' 
+                  ? 'Send $40 any day in the week' 
+                  : '$10.00 per eligible day'}
               </span>
             </div>
 
@@ -354,7 +484,7 @@ export default function WorkerClaims() {
             </div>
           </div>
 
-          {/* Daily Claim Submission Matrix */}
+          {/* Claim Submission Section */}
           <div style={{
             background: 'var(--bg-card)',
             border: '1px solid var(--border-color)',
@@ -367,37 +497,67 @@ export default function WorkerClaims() {
                   Weekly Claim Schedule ({selectedWeek})
                 </h3>
                 <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Click to submit your eligible work claim. When approved by admin, the claim is permanently registered.
+                  {planType === 'weekly_40' 
+                    ? 'Weekly $40 Plan: Send one $40 USD claim at any time during this week.' 
+                    : 'Daily $10 Plan: Submit claims for days worked. Approved claims are permanently registered.'}
                 </p>
               </div>
 
               {selectedWeek === currentWeek && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    onClick={() => handleMakeClaim(currentDay)}
-                    disabled={submitting || (planType === 'daily_10' && hasClaimedToday) || (planType === 'weekly_40' && hasWeeklyClaim)}
-                    style={{
-                      background: (hasClaimedToday || hasWeeklyClaim) ? 'var(--border-color)' : 'linear-gradient(135deg, #059669, #10b981)',
-                      color: (hasClaimedToday || hasWeeklyClaim) ? 'var(--text-muted)' : '#ffffff',
-                      border: 'none',
-                      padding: '10px 20px',
-                      borderRadius: '10px',
-                      fontSize: '13px',
-                      fontWeight: 700,
-                      cursor: (hasClaimedToday || hasWeeklyClaim || submitting) ? 'not-allowed' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      boxShadow: (hasClaimedToday || hasWeeklyClaim) ? 'none' : '0 4px 14px rgba(5, 150, 105, 0.3)'
-                    }}
-                  >
-                    <Send size={15} />
-                    {submitting 
-                      ? 'Submitting...' 
-                      : (hasClaimedToday || hasWeeklyClaim) 
-                        ? 'Claim Submitted for Today' 
-                        : `Submit Today's Claim ($${planRate.toFixed(2)})`}
-                  </button>
+                  {planType === 'weekly_40' ? (
+                    <button
+                      onClick={() => handleMakeClaim('Weekly')}
+                      disabled={submitting || hasWeeklyClaim}
+                      style={{
+                        background: hasWeeklyClaim ? 'var(--border-color)' : 'linear-gradient(135deg, #059669, #10b981)',
+                        color: hasWeeklyClaim ? 'var(--text-muted)' : '#ffffff',
+                        border: 'none',
+                        padding: '10px 20px',
+                        borderRadius: '10px',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: (hasWeeklyClaim || submitting) ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: hasWeeklyClaim ? 'none' : '0 4px 14px rgba(5, 150, 105, 0.3)'
+                      }}
+                    >
+                      <Send size={15} />
+                      {submitting 
+                        ? 'Submitting...' 
+                        : hasWeeklyClaim 
+                          ? 'Weekly $40 Claim Submitted' 
+                          : 'Send Weekly $40 Claim (Any Day This Week)'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleMakeClaim(currentDay)}
+                      disabled={submitting || hasClaimedToday}
+                      style={{
+                        background: hasClaimedToday ? 'var(--border-color)' : 'linear-gradient(135deg, #059669, #10b981)',
+                        color: hasClaimedToday ? 'var(--text-muted)' : '#ffffff',
+                        border: 'none',
+                        padding: '10px 20px',
+                        borderRadius: '10px',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: (hasClaimedToday || submitting) ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: hasClaimedToday ? 'none' : '0 4px 14px rgba(5, 150, 105, 0.3)'
+                      }}
+                    >
+                      <Send size={15} />
+                      {submitting 
+                        ? 'Submitting...' 
+                        : hasClaimedToday 
+                          ? 'Claim Submitted for Today' 
+                          : `Submit Today's Claim ($10.00)`}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -405,12 +565,13 @@ export default function WorkerClaims() {
             {/* Days Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
               {DAYS_OF_WEEK.map((day) => {
-                const dayClaim = claims.find(c => c.day_of_week === day || (c.plan_type === 'weekly_40' && c.day_of_week === 'Weekly'));
+                const dayClaim = claims.find(c => c.day_of_week === day);
+                const isWeeklyActive = planType === 'weekly_40';
                 const isToday = day === currentDay && selectedWeek === currentWeek;
 
                 let statusBadge = (
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'var(--bg-main)', padding: '4px 8px', borderRadius: '6px' }}>
-                    Unclaimed
+                    {isWeeklyActive ? (hasWeeklyClaim ? 'Covered' : 'Eligible') : 'Unclaimed'}
                   </span>
                 );
 
@@ -434,6 +595,12 @@ export default function WorkerClaims() {
                       </span>
                     );
                   }
+                } else if (isWeeklyActive && hasWeeklyClaim) {
+                  statusBadge = (
+                    <span style={{ fontSize: '11px', color: '#059669', background: 'rgba(5, 150, 105, 0.08)', padding: '4px 8px', borderRadius: '6px', fontWeight: 600 }}>
+                      Weekly $40 Met
+                    </span>
+                  );
                 }
 
                 return (
@@ -472,7 +639,7 @@ export default function WorkerClaims() {
                     </div>
 
                     <div style={{ fontSize: '15px', fontWeight: 800, color: dayClaim ? 'var(--text-main)' : 'var(--text-dim)' }}>
-                      {dayClaim ? `$${parseFloat(dayClaim.amount).toFixed(2)}` : '—'}
+                      {dayClaim ? `$${parseFloat(dayClaim.amount).toFixed(2)}` : (isWeeklyActive && hasWeeklyClaim ? 'Weekly' : '—')}
                     </div>
 
                     <div style={{ marginTop: 'auto' }}>
@@ -524,7 +691,7 @@ export default function WorkerClaims() {
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                    <th style={{ padding: '12px' }}>Day</th>
+                    <th style={{ padding: '12px' }}>Day / Scope</th>
                     <th style={{ padding: '12px' }}>Claim Date</th>
                     <th style={{ padding: '12px' }}>Plan Type</th>
                     <th style={{ padding: '12px' }}>Amount</th>
@@ -583,6 +750,126 @@ export default function WorkerClaims() {
               </table>
             )}
           </div>
+
+          {/* Plan Change Modal (Auto-Approved by Admin) */}
+          {showPlanModal && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.65)',
+              zIndex: 100,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px'
+            }}>
+              <div style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '20px',
+                padding: '28px',
+                maxWidth: '520px',
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '20px',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.3)'
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(5, 150, 105, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <ArrowRightLeft size={18} color="#059669" />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-main)' }}>
+                        Choose Subscribed Plan
+                      </h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                        Plan requests are <b>automatically approved</b> by the system per administrator policy.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Plan Option 1: Daily $10 */}
+                <div 
+                  onClick={() => !switchingPlan && handleSwitchPlan('daily_10')}
+                  style={{
+                    border: planType === 'daily_10' ? '2px solid #059669' : '1px solid var(--border-color)',
+                    background: planType === 'daily_10' ? 'rgba(5, 150, 105, 0.06)' : 'var(--bg-main)',
+                    borderRadius: '14px',
+                    padding: '16px',
+                    cursor: switchingPlan ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px'
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>Daily $10 Plan</span>
+                      {planType === 'daily_10' && (
+                        <span style={{ fontSize: '10px', fontWeight: 800, background: '#059669', color: '#fff', padding: '2px 6px', borderRadius: '4px' }}>CURRENT ACTIVE</span>
+                      )}
+                    </div>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                      Submit $10.00 USD claims for active shift days worked.
+                    </p>
+                  </div>
+                  {planType === 'daily_10' && <Check size={20} color="#059669" />}
+                </div>
+
+                {/* Plan Option 2: Weekly $40 */}
+                <div 
+                  onClick={() => !switchingPlan && handleSwitchPlan('weekly_40')}
+                  style={{
+                    border: planType === 'weekly_40' ? '2px solid #059669' : '1px solid var(--border-color)',
+                    background: planType === 'weekly_40' ? 'rgba(5, 150, 105, 0.06)' : 'var(--bg-main)',
+                    borderRadius: '14px',
+                    padding: '16px',
+                    cursor: switchingPlan ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px'
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>Weekly $40 Plan</span>
+                      {planType === 'weekly_40' && (
+                        <span style={{ fontSize: '10px', fontWeight: 800, background: '#059669', color: '#fff', padding: '2px 6px', borderRadius: '4px' }}>CURRENT ACTIVE</span>
+                      )}
+                    </div>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                      Send <b>one $40.00 USD claim on any day</b> within the active week cycle. Must be sent in the current week to avoid system auto-suspension.
+                    </p>
+                  </div>
+                  {planType === 'weekly_40' && <Check size={20} color="#059669" />}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                  <button
+                    onClick={() => setShowPlanModal(false)}
+                    disabled={switchingPlan}
+                    style={{
+                      background: 'none',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-muted)',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       )}

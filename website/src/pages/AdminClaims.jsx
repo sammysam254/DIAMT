@@ -605,20 +605,77 @@ export default function AdminClaims() {
             borderRadius: '18px',
             padding: '24px'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <ShieldAlert size={20} color="#b45309" />
-              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
-                Worker Target Compliance & System Auto-Suspension Audit
-              </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                  <ShieldAlert size={20} color="#b45309" />
+                  <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+                    Worker Target Compliance & System Auto-Suspension Audit
+                  </h3>
+                </div>
+                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                  Workers failing to achieve their weekly target rule (e.g. failing to submit the required $40 claim during their active week) are automatically suspended by system audit.
+                  <b> Reinstating an auto-suspended worker is strictly restricted to Seed Admin authority.</b>
+                </p>
+              </div>
+
+              {isSeedAdmin && (
+                <button
+                  onClick={async () => {
+                    if (!window.confirm(`Execute Target Compliance Audit for Week ${selectedWeek}?\n\nAny workers on the Weekly $40 Plan who have not submitted their $40 claim for this week cycle will be automatically suspended by the system.`)) return;
+
+                    const defaultingWorkers = workers.filter(w => {
+                      if (w.role !== 'worker' || w.is_auto_suspended) return false;
+                      if (w.claim_criteria === 'weekly_40') {
+                        const hasClaim = claims.some(c => c.worker_id === w.id && (c.plan_type === 'weekly_40' || parseFloat(c.amount) >= 40));
+                        return !hasClaim;
+                      }
+                      return false;
+                    });
+
+                    if (defaultingWorkers.length === 0) {
+                      alert(`All evaluated workers are currently compliant for Week ${selectedWeek}. No suspensions enforced.`);
+                      return;
+                    }
+
+                    for (const defWorker of defaultingWorkers) {
+                      await supabase.from('profiles').update({
+                        is_auto_suspended: true,
+                        is_blocked: true,
+                        auto_suspended_week: selectedWeek,
+                        blocked_reason: `Due to failing to achieve weekly target rule as per your subscribed plan (Weekly $40 claim not submitted for week ${selectedWeek}), the system has auto-suspended you and you are required to leave the station before tomorrow at 8 AM, as your services are no longer needed.`
+                      }).eq('id', defWorker.id);
+                    }
+
+                    alert(`Compliance Audit Executed for Week ${selectedWeek}:\n\n${defaultingWorkers.length} defaulting worker(s) have been auto-suspended.`);
+                    loadData(false);
+                  }}
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    color: '#ef4444',
+                    padding: '8px 16px',
+                    borderRadius: '10px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <AlertTriangle size={15} /> Execute Weekly Target Audit (Week {selectedWeek})
+                </button>
+              )}
             </div>
-            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
-              Workers failing to achieve the weekly target rule as per their subscribed plan are automatically suspended by system audit.
-              <b> Note: Reinstating an auto-suspended worker is strictly restricted to Seed Admin authority.</b>
-            </p>
 
             <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
               {workers.filter(w => w.role === 'worker').map(w => {
                 const isAutoSuspended = w.is_auto_suspended;
+                const isWeeklyPlan = w.claim_criteria === 'weekly_40';
+                const workerWeekClaims = claims.filter(c => c.worker_id === w.id);
+                const hasWeekly40Sent = workerWeekClaims.some(c => c.plan_type === 'weekly_40' || parseFloat(c.amount) >= 40);
+
                 return (
                   <div 
                     key={w.id}
@@ -638,16 +695,26 @@ export default function AdminClaims() {
                         {w.email}
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        Plan: {w.claim_criteria === 'weekly_40' ? 'Weekly $40' : 'Daily $10'}
+                        Plan: <b>{isWeeklyPlan ? 'Weekly $40 Plan' : 'Daily $10 Plan'}</b>
                       </div>
-                      <div style={{ marginTop: '6px' }}>
+                      <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         {isAutoSuspended ? (
                           <span style={{ fontSize: '10px', fontWeight: 800, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
                             AUTO-TERMINATED (Target Rule)
                           </span>
+                        ) : isWeeklyPlan ? (
+                          hasWeekly40Sent ? (
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', background: 'rgba(5, 150, 105, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                              ✓ $40 Claim Sent (Compliant)
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#d97706', background: 'rgba(217, 119, 6, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                              ⚠ $40 Claim Pending (At Risk)
+                            </span>
+                          )
                         ) : (
                           <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', background: 'rgba(5, 150, 105, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                            COMPLIANT / ACTIVE
+                            COMPLIANT ({workerWeekClaims.length} Daily Claims)
                           </span>
                         )}
                       </div>

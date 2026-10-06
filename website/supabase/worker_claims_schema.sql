@@ -66,3 +66,38 @@ BEGIN
   WHERE id = target_worker_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 6. SYSTEM AUTOMATED AUDIT FOR WEEKLY PLAN TARGET DEFAULTS
+CREATE OR REPLACE FUNCTION public.auto_audit_weekly_plan_defaults(audit_week TEXT)
+RETURNS INTEGER AS $$
+DECLARE
+  v_count INTEGER := 0;
+BEGIN
+  WITH defaulting_workers AS (
+    SELECT p.id
+    FROM public.profiles p
+    WHERE p.role = 'worker'
+      AND p.claim_criteria = 'weekly_40'
+      AND COALESCE(p.is_auto_suspended, FALSE) = FALSE
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.worker_claims wc
+        WHERE wc.worker_id = p.id
+          AND wc.week_identifier = audit_week
+          AND (wc.plan_type = 'weekly_40' OR wc.amount >= 40.00)
+      )
+  )
+  UPDATE public.profiles p
+  SET is_auto_suspended = TRUE,
+      is_blocked = TRUE,
+      auto_suspended_week = audit_week,
+      blocked_reason = 'Due to failing to achieve weekly target rule as per your subscribed plan (Weekly $40 claim not submitted for week ' || audit_week || '), the system has auto-suspended you and you are required to leave the station before tomorrow at 8 AM, as your services are no longer needed.',
+      updated_at = NOW()
+  FROM defaulting_workers dw
+  WHERE p.id = dw.id;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
