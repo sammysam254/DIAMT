@@ -28,8 +28,10 @@ function ProtectedRoute({ children, allowedRoles }) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  // If user is blocked or auto-suspended, always show the blocked screen regardless of role
-  if (profile?.is_blocked === true || profile?.is_auto_suspended === true) {
+  // Admins, Super Admins, and Seed Admins should NEVER be banned or auto-suspended
+  const isAdminRole = ['admin', 'super_admin', 'seed_admin'].includes(profile?.role) || profile?.email?.toLowerCase() === 'sammyseth260@gmail.com';
+
+  if (!isAdminRole && (profile?.is_blocked === true || profile?.is_auto_suspended === true)) {
     return <BlockedScreen />;
   }
 

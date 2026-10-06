@@ -82,10 +82,19 @@ export function AuthProvider({ children }) {
         data = newProf;
       }
 
+      // Automatically ensure admins, super admins, and seed admins are NEVER blocked or auto-suspended
+      const isAdminUser = isSeed || ['admin', 'super_admin', 'seed_admin'].includes(data?.role);
+      if (isAdminUser && (data?.is_blocked || data?.is_auto_suspended)) {
+        data = { ...data, is_blocked: false, is_auto_suspended: false, blocked_reason: null };
+        try {
+          await supabase.from('profiles').update({ is_blocked: false, is_auto_suspended: false, blocked_reason: null }).eq('id', currentUser.id);
+        } catch (_) {}
+      }
+
       // Automatically assume and enforce Seed Admin role for sammyseth260@gmail.com
       if (isSeed) {
         if (!data || data.role !== 'seed_admin' || data.is_blocked) {
-          data = { ...(data || {}), id: currentUser.id, email: currentUser.email, role: 'seed_admin', is_blocked: false };
+          data = { ...(data || {}), id: currentUser.id, email: currentUser.email, role: 'seed_admin', is_blocked: false, is_auto_suspended: false };
           try {
             await supabase.from('profiles').upsert([data]);
           } catch (_) {}

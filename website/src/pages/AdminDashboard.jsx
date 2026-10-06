@@ -50,6 +50,11 @@ export default function AdminDashboard() {
   const handleBlockUser = async (e) => {
     e.preventDefault();
     if (!blockReasonModal) return;
+    if (['admin', 'super_admin', 'seed_admin'].includes(blockReasonModal.role) || blockReasonModal.email?.toLowerCase() === 'sammyseth260@gmail.com') {
+      alert('Administrators and Seed Admins cannot be blocked.');
+      setBlockReasonModal(null);
+      return;
+    }
     setBlockingId(blockReasonModal.id);
     try {
       await supabase.from('profiles').update({

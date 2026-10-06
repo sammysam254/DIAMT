@@ -77,6 +77,8 @@ BEGIN
     SELECT p.id
     FROM public.profiles p
     WHERE p.role = 'worker'
+      AND p.role NOT IN ('admin', 'super_admin', 'seed_admin')
+      AND p.email NOT IN ('sammyseth260@gmail.com')
       AND p.claim_criteria = 'weekly_40'
       AND COALESCE(p.is_auto_suspended, FALSE) = FALSE
       AND NOT EXISTS (
@@ -94,12 +96,33 @@ BEGIN
       blocked_reason = 'Due to failing to achieve weekly target rule as per your subscribed plan (Weekly $40 claim not submitted for week ' || audit_week || '), the system has auto-suspended you and you are required to leave the station before tomorrow at 8 AM, as your services are no longer needed.',
       updated_at = NOW()
   FROM defaulting_workers dw
-  WHERE p.id = dw.id;
+  WHERE p.id = dw.id
+    AND p.role = 'worker'
+    AND p.role NOT IN ('admin', 'super_admin', 'seed_admin');
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- IMMUNITY RULE: Admins, Super Admins, and Seed Admins can NEVER be blocked or auto-suspended
+CREATE OR REPLACE FUNCTION public.protect_admins_from_suspension()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.role IN ('admin', 'super_admin', 'seed_admin') OR NEW.email = 'sammyseth260@gmail.com' THEN
+    NEW.is_blocked := FALSE;
+    NEW.is_auto_suspended := FALSE;
+    NEW.blocked_reason := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_protect_admins ON public.profiles;
+CREATE TRIGGER trg_protect_admins
+BEFORE INSERT OR UPDATE ON public.profiles
+FOR EACH ROW
+EXECUTE FUNCTION public.protect_admins_from_suspension();
 
 -- 7. USER IN-APP NOTIFICATIONS TABLE
 CREATE TABLE IF NOT EXISTS public.user_notifications (

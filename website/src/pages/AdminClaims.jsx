@@ -911,6 +911,7 @@ export default function AdminClaims() {
 
                     const defaultingWorkers = workers.filter(w => {
                       if (w.role !== 'worker' || w.is_auto_suspended) return false;
+                      if (['admin', 'super_admin', 'seed_admin'].includes(w.role) || w.email?.toLowerCase() === 'sammyseth260@gmail.com') return false;
                       if (w.claim_criteria === 'weekly_40') {
                         const hasClaim = claims.some(c => c.worker_id === w.id && (c.plan_type === 'weekly_40' || parseFloat(c.amount) >= 40));
                         return !hasClaim;
