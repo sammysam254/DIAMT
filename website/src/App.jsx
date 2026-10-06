@@ -8,6 +8,8 @@ import SeedAdminDashboard from './pages/SeedAdminDashboard';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import WorkerDashboard from './pages/WorkerDashboard';
+import WorkerClaims from './pages/WorkerClaims';
+import AdminClaims from './pages/AdminClaims';
 import BlockedScreen from './pages/BlockedScreen';
 import DiamtLoader from './components/DiamtLoader';
 
@@ -26,8 +28,8 @@ function ProtectedRoute({ children, allowedRoles }) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  // If user is blocked, always show the blocked screen regardless of role
-  if (profile?.is_blocked === true) {
+  // If user is blocked or auto-suspended, always show the blocked screen regardless of role
+  if (profile?.is_blocked === true || profile?.is_auto_suspended === true) {
     return <BlockedScreen />;
   }
 
@@ -85,10 +87,28 @@ export default function App() {
           />
 
           <Route 
+            path="/admin/claims" 
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminClaims />
+              </ProtectedRoute>
+            } 
+          />
+
+          <Route 
             path="/worker" 
             element={
               <ProtectedRoute allowedRoles={['worker']}>
                 <WorkerDashboard />
+              </ProtectedRoute>
+            } 
+          />
+
+          <Route 
+            path="/worker/claims" 
+            element={
+              <ProtectedRoute allowedRoles={['worker']}>
+                <WorkerClaims />
               </ProtectedRoute>
             } 
           />

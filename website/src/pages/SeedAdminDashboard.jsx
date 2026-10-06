@@ -165,6 +165,8 @@ export default function SeedAdminDashboard() {
     try {
       await supabase.from('profiles').update({
         is_blocked: false,
+        is_auto_suspended: false,
+        auto_suspended_week: null,
         blocked_reason: null,
         blocked_by: null,
         updated_at: new Date().toISOString(),
@@ -558,7 +560,11 @@ export default function SeedAdminDashboard() {
                     </span>
                   </td>
                   <td style={{ padding: '14px 12px' }}>
-                    {p.is_blocked ? (
+                    {p.is_auto_suspended ? (
+                      <span className="badge badge-danger" style={{ background: '#7f1d1d', color: '#fecaca' }}>
+                        <UserX size={11} /> AUTO-TERMINATED
+                      </span>
+                    ) : p.is_blocked ? (
                       <span className="badge badge-danger">
                         <UserX size={11} /> BLOCKED
                       </span>
@@ -587,6 +593,15 @@ export default function SeedAdminDashboard() {
                   <td style={{ padding: '14px 12px', textAlign: 'right' }}>
                     {isSeedOwner(p) ? (
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cannot Block Owner</span>
+                    ) : p.is_auto_suspended ? (
+                      <button
+                        onClick={() => handleUnblockUser(p.id)}
+                        disabled={blockingId === p.id}
+                        className="btn btn-primary"
+                        style={{ padding: '6px 14px', fontSize: '12px', background: '#059669', borderColor: '#059669' }}
+                      >
+                        <UserCheck size={14} /> Unsuspend (Seed)
+                      </button>
                     ) : p.is_blocked ? (
                       <button
                         onClick={() => handleUnblockUser(p.id)}

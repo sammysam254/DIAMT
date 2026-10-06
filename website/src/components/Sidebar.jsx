@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Shield, Server, Users, Smartphone, X, Key } from 'lucide-react';
+import { Shield, Server, Users, Smartphone, X, Key, DollarSign, FileText } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose }) {
   const { profile } = useAuth();
@@ -83,8 +83,18 @@ export default function Sidebar({ isOpen, onClose }) {
           </NavLink>
         )}
 
+        {isAdmin && (
+          <NavLink to="/admin/claims" onClick={onClose} style={linkStyle}>
+            <FileText size={18} /> Claims & Audits
+          </NavLink>
+        )}
+
         <NavLink to="/worker" onClick={onClose} style={linkStyle}>
           <Smartphone size={18} /> My Assigned Devices
+        </NavLink>
+
+        <NavLink to="/worker/claims" onClick={onClose} style={linkStyle}>
+          <DollarSign size={18} /> My Claims & Records
         </NavLink>
 
         <div style={{ marginTop: 'auto', padding: '14px', background: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>

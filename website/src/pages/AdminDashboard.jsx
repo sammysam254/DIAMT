@@ -134,17 +134,25 @@ export default function AdminDashboard() {
                   <tr key={w.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '14px 12px', fontWeight: 600 }}>{w.email}</td>
                     <td style={{ padding: '14px 12px' }}>
-                      {w.is_blocked ? (
+                      {w.is_auto_suspended ? (
+                        <span className="badge badge-danger" style={{ background: '#7f1d1d', color: '#fecaca' }}>
+                          <UserX size={11} /> AUTO-TERMINATED
+                        </span>
+                      ) : w.is_blocked ? (
                         <span className="badge badge-danger"><UserX size={11} /> BLOCKED</span>
                       ) : (
                         <span className="badge badge-success"><UserCheck size={11} /> ACTIVE</span>
                       )}
                     </td>
                     <td style={{ padding: '14px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                      {w.blocked_reason || '—'}
+                      {w.is_auto_suspended ? 'System Target Rule Violation (Must leave station before 8 AM)' : (w.blocked_reason || '—')}
                     </td>
                     <td style={{ padding: '14px 12px', textAlign: 'right' }}>
-                      {w.is_blocked ? (
+                      {w.is_auto_suspended ? (
+                        <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.1)' }}>
+                          Seed Admin Clearance Required
+                        </span>
+                      ) : w.is_blocked ? (
                         <button
                           onClick={() => handleUnblockUser(w.id)}
                           disabled={blockingId === w.id}
