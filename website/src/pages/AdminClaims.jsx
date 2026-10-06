@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { 
   FileText, CheckCircle2, Clock, XCircle, Download, Calendar, 
-  DollarSign, Users, Filter, Check, X, ShieldAlert, RefreshCw, AlertTriangle, ShieldCheck
+  DollarSign, Users, Filter, Check, X, ShieldAlert, RefreshCw, AlertTriangle, ShieldCheck,
+  Zap, Sparkles, Send
 } from 'lucide-react';
 import SEO from '../components/SEO';
 import DiamtLoader from '../components/DiamtLoader';
@@ -12,7 +13,10 @@ import {
   generateAdminWeeklyClaimsReportPdf, 
   generateWeeklyWorkerClaimsPdf 
 } from '../lib/pdfGenerator';
-import { getISOWeekString, getRecentWeekIdentifiers } from '../lib/weekUtils';
+import { 
+  getISOWeekString, getRecentWeekIdentifiers, DAYS_OF_WEEK, 
+  getDateForDayInWeek, getTodayDateString 
+} from '../lib/weekUtils';
 
 export default function AdminClaims() {
   const { profile } = useAuth();
@@ -29,6 +33,16 @@ export default function AdminClaims() {
   // Rejection modal
   const [rejectionModal, setRejectionModal] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
+
+  // Seed Admin Advance Claim Modal
+  const [showSeedClaimModal, setShowSeedClaimModal] = useState(false);
+  const [seedTargetWorkerId, setSeedTargetWorkerId] = useState('');
+  const [seedTargetWeek, setSeedTargetWeek] = useState(getISOWeekString());
+  const [seedTargetDay, setSeedTargetDay] = useState('Monday');
+  const [seedClaimAmount, setSeedClaimAmount] = useState('10.00');
+  const [seedPlanType, setSeedPlanType] = useState('daily_10');
+  const [seedAdminNotes, setSeedAdminNotes] = useState('');
+  const [seedSubmitting, setSeedSubmitting] = useState(false);
 
   const isSeedAdmin = profile?.role === 'seed_admin' || profile?.email?.toLowerCase() === 'sammyseth260@gmail.com';
 
@@ -170,6 +184,61 @@ export default function AdminClaims() {
     }
   };
 
+  // Seed Admin exclusive: Issue claim for a worker (even future days)
+  const handleSeedCreateClaim = async (e) => {
+    e.preventDefault();
+    if (!isSeedAdmin) {
+      alert('Permission Denied: Only the Seed Administrator can force-claim days for workers.');
+      return;
+    }
+
+    const targetWorker = workers.find(w => w.id === seedTargetWorkerId);
+    if (!targetWorker) {
+      alert('Please select a target worker.');
+      return;
+    }
+
+    setSeedSubmitting(true);
+    try {
+      const isWeekly = seedPlanType === 'weekly_40';
+      const dayVal = isWeekly ? 'Weekly' : seedTargetDay;
+      const calculatedDate = getDateForDayInWeek(seedTargetWeek, dayVal);
+
+      const claimRecord = {
+        worker_id: targetWorker.id,
+        worker_email: targetWorker.email,
+        week_identifier: seedTargetWeek,
+        day_of_week: dayVal,
+        claim_date: calculatedDate,
+        amount: parseFloat(seedClaimAmount) || (isWeekly ? 40.00 : 10.00),
+        plan_type: seedPlanType,
+        status: 'approved', // Pre-authorized & approved by Seed Admin
+        approved_at: new Date().toISOString(),
+        approved_by: profile.id,
+        approver_email: profile.email,
+        is_forced_by_seed: true,
+        notes: seedAdminNotes || `Issued & pre-authorized by Seed Admin for ${dayVal} (${calculatedDate})`,
+        claimed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from('worker_claims')
+        .upsert([claimRecord], { onConflict: 'worker_id, week_identifier, day_of_week' });
+
+      if (error) throw error;
+
+      alert(`✅ Seed Admin claim for ${targetWorker.email} (${dayVal}, ${calculatedDate}) recorded as worker claim and issued for Week ${seedTargetWeek}!`);
+      setShowSeedClaimModal(false);
+      setSeedAdminNotes('');
+      await loadData(false);
+    } catch (err) {
+      alert('Error issuing claim: ' + err.message);
+    } finally {
+      setSeedSubmitting(false);
+    }
+  };
+
   // Filtered Claims
   const filteredClaims = claims.filter(c => {
     if (selectedWorkerFilter !== 'ALL' && c.worker_email !== selectedWorkerFilter) return false;
@@ -257,6 +326,37 @@ export default function AdminClaims() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              {isSeedAdmin && (
+                <button
+                  onClick={() => {
+                    setSeedTargetWeek(selectedWeek);
+                    const firstWorker = workers.find(w => w.role === 'worker');
+                    if (firstWorker) {
+                      setSeedTargetWorkerId(firstWorker.id);
+                      setSeedPlanType(firstWorker.claim_criteria || 'daily_10');
+                      setSeedClaimAmount(firstWorker.claim_criteria === 'weekly_40' ? '40.00' : '10.00');
+                    }
+                    setShowSeedClaimModal(true);
+                  }}
+                  style={{
+                    background: 'linear-gradient(135deg, #059669, #10b981)',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '10px 18px',
+                    borderRadius: '10px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(5, 150, 105, 0.3)'
+                  }}
+                >
+                  <Zap size={16} /> Seed Admin: Issue Claim for Worker
+                </button>
+              )}
+
               <button
                 onClick={handleExportPdf}
                 style={{
@@ -484,8 +584,13 @@ export default function AdminClaims() {
                       <td style={{ padding: '12px', fontWeight: 700, color: 'var(--text-main)' }}>
                         {claim.worker_email}
                       </td>
-                      <td style={{ padding: '12px', color: 'var(--text-main)' }}>
+                      <td style={{ padding: '12px', color: 'var(--text-main)', fontWeight: 600 }}>
                         {claim.day_of_week}
+                        {claim.is_forced_by_seed && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, color: '#059669', background: 'rgba(5, 150, 105, 0.12)', border: '1px solid #10b981', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px' }}>
+                            ★ SEED ISSUED
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '12px', color: 'var(--text-muted)' }}>
                         {claim.claim_date}
@@ -841,6 +946,271 @@ export default function AdminClaims() {
                     Confirm Rejection
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Seed Admin Force-Claim Advance Modal */}
+          {showSeedClaimModal && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.65)',
+              zIndex: 100,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px'
+            }}>
+              <div style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '20px',
+                padding: '28px',
+                maxWidth: '520px',
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '18px',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.3)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(5, 150, 105, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Zap size={20} color="#059669" />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-main)' }}>
+                        Seed Admin: Issue Worker Claim
+                      </h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+                        Claim even <b>future days</b> for a worker. The system records it as an approved claim for that week.
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowSeedClaimModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSeedCreateClaim} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {/* Field 1: Target Worker */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                      Select Worker:
+                    </label>
+                    <select
+                      value={seedTargetWorkerId}
+                      onChange={(e) => {
+                        setSeedTargetWorkerId(e.target.value);
+                        const sel = workers.find(w => w.id === e.target.value);
+                        if (sel) {
+                          const pType = sel.claim_criteria || 'daily_10';
+                          setSeedPlanType(pType);
+                          setSeedClaimAmount(pType === 'weekly_40' ? '40.00' : '10.00');
+                        }
+                      }}
+                      required
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-main)',
+                        color: 'var(--text-main)',
+                        fontSize: '13px',
+                        fontWeight: 600
+                      }}
+                    >
+                      <option value="">-- Choose Worker --</option>
+                      {workers.filter(w => w.role === 'worker').map(w => (
+                        <option key={w.id} value={w.id}>
+                          {w.email} ({w.claim_criteria === 'weekly_40' ? 'Weekly $40' : 'Daily $10'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Field 2: Target Week */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                        Target Week Cycle:
+                      </label>
+                      <select
+                        value={seedTargetWeek}
+                        onChange={(e) => setSeedTargetWeek(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--bg-main)',
+                          color: 'var(--text-main)',
+                          fontSize: '13px',
+                          fontWeight: 600
+                        }}
+                      >
+                        {weekList.map(w => (
+                          <option key={w} value={w}>{w}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                        Plan Type:
+                      </label>
+                      <select
+                        value={seedPlanType}
+                        onChange={(e) => {
+                          setSeedPlanType(e.target.value);
+                          setSeedClaimAmount(e.target.value === 'weekly_40' ? '40.00' : '10.00');
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--bg-main)',
+                          color: 'var(--text-main)',
+                          fontSize: '13px',
+                          fontWeight: 600
+                        }}
+                      >
+                        <option value="daily_10">Daily $10 Plan</option>
+                        <option value="weekly_40">Weekly $40 Plan</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Field 3: Day Selector (Supports Future Days) */}
+                  {seedPlanType === 'daily_10' && (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)' }}>
+                          Claim Day (Past, Current, or Future):
+                        </label>
+                        <span style={{ fontSize: '11px', color: '#059669', fontWeight: 700 }}>
+                          Date: {getDateForDayInWeek(seedTargetWeek, seedTargetDay)}
+                          {getDateForDayInWeek(seedTargetWeek, seedTargetDay) > getTodayDateString() && ' (Future Day)'}
+                        </span>
+                      </div>
+                      <select
+                        value={seedTargetDay}
+                        onChange={(e) => setSeedTargetDay(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--bg-main)',
+                          color: 'var(--text-main)',
+                          fontSize: '13px',
+                          fontWeight: 600
+                        }}
+                      >
+                        {DAYS_OF_WEEK.map(d => {
+                          const dateStr = getDateForDayInWeek(seedTargetWeek, d);
+                          const isFuture = dateStr > getTodayDateString();
+                          return (
+                            <option key={d} value={d}>
+                              {d} — {dateStr} {isFuture ? '★ Future Day' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Field 4: Amount */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                      Claim Amount ($ USD):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={seedClaimAmount}
+                      onChange={(e) => setSeedClaimAmount(e.target.value)}
+                      required
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-main)',
+                        color: 'var(--text-main)',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  {/* Field 5: Notes */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                      Authorization Reason / Notes:
+                    </label>
+                    <input
+                      type="text"
+                      value={seedAdminNotes}
+                      onChange={(e) => setSeedAdminNotes(e.target.value)}
+                      placeholder="e.g. Advance shift approval by Seed Owner"
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-main)',
+                        color: 'var(--text-main)',
+                        fontSize: '13px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowSeedClaimModal(false)}
+                      disabled={seedSubmitting}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--border-color)',
+                        color: 'var(--text-muted)',
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={seedSubmitting}
+                      style={{
+                        background: 'linear-gradient(135deg, #059669, #10b981)',
+                        color: '#ffffff',
+                        border: 'none',
+                        padding: '9px 18px',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: seedSubmitting ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <Check size={14} />
+                      {seedSubmitting ? 'Issuing...' : 'Issue & Record Claim (Seed)'}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}

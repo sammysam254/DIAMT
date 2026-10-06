@@ -579,7 +579,7 @@ export default function WorkerClaims() {
                   if (dayClaim.status === 'approved') {
                     statusBadge = (
                       <span style={{ fontSize: '11px', color: '#059669', background: 'rgba(5, 150, 105, 0.1)', padding: '4px 8px', borderRadius: '6px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <CheckCircle2 size={12} /> Approved
+                        <CheckCircle2 size={12} /> {dayClaim.is_forced_by_seed ? 'Approved (Seed Issued)' : 'Approved'}
                       </span>
                     );
                   } else if (dayClaim.status === 'rejected') {
@@ -705,6 +705,11 @@ export default function WorkerClaims() {
                     <tr key={claim.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '12px', fontWeight: 700, color: 'var(--text-main)' }}>
                         {claim.day_of_week}
+                        {claim.is_forced_by_seed && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, color: '#059669', background: 'rgba(5, 150, 105, 0.12)', border: '1px solid #10b981', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px' }}>
+                            ★ SEED ISSUED
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '12px', color: 'var(--text-muted)' }}>
                         {claim.claim_date}
@@ -733,7 +738,9 @@ export default function WorkerClaims() {
                         )}
                       </td>
                       <td style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                        {claim.approver_email ? (
+                        {claim.is_forced_by_seed ? (
+                          <span style={{ color: '#059669', fontWeight: 600 }}>Pre-Authorized by Seed Owner</span>
+                        ) : claim.approver_email ? (
                           <span>Verified by <b>{claim.approver_email}</b></span>
                         ) : claim.status === 'rejected' ? (
                           <span style={{ color: '#ef4444' }}>{claim.rejection_reason || 'Rejected by Admin'}</span>

@@ -288,7 +288,9 @@ export function generateWeeklyWorkerClaimsPdf({ worker, weekIdentifier, claims =
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(...COLORS.textMuted);
-      const approverInfo = claim.approver_email 
+      const approverInfo = claim.is_forced_by_seed
+        ? `★ Seed Issued (${new Date(claim.approved_at || claim.claimed_at).toLocaleDateString()})`
+        : claim.approver_email 
         ? `${claim.approver_email} (${new Date(claim.approved_at || claim.updated_at).toLocaleDateString()})`
         : claim.status === 'rejected' ? (claim.rejection_reason || 'Rejected by Admin') : 'Awaiting Review';
       doc.text(approverInfo.substring(0, 32), 148, y + 5);
@@ -646,7 +648,9 @@ export function generateAdminWeeklyClaimsReportPdf({ weekIdentifier, claims = []
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
       doc.setTextColor(...COLORS.textMuted);
-      const app = c.approver_email ? c.approver_email.split('@')[0] : (c.status === 'pending' ? 'Pending' : '—');
+      const app = c.is_forced_by_seed 
+        ? '★ Seed Issued' 
+        : c.approver_email ? c.approver_email.split('@')[0] : (c.status === 'pending' ? 'Pending' : '—');
       doc.text(app.substring(0, 16), 170, y + 4.5);
 
       y += 6.5;
