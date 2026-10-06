@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { 
   FileText, CheckCircle2, Clock, XCircle, Download, Calendar, 
   DollarSign, Users, Filter, Check, X, ShieldAlert, RefreshCw, AlertTriangle, ShieldCheck,
-  Zap, Sparkles, Send
+  Zap, Sparkles, Send, Bell
 } from 'lucide-react';
 import SEO from '../components/SEO';
 import DiamtLoader from '../components/DiamtLoader';
@@ -17,6 +17,7 @@ import {
   getISOWeekString, getRecentWeekIdentifiers, DAYS_OF_WEEK, 
   getDateForDayInWeek, getTodayDateString 
 } from '../lib/weekUtils';
+import { notifyClaimAction, sendNotificationToUser } from '../lib/notificationService';
 
 export default function AdminClaims() {
   const { profile } = useAuth();
@@ -43,6 +44,14 @@ export default function AdminClaims() {
   const [seedPlanType, setSeedPlanType] = useState('daily_10');
   const [seedAdminNotes, setSeedAdminNotes] = useState('');
   const [seedSubmitting, setSeedSubmitting] = useState(false);
+
+  // Send Notification Modal
+  const [showSendNotifModal, setShowSendNotifModal] = useState(false);
+  const [notifTargetWorkerId, setNotifTargetWorkerId] = useState('ALL');
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifMessage, setNotifMessage] = useState('');
+  const [notifType, setNotifType] = useState('info');
+  const [sendingNotif, setSendingNotif] = useState(false);
 
   const isSeedAdmin = profile?.role === 'seed_admin' || profile?.email?.toLowerCase() === 'sammyseth260@gmail.com';
 
@@ -121,6 +130,18 @@ export default function AdminClaims() {
         .eq('id', claim.id);
 
       if (error) throw error;
+
+      // Realtime notification to worker (triggers ding sound)
+      await notifyClaimAction({
+        workerId: claim.worker_id,
+        workerEmail: claim.worker_email,
+        action: 'approved',
+        amount: claim.amount,
+        dayOrWeek: claim.day_of_week,
+        weekIdentifier: claim.week_identifier,
+        approverEmail: profile.email
+      });
+
       await loadData(false);
     } catch (err) {
       alert('Error approving claim: ' + err.message);
@@ -147,6 +168,19 @@ export default function AdminClaims() {
         .eq('id', rejectionModal.id);
 
       if (error) throw error;
+
+      // Realtime rejection notification to worker (triggers ding sound)
+      await notifyClaimAction({
+        workerId: rejectionModal.worker_id,
+        workerEmail: rejectionModal.worker_email,
+        action: 'rejected',
+        amount: rejectionModal.amount,
+        dayOrWeek: rejectionModal.day_of_week,
+        weekIdentifier: rejectionModal.week_identifier,
+        reason: rejectionReason,
+        approverEmail: profile.email
+      });
+
       setRejectionModal(null);
       setRejectionReason('');
       await loadData(false);
@@ -181,6 +215,94 @@ export default function AdminClaims() {
       await loadData(false);
     } catch (err) {
       alert('Error unsuspending worker: ' + err.message);
+    }
+  };
+
+  // Admin one-click unblock for all workers suspended by audit execution
+  const handleUnblockAllAuditSuspended = async () => {
+    const auditSuspended = workers.filter(w => 
+      w.is_auto_suspended && (
+        (w.blocked_reason && w.blocked_reason.toLowerCase().includes('audit')) ||
+        (w.blocked_reason && w.blocked_reason.toLowerCase().includes('weekly')) ||
+        Boolean(w.auto_suspended_week)
+      )
+    );
+
+    if (auditSuspended.length === 0) {
+      alert('No workers are currently suspended by audit execution.');
+      return;
+    }
+
+    if (!window.confirm(`Unblock all ${auditSuspended.length} workers that were suspended by audit execution in one click? This will restore their active account status.`)) return;
+
+    setActionInProgress('unblock-all-audit');
+    try {
+      const ids = auditSuspended.map(w => w.id);
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          is_auto_suspended: false,
+          is_blocked: false,
+          auto_suspended_week: null,
+          blocked_reason: null,
+          updated_at: new Date().toISOString()
+        })
+        .in('id', ids);
+
+      if (error) throw error;
+
+      alert(`✅ Successfully unblocked all ${auditSuspended.length} audit-suspended workers in one click!`);
+      await loadData(false);
+    } catch (err) {
+      alert('Error unblocking workers: ' + err.message);
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  // Admin direct notification dispatcher
+  const handleAdminSendNotification = async (e) => {
+    e.preventDefault();
+    if (!notifTitle.trim() || !notifMessage.trim()) {
+      alert('Please provide both title and message.');
+      return;
+    }
+
+    setSendingNotif(true);
+    try {
+      if (notifTargetWorkerId === 'ALL') {
+        const workerList = workers.filter(w => w.role === 'worker');
+        for (const w of workerList) {
+          await sendNotificationToUser({
+            userId: w.id,
+            userEmail: w.email,
+            title: notifTitle.trim(),
+            message: notifMessage.trim(),
+            type: notifType
+          });
+        }
+        alert(`✅ Notification dispatched to all ${workerList.length} workers!`);
+      } else {
+        const targetWorker = workers.find(w => w.id === notifTargetWorkerId);
+        if (targetWorker) {
+          await sendNotificationToUser({
+            userId: targetWorker.id,
+            userEmail: targetWorker.email,
+            title: notifTitle.trim(),
+            message: notifMessage.trim(),
+            type: notifType
+          });
+          alert(`✅ Notification dispatched to ${targetWorker.email}!`);
+        }
+      }
+
+      setShowSendNotifModal(false);
+      setNotifTitle('');
+      setNotifMessage('');
+    } catch (err) {
+      alert('Error sending notification: ' + err.message);
+    } finally {
+      setSendingNotif(false);
     }
   };
 
@@ -227,6 +349,17 @@ export default function AdminClaims() {
         .upsert([claimRecord], { onConflict: 'worker_id, week_identifier, day_of_week' });
 
       if (error) throw error;
+
+      // Send Seed claim notification to worker
+      await notifyClaimAction({
+        workerId: targetWorker.id,
+        workerEmail: targetWorker.email,
+        action: 'seed_issued',
+        amount: claimRecord.amount,
+        dayOrWeek: dayVal,
+        weekIdentifier: seedTargetWeek,
+        approverEmail: profile.email
+      });
 
       alert(`✅ Seed Admin claim for ${targetWorker.email} (${dayVal}, ${calculatedDate}) recorded as worker claim and issued for Week ${seedTargetWeek}!`);
       setShowSeedClaimModal(false);
@@ -326,6 +459,50 @@ export default function AdminClaims() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  setNotifTargetWorkerId('ALL');
+                  setNotifTitle('');
+                  setNotifMessage('');
+                  setShowSendNotifModal(true);
+                }}
+                style={{
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  color: '#3b82f6',
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Bell size={16} /> Send Worker Notice
+              </button>
+
+              <button
+                onClick={handleUnblockAllAuditSuspended}
+                disabled={actionInProgress === 'unblock-all-audit'}
+                style={{
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  color: '#10b981',
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                <ShieldCheck size={16} /> 1-Click Unblock Audit Suspensions
+              </button>
+
               {isSeedAdmin && (
                 <button
                   onClick={() => {
@@ -1208,6 +1385,189 @@ export default function AdminClaims() {
                     >
                       <Check size={14} />
                       {seedSubmitting ? 'Issuing...' : 'Issue & Record Claim (Seed)'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Direct Notification Modal */}
+          {showSendNotifModal && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.65)',
+              zIndex: 100,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px'
+            }}>
+              <div style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '20px',
+                padding: '28px',
+                maxWidth: '480px',
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.3)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Bell size={20} color="#3b82f6" />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-main)' }}>
+                        Send Worker Notice
+                      </h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+                        Plays a ding chime sound on the worker's dashboard and delivers to their notification bar.
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowSendNotifModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAdminSendNotification} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                      Target Recipient:
+                    </label>
+                    <select
+                      value={notifTargetWorkerId}
+                      onChange={(e) => setNotifTargetWorkerId(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-main)',
+                        color: 'var(--text-main)',
+                        fontSize: '13px',
+                        fontWeight: 600
+                      }}
+                    >
+                      <option value="ALL">All Active Workers ({workers.filter(w => w.role === 'worker').length} users)</option>
+                      {workers.filter(w => w.role === 'worker').map(w => (
+                        <option key={w.id} value={w.id}>{w.email}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                      Notice Type / Urgency:
+                    </label>
+                    <select
+                      value={notifType}
+                      onChange={(e) => setNotifType(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-main)',
+                        color: 'var(--text-main)',
+                        fontSize: '13px',
+                        fontWeight: 600
+                      }}
+                    >
+                      <option value="info">General Announcement (Blue Info)</option>
+                      <option value="target_warning">Urgent Target Warning (Red Warning)</option>
+                      <option value="target_reminder">Weekly Target Reminder (Amber Reminder)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                      Notification Title:
+                    </label>
+                    <input
+                      type="text"
+                      value={notifTitle}
+                      onChange={(e) => setNotifTitle(e.target.value)}
+                      placeholder="e.g. Urgent: Weekly Target Default Warning"
+                      required
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-main)',
+                        color: 'var(--text-main)',
+                        fontSize: '13px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                      Notification Message:
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={notifMessage}
+                      onChange={(e) => setNotifMessage(e.target.value)}
+                      placeholder="Describe target rules, remaining balance, or consequences of default..."
+                      required
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-main)',
+                        color: 'var(--text-main)',
+                        fontSize: '13px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowSendNotifModal(false)}
+                      disabled={sendingNotif}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--border-color)',
+                        color: 'var(--text-muted)',
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={sendingNotif}
+                      style={{
+                        background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+                        color: '#ffffff',
+                        border: 'none',
+                        padding: '9px 18px',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: sendingNotif ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <Send size={14} />
+                      {sendingNotif ? 'Sending...' : 'Dispatch Alert'}
                     </button>
                   </div>
                 </form>

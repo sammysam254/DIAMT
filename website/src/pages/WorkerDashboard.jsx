@@ -1,19 +1,27 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Smartphone, Lock, Unlock, ExternalLink, RefreshCw, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { 
+  Smartphone, Lock, Unlock, ExternalLink, RefreshCw, Eye, EyeOff, 
+  AlertCircle, DollarSign, Award, AlertTriangle, CheckCircle2, ChevronRight 
+} from 'lucide-react';
 import SEO from '../components/SEO';
 import DiamtLoader from '../components/DiamtLoader';
+import { getISOWeekString } from '../lib/weekUtils';
 
 export default function WorkerDashboard() {
   const { profile } = useAuth();
   const [assignments, setAssignments] = useState([]);
+  const [weekClaims, setWeekClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [unlockModal, setUnlockModal] = useState(null);
   const [inputPassword, setInputPassword] = useState('');
   const [error, setError] = useState(null);
   const [revealedPasswords, setRevealedPasswords] = useState({});
+
+  const currentWeek = getISOWeekString();
 
   const loadData = async (isInitial = false) => {
     if (!profile) return;
@@ -30,6 +38,14 @@ export default function WorkerDashboard() {
         return true;
       });
       setAssignments(activeAssignments);
+
+      // Load claims for current week to track remaining target
+      const { data: cData } = await supabase
+        .from('worker_claims')
+        .select('*')
+        .eq('worker_id', profile.id)
+        .eq('week_identifier', currentWeek);
+      setWeekClaims(cData || []);
     } catch (e) {
       console.error('Error loading worker assignments:', e);
     } finally {
@@ -53,6 +69,12 @@ export default function WorkerDashboard() {
         event: '*',
         schema: 'public',
         table: 'devices',
+      }, () => loadData(false))
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'worker_claims',
+        filter: `worker_id=eq.${profile.id}`,
       }, () => loadData(false))
       .subscribe();
 
@@ -131,6 +153,113 @@ export default function WorkerDashboard() {
           <RefreshCw size={16} /> Refresh
         </button>
       </header>
+
+      {/* Weekly Target & Claims Compliance Banner */}
+      {(() => {
+        const totalTarget = 40;
+        const approvedAmount = (weekClaims || []).filter(c => c.status === 'approved').reduce((acc, c) => acc + Number(c.amount || 0), 0);
+        const pendingAmount = (weekClaims || []).filter(c => c.status === 'pending').reduce((acc, c) => acc + Number(c.amount || 0), 0);
+        const remainingAmount = Math.max(0, totalTarget - approvedAmount);
+        const isCompliant = approvedAmount >= totalTarget;
+        const claimsPlan = profile?.claims_plan === 'weekly' ? 'Weekly Plan ($40 Any Day)' : 'Daily Plan ($10 × 4)';
+
+        return (
+          <section className="card" style={{
+            marginBottom: '24px',
+            background: isCompliant 
+              ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(16, 185, 129, 0.03) 100%)'
+              : 'linear-gradient(135deg, rgba(239, 68, 68, 0.09) 0%, rgba(245, 158, 11, 0.05) 100%)',
+            border: isCompliant 
+              ? '1px solid rgba(34, 197, 94, 0.3)' 
+              : '1px solid rgba(239, 68, 68, 0.35)',
+            padding: '20px 24px',
+            position: 'relative',
+            overflow: 'hidden'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+              <div style={{ flex: '1 1 340px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                  <span style={{
+                    padding: '4px 10px',
+                    borderRadius: '999px',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    letterSpacing: '0.5px',
+                    textTransform: 'uppercase',
+                    background: isCompliant ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                    color: isCompliant ? '#22c55e' : '#ef4444',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}>
+                    {isCompliant ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+                    {isCompliant ? 'TARGET FULFILLED' : 'ACTION REQUIRED'}
+                  </span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Week {currentWeek} • Plan: <strong style={{ color: 'var(--text-main)' }}>{claimsPlan}</strong>
+                  </span>
+                </div>
+
+                <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 6px 0' }}>
+                  {isCompliant 
+                    ? `Weekly Target Accomplished ($${approvedAmount.toFixed(2)} / $${totalTarget.toFixed(2)})`
+                    : `Remaining Weekly Target: $${remainingAmount.toFixed(2)} of $${totalTarget.toFixed(2)}`}
+                </h2>
+
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.5', margin: 0 }}>
+                  {isCompliant ? (
+                    <span style={{ color: '#22c55e' }}>
+                      Excellent work! Your weekly $40 requirement has been verified by Admin. You are in good standing for this week.
+                    </span>
+                  ) : (
+                    <span>
+                      <strong style={{ color: '#ef4444' }}>Mandatory Rule & Consequence:</strong> You must achieve $40 in approved claims this week. Failure to hit the target will result in <strong>immediate system auto-suspension</strong> and <strong>mandatory departure from the station before tomorrow at 8:00 AM</strong>.
+                    </span>
+                  )}
+                </p>
+
+                {/* Progress Bar */}
+                <div style={{ marginTop: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, marginBottom: '4px' }}>
+                    <span>PROGRESS</span>
+                    <span>${approvedAmount.toFixed(2)} approved {pendingAmount > 0 ? `(+$${pendingAmount.toFixed(2)} pending)` : ''} / ${totalTarget.toFixed(2)}</span>
+                  </div>
+                  <div style={{ height: '8px', background: 'rgba(255,255,255,0.08)', borderRadius: '999px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${Math.min(100, Math.round((approvedAmount / totalTarget) * 100))}%`,
+                      background: isCompliant ? '#22c55e' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                      borderRadius: '999px',
+                      transition: 'width 0.4s ease'
+                    }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Action button to claims */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '8px' }}>
+                <Link
+                  to="/worker/claims"
+                  className="btn btn-primary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    fontWeight: 700,
+                    boxShadow: '0 4px 14px rgba(34, 197, 94, 0.25)'
+                  }}
+                >
+                  <DollarSign size={16} /> Submit / View Claims <ChevronRight size={16} />
+                </Link>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Realtime updates • Instant notifications
+                </span>
+              </div>
+            </div>
+          </section>
+        );
+      })()}
 
       {loading ? (
         <div style={{ padding: '48px 0' }}>

@@ -101,3 +101,55 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- 7. USER IN-APP NOTIFICATIONS TABLE
+CREATE TABLE IF NOT EXISTS public.user_notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    user_email TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'info', -- 'claim_approved', 'claim_rejected', 'claim_issued', 'target_reminder', 'target_warning', 'admin_message'
+    metadata JSONB DEFAULT '{}'::jsonb,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.user_notifications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read user_notifications" ON public.user_notifications;
+CREATE POLICY "Allow public read user_notifications" ON public.user_notifications FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow authenticated write user_notifications" ON public.user_notifications;
+CREATE POLICY "Allow authenticated write user_notifications" ON public.user_notifications FOR ALL USING (true);
+
+ALTER TABLE public.user_notifications REPLICA IDENTITY FULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'user_notifications') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.user_notifications;
+  END IF;
+END $$;
+
+-- 8. ADMIN ONE-CLICK UNBLOCK FOR AUDIT-SUSPENDED WORKERS
+CREATE OR REPLACE FUNCTION public.admin_unblock_audit_suspended_workers()
+RETURNS INTEGER AS $$
+DECLARE
+  v_count INTEGER := 0;
+BEGIN
+  UPDATE public.profiles
+  SET is_auto_suspended = FALSE,
+      is_blocked = FALSE,
+      auto_suspended_week = NULL,
+      blocked_reason = NULL,
+      updated_at = NOW()
+  WHERE role = 'worker'
+    AND is_auto_suspended = TRUE
+    AND (blocked_reason ILIKE '%audit%' OR blocked_reason ILIKE '%Weekly%');
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+

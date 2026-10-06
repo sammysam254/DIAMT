@@ -85,6 +85,42 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleUnblockAllAuditSuspended = async () => {
+    const auditSuspended = workers.filter(w => 
+      w.is_auto_suspended && (
+        (w.blocked_reason && w.blocked_reason.toLowerCase().includes('audit')) ||
+        (w.blocked_reason && w.blocked_reason.toLowerCase().includes('weekly')) ||
+        Boolean(w.auto_suspended_week)
+      )
+    );
+
+    if (auditSuspended.length === 0) {
+      alert('No workers are currently suspended by audit execution.');
+      return;
+    }
+
+    if (!window.confirm(`Unblock all ${auditSuspended.length} workers that were suspended by audit execution in one click?`)) return;
+
+    try {
+      const ids = auditSuspended.map(w => w.id);
+      await supabase
+        .from('profiles')
+        .update({
+          is_auto_suspended: false,
+          is_blocked: false,
+          auto_suspended_week: null,
+          blocked_reason: null,
+          updated_at: new Date().toISOString()
+        })
+        .in('id', ids);
+
+      alert(`✅ Successfully unblocked all ${auditSuspended.length} audit-suspended workers!`);
+      loadData(false);
+    } catch (err) {
+      alert('Error unblocking workers: ' + err.message);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -112,9 +148,26 @@ export default function AdminDashboard() {
 
       {/* Worker Block Management */}
       <div className="card">
-        <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Users size={18} color="var(--accent)" /> Worker Access Control
-        </h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Users size={18} color="var(--accent)" /> Worker Access Control
+          </h3>
+          <button
+            onClick={handleUnblockAllAuditSuspended}
+            style={{
+              background: 'rgba(16, 185, 129, 0.12)',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              color: '#10b981',
+              padding: '7px 14px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            🔓 1-Click Unblock Audit Suspensions
+          </button>
+        </div>
 
         {workers.length === 0 ? (
           <div style={{ color: 'var(--text-muted)' }}>No workers registered yet.</div>

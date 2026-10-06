@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Sun, Moon, Menu, LogOut, Shield, Smartphone } from 'lucide-react';
+import NotificationBar from './NotificationBar';
 
 export default function Navbar({ toggleSidebar }) {
   const { user, profile, theme, toggleTheme, logout } = useAuth();
@@ -44,6 +45,8 @@ export default function Navbar({ toggleSidebar }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <NotificationBar />
+
         <button 
           onClick={toggleTheme} 
           className="btn btn-secondary" 
