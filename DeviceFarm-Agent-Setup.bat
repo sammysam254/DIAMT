@@ -3,6 +3,8 @@ setlocal enabledelayedexpansion
 
 :: ── Self-replicate to %TEMP% so git update cannot disrupt running batch file ──
 if /i not "%~dp0"=="%TEMP%\DeviceFarmSetup\" (
+    set "ORIGIN_DIR=%~dp0"
+    if "!ORIGIN_DIR:~-1!"=="\" set "ORIGIN_DIR=!ORIGIN_DIR:~0,-1!"
     if not exist "%TEMP%\DeviceFarmSetup" mkdir "%TEMP%\DeviceFarmSetup" >nul 2>&1
     copy /Y "%~f0" "%TEMP%\DeviceFarmSetup\setup.bat" >nul 2>&1
     call "%TEMP%\DeviceFarmSetup\setup.bat" %*
@@ -338,9 +340,25 @@ echo [*] Starting DeviceFarm Agent service in the background...
 :: Cloudflare Tunnel Daemon (if configured in config.json)
 set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=%CURRENT_DIR%\assets\bin\cloudflared.exe"
+if not exist "%CLOUDFLARED_EXE%" if defined ORIGIN_DIR set "CLOUDFLARED_EXE=%ORIGIN_DIR%\assets\bin\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\cloudflared\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\Program Files\cloudflared\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\Program Files (x86)\cloudflared\cloudflared.exe"
+if not exist "%CLOUDFLARED_EXE%" (
+    echo [*] Cloudflared not found locally. Downloading cloudflared-windows-amd64.exe...
+    if not exist "%INSTALL_DIR%\assets\bin" mkdir "%INSTALL_DIR%\assets\bin" >nul 2>nul
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '%INSTALL_DIR%\assets\bin\cloudflared.exe' -UseBasicParsing"
+    if exist "%INSTALL_DIR%\assets\bin\cloudflared.exe" set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
+)
+if exist "%CLOUDFLARED_EXE%" (
+    echo [*] Starting Cloudflare QUIC Edge Tunnel daemon in background...
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+        "Start-Process -FilePath '%CLOUDFLARED_EXE%' -ArgumentList 'tunnel','run','--token','eyJhIjoiYzFlMzEyY2Q2YWFjNTNlOWJkYWUzZTY5MmJiMWM4Y2MiLCJ0IjoiZWI3NGIxNjMtMzcxOC00YWEwLWE1NGYtYmE5MDMwZDZkNzYyIiwicyI6Ik5EVmxPV1l3TkRBdE5HSXdZUzAwTldabUxXRTVOMlF0T0dNd1pETmlZMk14WkRrNSJ9','--protocol','quic','--ha-connections','1','--no-autoupdate' -WindowStyle Hidden"
+    echo [OK] Cloudflare QUIC Edge Tunnel started in background.
+) else (
+    echo [WARN] Cloudflare tunnel binary not found - tunnel will not be available.
+)
 
 :: Wait for Dashboard to become responsive
 echo [*] Waiting for Dashboard to start on http://localhost:7400...
