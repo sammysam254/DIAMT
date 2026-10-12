@@ -182,4 +182,33 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- 9. FULLY AUTOMATED SUNDAY 23:59 AUDIT FUNCTION (RUNS SERVER-SIDE)
+CREATE OR REPLACE FUNCTION public.auto_audit_completed_week()
+RETURNS INTEGER AS $$
+DECLARE
+  v_target_week TEXT;
+BEGIN
+  -- Computes the week cycle that concludes Sunday at 23:59 (Africa/Nairobi UTC+3)
+  -- Subtracting 1 hour ensures that running at 23:59 Sunday or 00:05 Monday targets the correct completed week
+  v_target_week := TO_CHAR((NOW() AT TIME ZONE 'Africa/Nairobi' - INTERVAL '1 hour'), 'IYYY') || '-W' || TO_CHAR((NOW() AT TIME ZONE 'Africa/Nairobi' - INTERVAL '1 hour'), 'IW');
+  
+  RETURN public.auto_audit_weekly_plan_defaults(v_target_week);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 10. CRON SCHEDULER (EXECUTE IN SUPABASE SQL EDITOR TO RUN EVERY SUNDAY AT 23:59 LOCAL / 20:59 UTC)
+-- Note: Requires pg_cron extension enabled in your Supabase project (Database -> Extensions -> pg_cron)
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- Remove existing job if already registered to avoid duplicates
+SELECT cron.unschedule('auto-audit-sunday-2359') WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'auto-audit-sunday-2359');
+
+-- Schedule to run automatically every Sunday at 23:59 Nairobi (20:59 UTC)
+SELECT cron.schedule(
+  'auto-audit-sunday-2359',
+  '59 20 * * 0',
+  $$ SELECT public.auto_audit_completed_week(); $$
+);
+
+
 
