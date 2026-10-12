@@ -146,8 +146,8 @@ function createCloudflaredTunnel(port) {
     }
 
     const args = token 
-      ? ['tunnel', 'run', '--token', token]
-      : ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate', '--protocol', 'http2'];
+      ? ['tunnel', 'run', '--token', token, '--protocol', 'quic', '--ha-connections', '1', '--no-autoupdate']
+      : ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate', '--protocol', 'quic'];
 
     try {
       const tunnelProcess = spawn(binPath, args, {

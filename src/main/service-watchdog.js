@@ -35,7 +35,7 @@ function preLaunchCleanup() {
     // 3. Terminate any zombie scrcpy servers on connected Android devices
     try {
       const adbBin = fs.existsSync('C:\\platform-tools\\adb.exe') ? 'C:\\platform-tools\\adb.exe' : (fs.existsSync(path.join(rootDir, 'assets', 'bin', 'adb.exe')) ? path.join(rootDir, 'assets', 'bin', 'adb.exe') : 'adb');
-      execSync(`"${adbBin}" shell pkill -9 -f com.genymobile.scrcpy >nul 2>&1`, { timeout: 4000, stdio: 'ignore' });
+      execSync(`"${adbBin}" shell "pkill -9 -f app_process; pkill -9 -f com.genymobile.scrcpy" >nul 2>&1`, { timeout: 4000, stdio: 'ignore' });
       // Disconnect all wireless ADB sessions to ensure strict USB-only operation
       execSync(`"${adbBin}" disconnect >nul 2>&1`, { timeout: 4000, stdio: 'ignore' });
     } catch (_) {}

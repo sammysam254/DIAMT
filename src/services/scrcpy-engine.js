@@ -213,7 +213,7 @@ class ScrcpyEngine extends EventEmitter {
     this.scrcpyVideoHeight = 0;
     this._jarPushed = false;
     this._screencapActive = false;
-    this.enableAudio = false;
+    this.enableAudio = true;
     this.audioSocket = null;
   }
 
@@ -262,9 +262,9 @@ class ScrcpyEngine extends EventEmitter {
     this.isRunning = true;
 
     try {
-      // 0. Force-kill any lingering scrcpy/app_process on device to release localabstract:scrcpy
+      // 0. Force-kill lingering app_process & scrcpy on device to immediately free localabstract:scrcpy
       try {
-        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
+        await this._adb(['shell', 'pkill -9 -f app_process; pkill -9 -f com.genymobile.scrcpy']).catch(() => {});
         await new Promise(r => setTimeout(r, 200));
       } catch (_) {}
 
@@ -297,15 +297,15 @@ class ScrcpyEngine extends EventEmitter {
       // 4. Spawn scrcpy-server process on device
       this._spawnServer();
 
-      // 5. Connect video and control sockets
+      // 5. Connect video, audio, and control sockets in strict sequence
       await this._connectSockets();
 
-      logger.info(`[ScrcpyEngine ${this.serial}] High-speed 60FPS Scrcpy H264 engine active`);
+      logger.info(`[ScrcpyEngine ${this.serial}] Ultra-low latency 60FPS Scrcpy H264 engine active`);
 
     } catch (err) {
       logger.warn(`[ScrcpyEngine ${this.serial}] Scrcpy start failed: ${err.message} — freeing phone socket and scheduling auto-recovery`);
       try {
-        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
+        await this._adb(['shell', 'pkill -9 -f app_process; pkill -9 -f com.genymobile.scrcpy']).catch(() => {});
       } catch (_) {}
       if (this.isRunning) {
         setTimeout(() => this._restart(), 2000);
@@ -332,10 +332,10 @@ class ScrcpyEngine extends EventEmitter {
       'cleanup=false',
       'send_dummy_byte=true',
       'video_source=display',
-      'video_bit_rate=2000000',
-      'max_size=1080',
-      'max_fps=40',
-      'video_codec_options=i-frame-interval=1',
+      'video_bit_rate=1200000',
+      'max_size=600',
+      'max_fps=60',
+      'video_codec_options=profile=1,i-frame-interval=1',
       'send_frame_meta=true',
       'show_touches=false',
       'stay_awake=true',
@@ -378,8 +378,8 @@ class ScrcpyEngine extends EventEmitter {
         const msg = d.toString().trim();
         if (msg) logger.warn(`[ScrcpyEngine ${this.serial}] stderr: ${msg}`);
         if (msg.includes('Address already in use')) {
-          logger.warn(`[ScrcpyEngine ${this.serial}] Socket conflict on device — force-killing zombie scrcpy server`);
-          this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
+          logger.warn(`[ScrcpyEngine ${this.serial}] Socket conflict on device — force-killing lingering app_process & scrcpy`);
+          this._adb(['shell', 'pkill -9 -f app_process; pkill -9 -f com.genymobile.scrcpy']).catch(() => {});
         }
       });
 
@@ -477,6 +477,10 @@ class ScrcpyEngine extends EventEmitter {
       try { this.videoSocket.destroy(); } catch (_) {}
       this.videoSocket = null;
     }
+    if (this.audioSocket) {
+      try { this.audioSocket.destroy(); } catch (_) {}
+      this.audioSocket = null;
+    }
     if (this.controlSocket) {
       try { this.controlSocket.destroy(); } catch (_) {}
       this.controlSocket = null;
@@ -498,29 +502,26 @@ class ScrcpyEngine extends EventEmitter {
     // Small additional buffer to ensure the ADB forward socket is fully open
     await new Promise(r => setTimeout(r, 200));
 
-    logger.info(`[ScrcpyEngine ${this.serial}] Connecting video socket...`);
-    // tunnel_forward socket 1 = video stream
+    // Strict 3-socket ordering for scrcpy when audio=true:
+    // Socket #1 = Video stream
+    logger.info(`[ScrcpyEngine ${this.serial}] Connecting Socket #1 (Video)...`);
     this.videoSocket = await this._connectOne(this.videoPort);
     this.videoSocket.setNoDelay(true);
     this._pipeVideoToClients(this.videoSocket);
 
     await new Promise(r => setTimeout(r, 150));
 
-    // tunnel_forward socket 2 = audio stream (when audio=true)
+    // Socket #2 = Audio stream (Opus frames tagged 0x41 0x4F)
     if (this.enableAudio) {
-      try {
-        logger.info(`[ScrcpyEngine ${this.serial}] Connecting audio socket...`);
-        this.audioSocket = await this._connectOne(this.videoPort);
-        this.audioSocket.setNoDelay(true);
-        this._pipeAudioToClients(this.audioSocket);
-        await new Promise(r => setTimeout(r, 150));
-      } catch (err) {
-        logger.warn(`[ScrcpyEngine ${this.serial}] Audio socket notice: ${err.message}`);
-      }
+      logger.info(`[ScrcpyEngine ${this.serial}] Connecting Socket #2 (Audio Opus)...`);
+      this.audioSocket = await this._connectOne(this.videoPort);
+      this.audioSocket.setNoDelay(true);
+      this._pipeAudioToClients(this.audioSocket);
+      await new Promise(r => setTimeout(r, 150));
     }
 
-    // tunnel_forward socket 3 = control socket
-    logger.info(`[ScrcpyEngine ${this.serial}] Connecting control socket...`);
+    // Socket #3 = Control socket (receives INJECT_TOUCH_EVENT and key events)
+    logger.info(`[ScrcpyEngine ${this.serial}] Connecting Socket #3 (Control)...`);
     this.controlSocket = await this._connectOne(this.videoPort);
     this.controlSocket.setNoDelay(true);
     this.controlSocket.setKeepAlive(true, 1000);
@@ -840,15 +841,15 @@ class ScrcpyEngine extends EventEmitter {
       return false;
     }
 
-    // Must use the exact resolution scrcpy-server expects in Controller.java:
-    // Controller.java: if (!position.getScreenSize().equals(device.getScreenInfo().getVideoSize())) reject
-    // The device header (bytes 69-76) provides this exact videoSize.
-    let targetW = this.scrcpyVideoWidth || this.videoWidth;
-    let targetH = this.scrcpyVideoHeight || this.videoHeight;
-    if (!targetW || !targetH) {
-      targetW = this.screenWidth || 1080;
-      targetH = this.screenHeight || 2340;
+    // Dynamic rotation support: if client provides current frame dimensions from WebCodecs,
+    // adapt target dimensions so Controller.java videoSize matches even when 3rd party apps rotate screen.
+    if (width > 10 && height > 10) {
+      this.scrcpyVideoWidth = width;
+      this.scrcpyVideoHeight = height;
     }
+
+    let targetW = this.scrcpyVideoWidth || this.videoWidth || this.screenWidth || 1080;
+    let targetH = this.scrcpyVideoHeight || this.videoHeight || this.screenHeight || 2340;
 
     const srcW = (width  > 10) ? width  : targetW;
     const srcH = (height > 10) ? height : targetH;
@@ -923,19 +924,8 @@ class ScrcpyEngine extends EventEmitter {
 
   async _reconnectControl() {
     if (!this.isRunning) return;
-    try {
-      const cs = await this._connectOne(this.videoPort, 10);
-      cs.setNoDelay(true);
-      cs.setKeepAlive(true, 1000);
-      this.controlSocket = cs;
-      cs.on('close', () => {
-        this.controlSocket = null;
-        if (this.isRunning) setTimeout(() => this._reconnectControl(), 300);
-      });
-      cs.on('error', () => { this.controlSocket = null; });
-    } catch (_) {
-      if (this.isRunning) setTimeout(() => this._reconnectControl(), 1000);
-    }
+    logger.warn(`[ScrcpyEngine ${this.serial}] Control socket closed — recovering session to rebind sockets`);
+    this._restart();
   }
 
   // ── Reset stream state on restart ────────────────────────────────────────
@@ -964,9 +954,9 @@ class ScrcpyEngine extends EventEmitter {
       if (ws.readyState === 1) try { ws.send(resetMsg); } catch (_) {}
     }
     try {
-      // Force-kill any lingering scrcpy/app_process on device to release localabstract:scrcpy
+      // Force-kill lingering app_process & scrcpy on device to release localabstract:scrcpy
       try {
-        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
+        await this._adb(['shell', 'pkill -9 -f app_process; pkill -9 -f com.genymobile.scrcpy']).catch(() => {});
         await new Promise(r => setTimeout(r, 200));
       } catch (_) {}
 
