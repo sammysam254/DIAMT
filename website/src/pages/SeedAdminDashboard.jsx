@@ -8,6 +8,7 @@ import DeviceAllocationSection from '../components/DeviceAllocationSection';
 import SystemLogsModal from '../components/SystemLogsModal';
 import DiamtLoader from '../components/DiamtLoader';
 import { generate16CharKey, generate6DigitPin, rotateUrlWithKeyAndPin } from '../lib/keyGenerator';
+import { unsuspendWorkerProfile } from '../lib/complianceService';
 
 export default function SeedAdminDashboard() {
   const { profile: myProfile } = useAuth();
@@ -163,14 +164,7 @@ export default function SeedAdminDashboard() {
   const handleUnblockUser = async (userId) => {
     setBlockingId(userId);
     try {
-      await supabase.from('profiles').update({
-        is_blocked: false,
-        is_auto_suspended: false,
-        auto_suspended_week: null,
-        blocked_reason: null,
-        blocked_by: null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', userId);
+      await unsuspendWorkerProfile(supabase, userId);
       loadData();
     } catch (err) {
       alert('Error unblocking user: ' + err.message);

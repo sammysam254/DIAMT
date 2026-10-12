@@ -19,7 +19,8 @@ import {
   getDateForDayInWeek, getTodayDateString 
 } from '../lib/weekUtils';
 import { 
-  calculateWorkerCompliance, executeWeeklyComplianceAudit, isExemptFromSuspension 
+  calculateWorkerCompliance, executeWeeklyComplianceAudit, isExemptFromSuspension,
+  isWorkerUnsuspendedForCurrentWeek, unsuspendWorkerProfile, unsuspendMultipleWorkerProfiles
 } from '../lib/complianceService';
 import { notifyClaimAction, sendNotificationToUser, sendNotificationToMultipleUsers } from '../lib/notificationService';
 
@@ -204,21 +205,26 @@ export default function AdminClaims() {
       alert('Permission Denied: Only the Seed Administrator has clearance to unsuspend accounts terminated by target rule violation.');
       return;
     }
-    if (!window.confirm('Reinstate this auto-suspended worker account? This will clear suspension flags and restore facility access.')) return;
+    if (!window.confirm('Reinstate this auto-suspended worker account? This will clear suspension flags and allow them to work for the current week.')) return;
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          is_auto_suspended: false,
-          is_blocked: false,
-          auto_suspended_week: null,
-          blocked_reason: null
-        })
-        .eq('id', workerId);
+      await unsuspendWorkerProfile(supabase, workerId);
 
-      if (error) throw error;
-      alert('Worker successfully reinstated and unsuspended.');
+      const targetWorker = workers.find(w => w.id === workerId);
+      if (targetWorker) {
+        try {
+          await supabase.from('user_notifications').insert([{
+            user_id: workerId,
+            user_email: targetWorker.email,
+            title: `ACCOUNT REINSTATED: Auto-Suspension Lifted`,
+            message: `An administrator has unsuspended your account. You have been cleared to work and submit claims for the current week (${currentWeek}). Please ensure you meet your subscribed weekly target before Sunday 23:59.`,
+            type: 'info',
+            metadata: { reinstatedWeek: currentWeek }
+          }]);
+        } catch (_) {}
+      }
+
+      alert('Worker successfully reinstated and unsuspended for the current week.');
       await loadData(false);
     } catch (err) {
       alert('Error unsuspending worker: ' + err.message);
@@ -240,25 +246,14 @@ export default function AdminClaims() {
       return;
     }
 
-    if (!window.confirm(`Unblock all ${auditSuspended.length} workers that were suspended by audit execution in one click? This will restore their active account status.`)) return;
+    if (!window.confirm(`Unblock all ${auditSuspended.length} workers that were suspended by audit execution in one click? This will restore their access for the current week.`)) return;
 
     setActionInProgress('unblock-all-audit');
     try {
       const ids = auditSuspended.map(w => w.id);
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          is_auto_suspended: false,
-          is_blocked: false,
-          auto_suspended_week: null,
-          blocked_reason: null,
-          updated_at: new Date().toISOString()
-        })
-        .in('id', ids);
+      await unsuspendMultipleWorkerProfiles(supabase, ids);
 
-      if (error) throw error;
-
-      alert(`✅ Successfully unblocked all ${auditSuspended.length} audit-suspended workers in one click!`);
+      alert(`✅ Successfully unblocked all ${auditSuspended.length} audit-suspended workers! They can now log in and work for week ${currentWeek}.`);
       await loadData(false);
     } catch (err) {
       alert('Error unblocking workers: ' + err.message);
@@ -1181,6 +1176,10 @@ export default function AdminClaims() {
                         ) : selectedWeek === currentWeek ? (
                           <span style={{ fontSize: '10px', fontWeight: 700, color: '#d97706', background: 'rgba(217, 119, 6, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
                             ⏳ IN PROGRESS (${metrics.totalValidAmount.toFixed(2)} / $40.00 • ${metrics.remainingAmount.toFixed(2)} Remaining)
+                          </span>
+                        ) : isWorkerUnsuspendedForCurrentWeek(w, selectedWeek) ? (
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: '#10b981', background: 'rgba(16, 185, 129, 0.12)', padding: '2px 6px', borderRadius: '4px' }}>
+                            ✓ REINSTATED (Working Week {currentWeek})
                           </span>
                         ) : (
                           <span style={{ fontSize: '10px', fontWeight: 800, color: '#dc2626', background: 'rgba(220, 38, 38, 0.12)', padding: '2px 6px', borderRadius: '4px' }}>

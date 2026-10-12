@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { Users, RefreshCw, UserX, UserCheck } from 'lucide-react';
 import CctvWall from '../components/CctvWall';
 import DeviceAllocationSection from '../components/DeviceAllocationSection';
+import { unsuspendWorkerProfile, unsuspendMultipleWorkerProfiles } from '../lib/complianceService';
 
 export default function AdminDashboard() {
   const { profile } = useAuth();
@@ -76,12 +77,7 @@ export default function AdminDashboard() {
   const handleUnblockUser = async (userId) => {
     setBlockingId(userId);
     try {
-      await supabase.from('profiles').update({
-        is_blocked: false,
-        blocked_reason: null,
-        blocked_by: null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', userId);
+      await unsuspendWorkerProfile(supabase, userId);
       loadData();
     } catch (err) {
       alert('Error unblocking user: ' + err.message);
@@ -104,20 +100,11 @@ export default function AdminDashboard() {
       return;
     }
 
-    if (!window.confirm(`Unblock all ${auditSuspended.length} workers that were suspended by audit execution in one click?`)) return;
+    if (!window.confirm(`Unblock all ${auditSuspended.length} workers that were suspended by audit execution in one click? This will clear suspensions and allow them to work for the current week.`)) return;
 
     try {
       const ids = auditSuspended.map(w => w.id);
-      await supabase
-        .from('profiles')
-        .update({
-          is_auto_suspended: false,
-          is_blocked: false,
-          auto_suspended_week: null,
-          blocked_reason: null,
-          updated_at: new Date().toISOString()
-        })
-        .in('id', ids);
+      await unsuspendMultipleWorkerProfiles(supabase, ids);
 
       alert(`✅ Successfully unblocked all ${auditSuspended.length} audit-suspended workers!`);
       loadData(false);

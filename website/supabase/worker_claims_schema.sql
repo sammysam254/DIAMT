@@ -10,6 +10,7 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS criteria_change_reason TEXT
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS criteria_requested_at TIMESTAMPTZ DEFAULT NULL;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS auto_suspended_week TEXT DEFAULT NULL;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_auto_suspended BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS unsuspended_week TEXT DEFAULT NULL;
 
 -- 2. CREATE WORKER CLAIMS TABLE
 CREATE TABLE IF NOT EXISTS public.worker_claims (
@@ -56,12 +57,17 @@ END $$;
 -- 5. SEED ADMIN EXCLUSIVE UNSUSPEND STORED PROCEDURE
 CREATE OR REPLACE FUNCTION public.seed_unsuspend_worker(target_worker_id UUID)
 RETURNS VOID AS $$
+DECLARE
+  v_current_week TEXT;
 BEGIN
+  v_current_week := TO_CHAR(NOW() AT TIME ZONE 'Africa/Nairobi', 'IYYY') || '-W' || TO_CHAR(NOW() AT TIME ZONE 'Africa/Nairobi', 'IW');
+
   UPDATE public.profiles
   SET is_auto_suspended = FALSE,
       is_blocked = FALSE,
       auto_suspended_week = NULL,
       blocked_reason = NULL,
+      unsuspended_week = v_current_week,
       updated_at = NOW()
   WHERE id = target_worker_id;
 END;
@@ -72,7 +78,10 @@ CREATE OR REPLACE FUNCTION public.auto_audit_weekly_plan_defaults(audit_week TEX
 RETURNS INTEGER AS $$
 DECLARE
   v_count INTEGER := 0;
+  v_current_week TEXT;
 BEGIN
+  v_current_week := TO_CHAR(NOW() AT TIME ZONE 'Africa/Nairobi', 'IYYY') || '-W' || TO_CHAR(NOW() AT TIME ZONE 'Africa/Nairobi', 'IW');
+
   WITH defaulting_workers AS (
     SELECT p.id,
            COALESCE((
@@ -88,6 +97,12 @@ BEGIN
       AND p.email NOT IN ('sammyseth260@gmail.com')
       AND COALESCE(p.is_auto_suspended, FALSE) = FALSE
       AND COALESCE(p.is_blocked, FALSE) = FALSE
+      AND (
+        -- Worker is exempted for past audit weeks if they were unsuspended for the current week cycle
+        p.unsuspended_week IS NULL
+        OR p.unsuspended_week < v_current_week
+        OR audit_week >= v_current_week
+      )
       AND COALESCE((
         SELECT SUM(wc.amount)
         FROM public.worker_claims wc
@@ -166,12 +181,16 @@ CREATE OR REPLACE FUNCTION public.admin_unblock_audit_suspended_workers()
 RETURNS INTEGER AS $$
 DECLARE
   v_count INTEGER := 0;
+  v_current_week TEXT;
 BEGIN
+  v_current_week := TO_CHAR(NOW() AT TIME ZONE 'Africa/Nairobi', 'IYYY') || '-W' || TO_CHAR(NOW() AT TIME ZONE 'Africa/Nairobi', 'IW');
+
   UPDATE public.profiles
   SET is_auto_suspended = FALSE,
       is_blocked = FALSE,
       auto_suspended_week = NULL,
       blocked_reason = NULL,
+      unsuspended_week = v_current_week,
       updated_at = NOW()
   WHERE role = 'worker'
     AND is_auto_suspended = TRUE

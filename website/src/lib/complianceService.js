@@ -46,6 +46,110 @@ export function isExemptFromSuspension(worker) {
 }
 
 /**
+ * Checks if a worker was unsuspended by an admin for the current week cycle,
+ * allowing them to log in and work for the current week without being auto-suspended
+ * for previous completed weeks until next week.
+ */
+export function isWorkerUnsuspendedForCurrentWeek(worker, auditWeek) {
+  if (!worker) return true;
+  if (isExemptFromSuspension(worker)) return true;
+
+  const currentWeek = getISOWeekString();
+
+  // If the audit is checking a past week (auditWeek < currentWeek):
+  if (auditWeek && auditWeek < currentWeek) {
+    // 1. Explicit unsuspended_week column matches current week or later
+    if (worker.unsuspended_week && worker.unsuspended_week >= currentWeek) {
+      return true;
+    }
+
+    // 2. Fallback: If not suspended or blocked, and profile was updated in the current week,
+    // they were unsuspended / reinstated by an admin during this current week cycle
+    if (worker.is_auto_suspended === false && worker.is_blocked === false && worker.updated_at) {
+      try {
+        const updateWeek = getISOWeekString(new Date(worker.updated_at));
+        if (updateWeek >= currentWeek) {
+          return true;
+        }
+      } catch (_) {}
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Unsuspends / reinstates a single worker profile for the current week cycle.
+ */
+export async function unsuspendWorkerProfile(supabaseClient = supabase, workerId) {
+  const currentWeek = getISOWeekString();
+  const updatePayload = {
+    is_auto_suspended: false,
+    is_blocked: false,
+    auto_suspended_week: null,
+    blocked_reason: null,
+    blocked_by: null,
+    unsuspended_week: currentWeek,
+    updated_at: new Date().toISOString()
+  };
+
+  let { error } = await supabaseClient
+    .from('profiles')
+    .update(updatePayload)
+    .eq('id', workerId);
+
+  // Fallback if unsuspended_week column does not exist yet in DB schema
+  if (error && (error.message?.includes('unsuspended_week') || error.code === 'PGRST204')) {
+    delete updatePayload.unsuspended_week;
+    const res = await supabaseClient
+      .from('profiles')
+      .update(updatePayload)
+      .eq('id', workerId);
+    if (res.error) throw res.error;
+  } else if (error) {
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Unsuspends / reinstates multiple worker profiles in batch for the current week cycle.
+ */
+export async function unsuspendMultipleWorkerProfiles(supabaseClient = supabase, workerIds) {
+  if (!workerIds || workerIds.length === 0) return true;
+  const currentWeek = getISOWeekString();
+  const updatePayload = {
+    is_auto_suspended: false,
+    is_blocked: false,
+    auto_suspended_week: null,
+    blocked_reason: null,
+    blocked_by: null,
+    unsuspended_week: currentWeek,
+    updated_at: new Date().toISOString()
+  };
+
+  let { error } = await supabaseClient
+    .from('profiles')
+    .update(updatePayload)
+    .in('id', workerIds);
+
+  // Fallback if unsuspended_week column does not exist yet in DB schema
+  if (error && (error.message?.includes('unsuspended_week') || error.code === 'PGRST204')) {
+    delete updatePayload.unsuspended_week;
+    const res = await supabaseClient
+      .from('profiles')
+      .update(updatePayload)
+      .in('id', workerIds);
+    if (res.error) throw res.error;
+  } else if (error) {
+    throw error;
+  }
+
+  return true;
+}
+
+/**
  * Executes a full compliance audit for a given week identifier.
  * Evaluates ALL workers (both Weekly $40 Plan and Daily $10 Plan).
  * A worker is compliant if their valid claims total >= $40.00.
@@ -85,6 +189,11 @@ export async function executeWeeklyComplianceAudit(auditWeek, { enforce = true, 
         worker,
         reason: worker.blocked_reason || (isAlreadySuspended ? 'Auto-Suspended' : 'Blocked')
       });
+      continue;
+    }
+
+    // Skip workers who have been unsuspended by an admin for the current week cycle
+    if (isWorkerUnsuspendedForCurrentWeek(worker, auditWeek)) {
       continue;
     }
 
@@ -166,6 +275,12 @@ export async function autoCheckAndEnforcePastWeekAudit(currentProfile) {
   // Case 1: Individual worker login enforcement
   // If the logged-in user is a worker, verify their compliance for the completed week
   if (currentProfile.role === 'worker' && !isExemptFromSuspension(currentProfile)) {
+    // If worker was unsuspended by an admin for the current week cycle,
+    // they are cleared to work for the current week until next week's audit
+    if (isWorkerUnsuspendedForCurrentWeek(currentProfile, previousWeek)) {
+      return null;
+    }
+
     if (!currentProfile.is_auto_suspended && !currentProfile.is_blocked) {
       try {
         const { data: prevClaims } = await supabase
