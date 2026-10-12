@@ -54,7 +54,7 @@ function drawBrandHeader(doc, title, subtitle, documentRef = '') {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
   doc.setTextColor(...COLORS.emeraldDark);
-  doc.text('DIAMT', logoX + 19, logoY + 8);
+  doc.text('FlexPulse', logoX + 19, logoY + 8);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
@@ -109,7 +109,7 @@ function drawFooterAndSeal(doc, pageNumber = 1, totalPages = 1) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.setTextColor(...COLORS.textMuted);
-  doc.text('Cryptographically generated & audited by DIAMT Farm Gateway Core. Immutable database audit.', 16, footerY + 10);
+  doc.text('Cryptographically generated & audited by FlexPulse Farm Gateway Core. Immutable database audit.', 16, footerY + 10);
   doc.text('Proprietary & Confidential - For Authorized Personnel Only.', 16, footerY + 14);
 
   // Page Numbers
@@ -314,13 +314,13 @@ export function generateWeeklyWorkerClaimsPdf({ worker, weekIdentifier, claims =
   doc.setFontSize(7.5);
   doc.setTextColor(...COLORS.textMuted);
   doc.text(
-    'Claims listed as APPROVED have completed administrative authorization and require no further disbursement actions.\nAll records are permanently synchronized to the DIAMT autonomous database.',
+    'Claims listed as APPROVED have completed administrative authorization and require no further disbursement actions.\nAll records are permanently synchronized to the FlexPulse autonomous database.',
     20,
     y + 11
   );
 
   drawFooterAndSeal(doc, 1, 1);
-  doc.save(`DIAMT_Weekly_Claims_${weekIdentifier}_${worker?.email?.split('@')[0] || 'worker'}.pdf`);
+  doc.save(`FlexPulse_Weekly_Claims_${weekIdentifier}_${worker?.email?.split('@')[0] || 'worker'}.pdf`);
 }
 
 /**
@@ -333,7 +333,7 @@ export function generateTerminationLetterPdf({ worker, weekIdentifier, reason = 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  const ref = `TRM-DIAMT-${weekIdentifier || 'W'}-${Date.now().toString().slice(-5)}`;
+  const ref = `TRM-FLEXPULSE-${weekIdentifier || 'W'}-${Date.now().toString().slice(-5)}`;
   let y = drawBrandHeader(
     doc,
     'Formal Termination Notice',
@@ -397,7 +397,7 @@ export function generateTerminationLetterPdf({ worker, weekIdentifier, reason = 
   doc.setTextColor(...COLORS.textDark);
   const planName = worker?.claim_criteria === 'weekly_40' ? 'Weekly $40 Target Plan' : 'Daily $10 Target Plan';
 
-  const body1 = `This official letter serves as formal notification that your account and active deployment with DIAMT Platform have been automatically suspended by the system compliance engine effective immediately.`;
+  const body1 = `This official letter serves as formal notification that your account and active deployment with FlexPulse Platform have been automatically suspended by the system compliance engine effective immediately.`;
   doc.text(body1, 16, y, { maxWidth: pageWidth - 32, lineHeightFactor: 1.4 });
   y += 12;
 
@@ -487,7 +487,7 @@ export function generateTerminationLetterPdf({ worker, weekIdentifier, reason = 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(...COLORS.emeraldDark);
-  doc.text('DIAMT PLATFORM COMPLIANCE & AUDIT GATEWAY', 16, y);
+  doc.text('FLEXPULSE PLATFORM COMPLIANCE & AUDIT GATEWAY', 16, y);
   y += 4;
 
   doc.setFont('helvetica', 'normal');
@@ -505,7 +505,7 @@ export function generateTerminationLetterPdf({ worker, weekIdentifier, reason = 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(...COLORS.emeraldPrimary);
-  doc.text('★ DIAMT COMPLIANCE ★', stampX + 24.5, y - 1, { align: 'center' });
+  doc.text('★ FLEXPULSE COMPLIANCE ★', stampX + 24.5, y - 1, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
   doc.setTextColor(...COLORS.emeraldDark);
@@ -513,7 +513,7 @@ export function generateTerminationLetterPdf({ worker, weekIdentifier, reason = 
   doc.text(`AUDIT ID: ${weekIdentifier}`, stampX + 24.5, y + 7.5, { align: 'center' });
 
   drawFooterAndSeal(doc, 1, 1);
-  doc.save(`DIAMT_Termination_Letter_${worker?.email?.split('@')[0] || 'Worker'}_${weekIdentifier}.pdf`);
+  doc.save(`FlexPulse_Termination_Letter_${worker?.email?.split('@')[0] || 'Worker'}_${weekIdentifier}.pdf`);
 }
 
 /**
@@ -667,8 +667,8 @@ export function generateAdminWeeklyClaimsReportPdf({ weekIdentifier, claims = []
 
   drawFooterAndSeal(doc, 1, 1);
   const outName = isSingleUser 
-    ? `DIAMT_Claims_${weekIdentifier}_${filterWorkerEmail.split('@')[0]}.pdf`
-    : `DIAMT_Admin_Claims_Report_${weekIdentifier}.pdf`;
+    ? `FlexPulse_Claims_${weekIdentifier}_${filterWorkerEmail.split('@')[0]}.pdf`
+    : `FlexPulse_Admin_Claims_Report_${weekIdentifier}.pdf`;
   doc.save(outName);
 }
 
@@ -888,6 +888,6 @@ export function generateSeedAdminComplianceAuditPdf({ weekIdentifier, workers = 
 
   drawFooterAndSeal(doc, currentPage, totalPages);
 
-  const fileName = `DIAMT_Seed_Compliance_Audit_${weekIdentifier}.pdf`;
+  const fileName = `FlexPulse_Seed_Compliance_Audit_${weekIdentifier}.pdf`;
   doc.save(fileName);
 }

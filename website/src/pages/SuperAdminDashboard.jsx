@@ -205,7 +205,7 @@ export default function SuperAdminDashboard() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Server size={24} color="var(--primary)" />
-            <h1 style={{ fontSize: '24px', fontWeight: 800 }}>DIAMT Cloud Device Hub</h1>
+            <h1 style={{ fontSize: '24px', fontWeight: 800 }}>FlexPulse Cloud Device Hub</h1>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>
             Autonomous Real-Time Android Hardware Device Streaming & Cloud Orchestration
@@ -236,7 +236,7 @@ export default function SuperAdminDashboard() {
               </h3>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '6px' }}>
-              All devices connected to your DIAMT Desktop Agent are synchronized directly to this dashboard in real time without requiring manual machine binding codes.
+              All devices connected to your FlexPulse Desktop Agent are synchronized directly to this dashboard in real time without requiring manual machine binding codes.
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -263,10 +263,10 @@ export default function SuperAdminDashboard() {
 
         {loading ? (
           <div style={{ padding: '32px 0' }}>
-            <DiamtLoader text="FETCHING HARDWARE GRID" subtext="Synchronizing connected devices from DIAMT cloud..." size="small" />
+            <DiamtLoader text="FETCHING HARDWARE GRID" subtext="Synchronizing connected devices from FlexPulse cloud..." size="small" />
           </div>
         ) : devices.length === 0 ? (
-          <div style={{ color: 'var(--text-muted)' }}>No devices connected. Launch your DIAMT Agent desktop app to connect devices automatically.</div>
+          <div style={{ color: 'var(--text-muted)' }}>No devices connected. Launch your FlexPulse Agent desktop app to connect devices automatically.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', textAlign: 'left' }}>

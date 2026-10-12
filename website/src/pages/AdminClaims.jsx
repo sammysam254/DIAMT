@@ -415,7 +415,7 @@ export default function AdminClaims() {
   return (
     <DashboardLayout>
       <SEO 
-        title="Admin Claims & Audits | DIAMT Cloud" 
+        title="Admin Claims & Audits | FlexPulse Cloud" 
         description="Filter worker claims, verify submissions, and export executive green-themed audit PDF reports." 
       />
 

@@ -181,7 +181,7 @@ export default function WorkerClaims() {
   return (
     <DashboardLayout>
       <SEO 
-        title="Worker Claims & Records | DIAMT Cloud" 
+        title="Worker Claims & Records | FlexPulse Cloud" 
         description="Submit daily and weekly claims, track administrative approvals, and export executive green-theme audit records." 
       />
 

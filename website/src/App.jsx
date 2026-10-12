@@ -21,7 +21,7 @@ function ProtectedRoute({ children, allowedRoles }) {
       <DiamtLoader 
         fullScreen={true} 
         text="SYNCHRONIZING SECURE HARDWARE CLOUD" 
-        subtext="Authenticating DIAMT Autonomous Device Farm Nodes..." 
+        subtext="Authenticating FlexPulse Autonomous Device Farm Nodes..." 
       />
     );
   }

@@ -63,7 +63,7 @@ export default function DiamtLoader({
       {!isSmall && (
         <div className="diamt-loader-info">
           <div className="diamt-loader-brand">
-            DIAMT <span className="diamt-brand-accent">CLOUD</span>
+            FLEXPULSE <span className="diamt-brand-accent">CLOUD</span>
           </div>
           
           <div className="diamt-loader-title">
