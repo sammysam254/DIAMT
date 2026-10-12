@@ -14,17 +14,23 @@ import {
   generateWeeklyWorkerClaimsPdf 
 } from '../lib/pdfGenerator';
 import { 
-  getISOWeekString, getRecentWeekIdentifiers, DAYS_OF_WEEK, 
+  getISOWeekString, getPreviousISOWeekString, isWeekCompleted, getRecentWeekIdentifiers, DAYS_OF_WEEK, 
   getDateForDayInWeek, getTodayDateString 
 } from '../lib/weekUtils';
+import { 
+  calculateWorkerCompliance, executeWeeklyComplianceAudit, isExemptFromSuspension 
+} from '../lib/complianceService';
 import { notifyClaimAction, sendNotificationToUser, sendNotificationToMultipleUsers } from '../lib/notificationService';
 
 export default function AdminClaims() {
   const { profile } = useAuth();
+  const currentWeek = getISOWeekString();
+  const previousWeek = getPreviousISOWeekString();
   const [selectedWeek, setSelectedWeek] = useState(getISOWeekString());
   const [weekList, setWeekList] = useState([]);
   const [selectedWorkerFilter, setSelectedWorkerFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [auditFilter, setAuditFilter] = useState('ALL');
   
   const [claims, setClaims] = useState([]);
   const [workers, setWorkers] = useState([]);
@@ -890,84 +896,186 @@ export default function AdminClaims() {
             borderRadius: '18px',
             padding: '24px'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+              <div style={{ maxWidth: '680px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                  <ShieldAlert size={20} color="#b45309" />
-                  <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+                  <ShieldAlert size={22} color="#ef4444" />
+                  <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
                     Worker Target Compliance & System Auto-Suspension Audit
                   </h3>
                 </div>
                 <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
-                  Workers failing to achieve their weekly target rule (e.g. failing to submit the required $40 claim during their active week) are automatically suspended by system audit.
+                  Every worker must achieve at least <b>$40.00 in valid claims each week</b> (Weekly Plan sends one $40 claim; Daily Plan sends $10 daily claims totaling $40). Workers who fail this mandatory obligation by Sunday 23:59 are automatically suspended.
                   <b> Reinstating an auto-suspended worker is strictly restricted to Seed Admin authority.</b>
                 </p>
               </div>
 
               {isSeedAdmin && (
-                <button
-                  onClick={async () => {
-                    if (!window.confirm(`Execute Target Compliance Audit for Week ${selectedWeek}?\n\nAny workers on the Weekly $40 Plan who have not submitted their $40 claim for this week cycle will be automatically suspended by the system.`)) return;
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  {/* Button to audit the previous completed week */}
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(`Execute Target Compliance Audit for COMPLETED Week ${previousWeek} (Ended Sunday 23:59)?\n\nAny workers who did not achieve their $40 target for Week ${previousWeek} will be auto-suspended immediately.`)) return;
 
-                    const defaultingWorkers = workers.filter(w => {
-                      if (w.role !== 'worker' || w.is_auto_suspended) return false;
-                      if (['admin', 'super_admin', 'seed_admin'].includes(w.role) || w.email?.toLowerCase() === 'sammyseth260@gmail.com') return false;
-                      if (w.claim_criteria === 'weekly_40') {
-                        const hasClaim = claims.some(c => c.worker_id === w.id && (c.plan_type === 'weekly_40' || parseFloat(c.amount) >= 40));
-                        return !hasClaim;
+                      setActionInProgress('auditing');
+                      try {
+                        const result = await executeWeeklyComplianceAudit(previousWeek, { enforce: true, supabaseClient: supabase });
+                        alert(`Compliance Audit Executed for Completed Week ${previousWeek}:\n\n` +
+                          `• ${result.suspendedCount} defaulting worker(s) have been auto-suspended\n` +
+                          `• ${result.compliantCount} worker(s) verified compliant\n` +
+                          `• ${result.alreadyBlockedOrSuspended.length} worker(s) already blocked/suspended`);
+                        await loadData(false);
+                      } catch (err) {
+                        alert('Error executing audit: ' + (err.message || 'Unknown error'));
+                      } finally {
+                        setActionInProgress(null);
                       }
-                      return false;
-                    });
+                    }}
+                    disabled={actionInProgress === 'auditing'}
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.3))',
+                      border: '1px solid #ef4444',
+                      color: '#ef4444',
+                      padding: '9px 16px',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: actionInProgress === 'auditing' ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <AlertTriangle size={15} /> Audit Completed Week ({previousWeek})
+                  </button>
 
-                    if (defaultingWorkers.length === 0) {
-                      alert(`All evaluated workers are currently compliant for Week ${selectedWeek}. No suspensions enforced.`);
-                      return;
-                    }
+                  {/* Button to audit currently selected week */}
+                  <button
+                    onClick={async () => {
+                      const isCurrent = selectedWeek === currentWeek;
+                      let confirmMsg = `Execute Target Compliance Audit for Week ${selectedWeek}?\n\nAny workers who have not achieved their $40 claim target for Week ${selectedWeek} will be auto-suspended.`;
+                      if (isCurrent) {
+                        confirmMsg = `⚠️ CAUTION: Week ${selectedWeek} is CURRENTLY IN PROGRESS!\n\nWorkers still have until Sunday 23:59 to submit their $40 weekly requirement.\n\nAre you sure you want to enforce suspensions early?\n(To audit yesterday's concluded week, use the "Audit Completed Week (${previousWeek})" button).\n\nClick OK to proceed anyway, or Cancel to abort.`;
+                      }
 
-                    for (const defWorker of defaultingWorkers) {
-                      await supabase.from('profiles').update({
-                        is_auto_suspended: true,
-                        is_blocked: true,
-                        auto_suspended_week: selectedWeek,
-                        blocked_reason: `Due to failing to achieve weekly target rule as per your subscribed plan (Weekly $40 claim not submitted for week ${selectedWeek}), the system has auto-suspended you and you are required to leave the station before tomorrow at 8 AM, as your services are no longer needed.`
-                      }).eq('id', defWorker.id);
-                    }
+                      if (!window.confirm(confirmMsg)) return;
 
-                    alert(`Compliance Audit Executed for Week ${selectedWeek}:\n\n${defaultingWorkers.length} defaulting worker(s) have been auto-suspended.`);
-                    loadData(false);
-                  }}
-                  style={{
-                    background: 'rgba(239, 68, 68, 0.15)',
-                    border: '1px solid rgba(239, 68, 68, 0.4)',
-                    color: '#ef4444',
-                    padding: '8px 16px',
-                    borderRadius: '10px',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <AlertTriangle size={15} /> Execute Weekly Target Audit (Week {selectedWeek})
-                </button>
+                      setActionInProgress('auditing');
+                      try {
+                        const result = await executeWeeklyComplianceAudit(selectedWeek, { enforce: true, supabaseClient: supabase });
+                        alert(`Compliance Audit Executed for Week ${selectedWeek}:\n\n` +
+                          `• ${result.suspendedCount} defaulting worker(s) auto-suspended\n` +
+                          `• ${result.compliantCount} worker(s) verified compliant\n` +
+                          `• ${result.alreadyBlockedOrSuspended.length} worker(s) already blocked/suspended`);
+                        await loadData(false);
+                      } catch (err) {
+                        alert('Error executing audit: ' + (err.message || 'Unknown error'));
+                      } finally {
+                        setActionInProgress(null);
+                      }
+                    }}
+                    disabled={actionInProgress === 'auditing'}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      color: '#ef4444',
+                      padding: '9px 16px',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: actionInProgress === 'auditing' ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <AlertTriangle size={15} /> Audit Week {selectedWeek}
+                  </button>
+                </div>
               )}
             </div>
 
-            <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
-              {workers.filter(w => w.role === 'worker').map(w => {
+            {/* Week Status Banner */}
+            <div style={{
+              marginTop: '16px',
+              padding: '12px 16px',
+              borderRadius: '10px',
+              fontSize: '12px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+              background: selectedWeek === currentWeek ? 'rgba(217, 119, 6, 0.08)' : 'rgba(5, 150, 105, 0.08)',
+              border: selectedWeek === currentWeek ? '1px solid rgba(217, 119, 6, 0.25)' : '1px solid rgba(5, 150, 105, 0.25)',
+              color: selectedWeek === currentWeek ? '#d97706' : '#059669'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {selectedWeek === currentWeek ? <Clock size={16} /> : <CheckCircle2 size={16} />}
+                <span>
+                  {selectedWeek === currentWeek 
+                    ? `Week ${selectedWeek} is currently IN PROGRESS (Active until Sunday 23:59). Workers have until Sunday midnight to reach their $40 requirement.`
+                    : `Week ${selectedWeek} has CONCLUDED. All submissions for this cycle are finalized.`}
+                </span>
+              </div>
+
+              {/* Audit filter toggle */}
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {[
+                  { id: 'ALL', label: 'All' },
+                  { id: 'AT_RISK', label: 'Defaulting / At Risk' },
+                  { id: 'COMPLIANT', label: 'Compliant ($40+)' },
+                  { id: 'SUSPENDED', label: 'Suspended' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setAuditFilter(f.id)}
+                    style={{
+                      background: auditFilter === f.id ? (selectedWeek === currentWeek ? '#d97706' : '#059669') : 'transparent',
+                      color: auditFilter === f.id ? '#ffffff' : 'inherit',
+                      border: '1px solid currentColor',
+                      borderRadius: '6px',
+                      padding: '3px 8px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Workers Grid */}
+            <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
+              {workers.filter(w => {
+                if (w.role !== 'worker') return false;
+                if (isExemptFromSuspension(w)) return false;
+
+                const workerWeekClaims = claims.filter(c => c.worker_id === w.id);
+                const metrics = calculateWorkerCompliance(w, workerWeekClaims);
                 const isAutoSuspended = w.is_auto_suspended;
+                const isBlocked = w.is_blocked;
+
+                if (auditFilter === 'AT_RISK') return !metrics.isCompliant && !isAutoSuspended && !isBlocked;
+                if (auditFilter === 'COMPLIANT') return metrics.isCompliant && !isAutoSuspended && !isBlocked;
+                if (auditFilter === 'SUSPENDED') return isAutoSuspended || isBlocked;
+                return true;
+              }).map(w => {
+                const isAutoSuspended = w.is_auto_suspended;
+                const isBlocked = w.is_blocked;
                 const isWeeklyPlan = w.claim_criteria === 'weekly_40';
                 const workerWeekClaims = claims.filter(c => c.worker_id === w.id);
-                const hasWeekly40Sent = workerWeekClaims.some(c => c.plan_type === 'weekly_40' || parseFloat(c.amount) >= 40);
+                const metrics = calculateWorkerCompliance(w, workerWeekClaims);
 
                 return (
                   <div 
                     key={w.id}
                     style={{
-                      background: isAutoSuspended ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-main)',
-                      border: isAutoSuspended ? '1px solid #ef4444' : '1px solid var(--border-color)',
+                      background: isAutoSuspended ? 'rgba(239, 68, 68, 0.05)' : (isBlocked ? 'rgba(239, 68, 68, 0.03)' : 'var(--bg-main)'),
+                      border: isAutoSuspended ? '1px solid #ef4444' : (isBlocked ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid var(--border-color)'),
                       borderRadius: '12px',
                       padding: '14px',
                       display: 'flex',
@@ -976,37 +1084,44 @@ export default function AdminClaims() {
                       gap: '12px'
                     }}
                   >
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {w.email}
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        Plan: <b>{isWeeklyPlan ? 'Weekly $40 Plan' : 'Daily $10 Plan'}</b>
+                        Plan: <b>{isWeeklyPlan ? 'Weekly $40 Plan' : 'Daily $10 Plan'}</b> • Submissions: <b>${metrics.totalValidAmount.toFixed(2)} / $40.00</b>
                       </div>
+                      
                       <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         {isAutoSuspended ? (
                           <span style={{ fontSize: '10px', fontWeight: 800, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                            AUTO-TERMINATED (Target Rule)
+                            AUTO-SUSPENDED (Target Default: Week {w.auto_suspended_week || selectedWeek})
                           </span>
-                        ) : isWeeklyPlan ? (
-                          hasWeekly40Sent ? (
-                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', background: 'rgba(5, 150, 105, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                              ✓ $40 Claim Sent (Compliant)
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#d97706', background: 'rgba(217, 119, 6, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                              ⚠ $40 Claim Pending (At Risk)
-                            </span>
-                          )
-                        ) : (
+                        ) : isBlocked ? (
+                          <span style={{ fontSize: '10px', fontWeight: 800, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                            BLOCKED ({w.blocked_reason || 'Manual'})
+                          </span>
+                        ) : metrics.isCompliant ? (
                           <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', background: 'rgba(5, 150, 105, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                            COMPLIANT ({workerWeekClaims.length} Daily Claims)
+                            ✓ COMPLIANT (${metrics.totalValidAmount.toFixed(2)} Met • {metrics.validClaimsCount} Claims)
+                          </span>
+                        ) : selectedWeek === currentWeek ? (
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: '#d97706', background: 'rgba(217, 119, 6, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                            ⏳ IN PROGRESS (${metrics.totalValidAmount.toFixed(2)} / $40.00 • ${metrics.remainingAmount.toFixed(2)} Remaining)
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '10px', fontWeight: 800, color: '#dc2626', background: 'rgba(220, 38, 38, 0.12)', padding: '2px 6px', borderRadius: '4px' }}>
+                            ❌ DEFAULTED (${metrics.totalValidAmount.toFixed(2)} / $40.00 • Failed Target)
                           </span>
                         )}
                       </div>
+
+                      <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                        Approved: ${metrics.approvedAmount.toFixed(2)} {metrics.pendingAmount > 0 ? `| Pending: $${metrics.pendingAmount.toFixed(2)}` : ''}
+                      </div>
                     </div>
 
-                    <div>
+                    <div style={{ flexShrink: 0 }}>
                       {isAutoSuspended && (
                         isSeedAdmin ? (
                           <button

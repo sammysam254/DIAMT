@@ -15,6 +15,22 @@ export function getISOWeekString(d = new Date()) {
 }
 
 /**
+ * Returns the ISO week string for the previous completed week
+ */
+export function getPreviousISOWeekString(d = new Date()) {
+  const prevDate = new Date(d.getTime() - 7 * 24 * 60 * 60 * 1000);
+  return getISOWeekString(prevDate);
+}
+
+/**
+ * Checks if a given week identifier has concluded (i.e. is before the current active week)
+ */
+export function isWeekCompleted(weekIdentifier, d = new Date()) {
+  const currentWeek = getISOWeekString(d);
+  return (weekIdentifier || '') < currentWeek;
+}
+
+/**
  * Returns a list of recent week strings (e.g. current + previous 10 weeks)
  */
 export function getRecentWeekIdentifiers(count = 10) {

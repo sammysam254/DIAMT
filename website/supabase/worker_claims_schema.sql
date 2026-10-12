@@ -67,33 +67,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 6. SYSTEM AUTOMATED AUDIT FOR WEEKLY PLAN TARGET DEFAULTS
+-- 6. SYSTEM AUTOMATED AUDIT FOR WEEKLY PLAN TARGET DEFAULTS (ALL WORKER PLANS)
 CREATE OR REPLACE FUNCTION public.auto_audit_weekly_plan_defaults(audit_week TEXT)
 RETURNS INTEGER AS $$
 DECLARE
   v_count INTEGER := 0;
 BEGIN
   WITH defaulting_workers AS (
-    SELECT p.id
+    SELECT p.id,
+           COALESCE((
+             SELECT SUM(wc.amount)
+             FROM public.worker_claims wc
+             WHERE wc.worker_id = p.id
+               AND wc.week_identifier = audit_week
+               AND wc.status <> 'rejected'
+           ), 0) AS total_valid_claims
     FROM public.profiles p
     WHERE p.role = 'worker'
       AND p.role NOT IN ('admin', 'super_admin', 'seed_admin')
       AND p.email NOT IN ('sammyseth260@gmail.com')
-      AND p.claim_criteria = 'weekly_40'
       AND COALESCE(p.is_auto_suspended, FALSE) = FALSE
-      AND NOT EXISTS (
-        SELECT 1
+      AND COALESCE(p.is_blocked, FALSE) = FALSE
+      AND COALESCE((
+        SELECT SUM(wc.amount)
         FROM public.worker_claims wc
         WHERE wc.worker_id = p.id
           AND wc.week_identifier = audit_week
-          AND (wc.plan_type = 'weekly_40' OR wc.amount >= 40.00)
-      )
+          AND wc.status <> 'rejected'
+      ), 0) < 40.00
   )
   UPDATE public.profiles p
   SET is_auto_suspended = TRUE,
       is_blocked = TRUE,
       auto_suspended_week = audit_week,
-      blocked_reason = 'Due to failing to achieve weekly target rule as per your subscribed plan (Weekly $40 claim not submitted for week ' || audit_week || '), the system has auto-suspended you and you are required to leave the station before tomorrow at 8 AM, as your services are no longer needed.',
+      blocked_reason = 'Due to failing to achieve weekly target rule as per your subscribed plan (Submitted $' || TRIM(TO_CHAR(dw.total_valid_claims, '999990.00')) || ' of $40.00 required for week ' || audit_week || '), the system has auto-suspended you and you are required to leave the station before tomorrow at 8 AM, as your services are no longer needed.',
       updated_at = NOW()
   FROM defaulting_workers dw
   WHERE p.id = dw.id
