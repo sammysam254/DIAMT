@@ -671,3 +671,223 @@ export function generateAdminWeeklyClaimsReportPdf({ weekIdentifier, claims = []
     : `DIAMT_Admin_Claims_Report_${weekIdentifier}.pdf`;
   doc.save(outName);
 }
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 4. SEED ADMIN EXECUTIVE WORKER COMPLIANCE & EARNINGS AUDIT REPORT (PDF)
+ * Shows Worker Email, Plan, Account Status, Weekly Earnings, and Target Progress
+ * If 40 reached: displays "40/40 (ACHIEVED)"; otherwise shows remaining balance.
+ * ══════════════════════════════════════════════════════════════════════════════
+ */
+export function generateSeedAdminComplianceAuditPdf({ weekIdentifier, workers = [], claims = [] }) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  // Filter only workers (exempt administrators)
+  const workerList = workers.filter(w => 
+    w.role === 'worker' && 
+    !['admin', 'super_admin', 'seed_admin'].includes(w.role) && 
+    w.email?.toLowerCase() !== 'sammyseth260@gmail.com'
+  );
+
+  const records = workerList.map(w => {
+    const workerClaims = claims.filter(c => c.worker_id === w.id);
+    const validClaims = workerClaims.filter(c => c.status !== 'rejected');
+    const totalValid = validClaims.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+    const approved = validClaims.filter(c => c.status === 'approved').reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+    const pending = validClaims.filter(c => c.status === 'pending').reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+    const remaining = Math.max(0, 40.00 - totalValid);
+    const isCompliant = totalValid >= 40.00;
+    const plan = w.claim_criteria === 'weekly_40' ? 'Weekly $40' : 'Daily $10';
+
+    let accountStatus = 'ACTIVE';
+    if (w.is_auto_suspended) {
+      accountStatus = 'AUTO-SUSPENDED';
+    } else if (w.is_blocked) {
+      accountStatus = 'BLOCKED (MANUAL)';
+    } else if (isCompliant) {
+      accountStatus = 'COMPLIANT';
+    } else {
+      accountStatus = 'DEFAULTING';
+    }
+
+    let targetProgress = '';
+    if (isCompliant) {
+      targetProgress = '40/40 (ACHIEVED)';
+    } else {
+      targetProgress = `$${totalValid.toFixed(2)} / $40.00 ($${remaining.toFixed(2)} Rem.)`;
+    }
+
+    return {
+      email: w.email || '—',
+      plan,
+      accountStatus,
+      totalValid,
+      approved,
+      pending,
+      remaining,
+      isCompliant,
+      targetProgress,
+      isAutoSuspended: w.is_auto_suspended,
+      isBlocked: w.is_blocked
+    };
+  });
+
+  const totalWorkers = records.length;
+  const compliantCount = records.filter(r => r.isCompliant).length;
+  const defaultingCount = records.filter(r => !r.isCompliant).length;
+  const suspendedCount = records.filter(r => r.isAutoSuspended || r.isBlocked).length;
+  const totalApprovedEarnings = records.reduce((s, r) => s + r.approved, 0);
+
+  const ref = `SEED-COMP-${weekIdentifier}-${Date.now().toString().slice(-5)}`;
+
+  let currentPage = 1;
+  const rowsPerPage = 24;
+  const totalPages = Math.max(1, Math.ceil(records.length / rowsPerPage));
+
+  const drawPageHeader = (pNum) => {
+    let yPos = drawBrandHeader(
+      doc,
+      'Executive Compliance & Earnings Audit',
+      `Target Performance & Worker Status (Week ${weekIdentifier})`,
+      ref
+    );
+
+    if (pNum === 1) {
+      // Summary Metrics Cards
+      const colWidth = (pageWidth - 32 - 9) / 4;
+      const metrics = [
+        { label: 'EVALUATED WORKERS', val: `${totalWorkers} Accounts`, color: COLORS.emeraldDark },
+        { label: '40/40 COMPLIANT', val: `${compliantCount} Workers`, color: COLORS.emeraldPrimary },
+        { label: 'DEFAULTING / AT RISK', val: `${defaultingCount} Workers`, color: COLORS.amberDark },
+        { label: 'AUTO-SUSPENDED', val: `${suspendedCount} Workers`, color: COLORS.redDark },
+      ];
+
+      metrics.forEach((m, idx) => {
+        const cardX = 16 + idx * (colWidth + 3);
+        doc.setFillColor(...COLORS.emeraldTint);
+        doc.setDrawColor(...COLORS.emeraldBorder);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(cardX, yPos, colWidth, 16, 1.5, 1.5, 'FD');
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...COLORS.textMuted);
+        doc.text(m.label, cardX + colWidth / 2, yPos + 5.5, { align: 'center' });
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(...m.color);
+        doc.text(m.val, cardX + colWidth / 2, yPos + 12.5, { align: 'center' });
+      });
+
+      yPos += 22;
+
+      // Policy Info Banner
+      doc.setFillColor(250, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(16, yPos, pageWidth - 32, 10, 1.5, 1.5, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(...COLORS.emeraldDark);
+      doc.text('AUDIT MANDATE:', 20, yPos + 4.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(...COLORS.textMuted);
+      doc.text(`Rule: $40.00 weekly target. Total Approved Earnings: $${totalApprovedEarnings.toFixed(2)} USD. Reinstatement authority: Seed Admin only.`, 20, yPos + 8);
+
+      yPos += 14;
+    }
+
+    // Table Header
+    doc.setFillColor(...COLORS.emeraldDark);
+    doc.rect(16, yPos, pageWidth - 32, 7.5, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...COLORS.white);
+    doc.text('WORKER ACCOUNT', 20, yPos + 5);
+    doc.text('PLAN', 72, yPos + 5);
+    doc.text('ACCOUNT STATUS', 94, yPos + 5);
+    doc.text('WEEKLY EARNING', 126, yPos + 5);
+    doc.text('TARGET PROGRESS ($40)', 154, yPos + 5);
+
+    return yPos + 7.5;
+  };
+
+  let y = drawPageHeader(1);
+
+  records.forEach((r, idx) => {
+    // Check if we need a new page
+    if (y > pageHeight - 28) {
+      drawFooterAndSeal(doc, currentPage, totalPages);
+      doc.addPage();
+      currentPage++;
+      y = drawPageHeader(currentPage);
+    }
+
+    const isEven = idx % 2 === 0;
+    doc.setFillColor(isEven ? 255 : 246, isEven ? 255 : 251, isEven ? 255 : 249);
+    doc.rect(16, y, pageWidth - 32, 7, 'F');
+
+    doc.setDrawColor(241, 245, 249);
+    doc.setLineWidth(0.2);
+    doc.line(16, y + 7, pageWidth - 16, y + 7);
+
+    // Email
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...COLORS.textDark);
+    doc.text(r.email.substring(0, 28), 20, y + 4.8);
+
+    // Plan
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...COLORS.textMuted);
+    doc.text(r.plan, 72, y + 4.8);
+
+    // Status Badge Text
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    if (r.accountStatus === 'COMPLIANT') {
+      doc.setTextColor(...COLORS.emeraldPrimary);
+    } else if (r.accountStatus === 'AUTO-SUSPENDED') {
+      doc.setTextColor(...COLORS.redDark);
+    } else if (r.accountStatus === 'BLOCKED (MANUAL)') {
+      doc.setTextColor(...COLORS.redDark);
+    } else {
+      doc.setTextColor(...COLORS.amberDark);
+    }
+    doc.text(r.accountStatus, 94, y + 4.8);
+
+    // Weekly Earning
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...COLORS.emeraldDark);
+    doc.text(`$${r.totalValid.toFixed(2)}`, 126, y + 4.8);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(...COLORS.textMuted);
+    doc.text(`($${r.approved.toFixed(2)} Appr.)`, 136, y + 4.8);
+
+    // Target Progress (40/40 or Remaining)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    if (r.isCompliant) {
+      doc.setTextColor(...COLORS.emeraldPrimary);
+    } else {
+      doc.setTextColor(...COLORS.redDark);
+    }
+    doc.text(r.targetProgress, 154, y + 4.8);
+
+    y += 7;
+  });
+
+  drawFooterAndSeal(doc, currentPage, totalPages);
+
+  const fileName = `DIAMT_Seed_Compliance_Audit_${weekIdentifier}.pdf`;
+  doc.save(fileName);
+}

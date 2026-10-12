@@ -11,7 +11,8 @@ import SEO from '../components/SEO';
 import DiamtLoader from '../components/DiamtLoader';
 import { 
   generateAdminWeeklyClaimsReportPdf, 
-  generateWeeklyWorkerClaimsPdf 
+  generateWeeklyWorkerClaimsPdf,
+  generateSeedAdminComplianceAuditPdf
 } from '../lib/pdfGenerator';
 import { 
   getISOWeekString, getPreviousISOWeekString, isWeekCompleted, getRecentWeekIdentifiers, DAYS_OF_WEEK, 
@@ -543,6 +544,29 @@ export default function AdminClaims() {
                 </button>
               )}
 
+              {isSeedAdmin && (
+                <button
+                  onClick={() => generateSeedAdminComplianceAuditPdf({ weekIdentifier: selectedWeek, workers, claims })}
+                  style={{
+                    background: 'linear-gradient(135deg, #047857, #10b981)',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '10px 18px',
+                    borderRadius: '10px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(4, 120, 87, 0.3)'
+                  }}
+                  title="Download Executive Worker Compliance & Earnings Status Report (Shows Account Status, Earning, 40/40 target)"
+                >
+                  <Download size={16} /> Seed Admin: Compliance & Earnings PDF
+                </button>
+              )}
+
               <button
                 onClick={handleExportPdf}
                 style={{
@@ -990,6 +1014,55 @@ export default function AdminClaims() {
                     }}
                   >
                     <AlertTriangle size={15} /> Audit Week {selectedWeek}
+                  </button>
+
+                  {/* Download Seed Admin Compliance Audit PDF for currently selected week */}
+                  <button
+                    onClick={() => generateSeedAdminComplianceAuditPdf({ weekIdentifier: selectedWeek, workers, claims })}
+                    style={{
+                      background: 'rgba(5, 150, 105, 0.12)',
+                      border: '1px solid rgba(5, 150, 105, 0.35)',
+                      color: '#059669',
+                      padding: '9px 16px',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                    title="Download Executive Status & Earnings PDF (Shows 40/40 or Remaining for each worker)"
+                  >
+                    <Download size={15} /> Download PDF ({selectedWeek})
+                  </button>
+
+                  {/* Download Seed Admin Compliance Audit PDF for previous completed week */}
+                  <button
+                    onClick={async () => {
+                      try {
+                        const { data: prevClaims } = await supabase.from('worker_claims').select('*').eq('week_identifier', previousWeek);
+                        generateSeedAdminComplianceAuditPdf({ weekIdentifier: previousWeek, workers, claims: prevClaims || [] });
+                      } catch (e) {
+                        alert('Error generating PDF for week ' + previousWeek + ': ' + e.message);
+                      }
+                    }}
+                    style={{
+                      background: 'rgba(5, 150, 105, 0.12)',
+                      border: '1px solid rgba(5, 150, 105, 0.35)',
+                      color: '#059669',
+                      padding: '9px 16px',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                    title="Download Executive Status & Earnings PDF for completed week"
+                  >
+                    <Download size={15} /> Download PDF (Completed Week {previousWeek})
                   </button>
                 </div>
               )}
