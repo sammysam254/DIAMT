@@ -146,6 +146,36 @@ BEFORE INSERT OR UPDATE ON public.profiles
 FOR EACH ROW
 EXECUTE FUNCTION public.protect_admins_from_suspension();
 
+-- PROTECTION RULE: Workers unsuspended for the current week can NEVER be auto-suspended for past-week defaults
+CREATE OR REPLACE FUNCTION public.protect_unsuspended_workers()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_current_week TEXT;
+BEGIN
+  v_current_week := TO_CHAR(NOW() AT TIME ZONE 'Africa/Nairobi', 'IYYY') || '-W' || TO_CHAR(NOW() AT TIME ZONE 'Africa/Nairobi', 'IW');
+
+  -- If worker was unsuspended for the current week (or future), reject any past-week auto-suspension
+  IF NEW.role = 'worker' AND NEW.unsuspended_week IS NOT NULL AND NEW.unsuspended_week >= v_current_week THEN
+    IF NEW.is_auto_suspended = TRUE THEN
+      NEW.is_auto_suspended := FALSE;
+      NEW.auto_suspended_week := NULL;
+      IF NEW.blocked_reason ILIKE '%failing to achieve weekly target rule%' OR NEW.blocked_reason ILIKE '%auto-suspended%' THEN
+        NEW.is_blocked := FALSE;
+        NEW.blocked_reason := NULL;
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_protect_unsuspended_workers ON public.profiles;
+CREATE TRIGGER trg_protect_unsuspended_workers
+BEFORE INSERT OR UPDATE ON public.profiles
+FOR EACH ROW
+EXECUTE FUNCTION public.protect_unsuspended_workers();
+
 -- 7. USER IN-APP NOTIFICATIONS TABLE
 CREATE TABLE IF NOT EXISTS public.user_notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
