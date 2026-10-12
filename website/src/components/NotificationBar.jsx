@@ -44,13 +44,16 @@ export default function NotificationBar() {
     if (!profile) return;
     loadNotifications();
 
-    // Check & trigger daily target reminders for worker
-    checkAndTriggerDailyTargetReminders(profile);
-
-    // Periodic check every 10 minutes
-    const interval = setInterval(() => {
+    // Check & trigger daily target reminders for workers only (admins are fully exempt)
+    const isAdmin = ['admin', 'super_admin', 'seed_admin'].includes(profile?.role) ||
+                    (profile?.email || '').toLowerCase() === 'sammyseth260@gmail.com';
+    let interval = null;
+    if (!isAdmin && profile?.role === 'worker') {
       checkAndTriggerDailyTargetReminders(profile);
-    }, 600000);
+      interval = setInterval(() => {
+        checkAndTriggerDailyTargetReminders(profile);
+      }, 600000);
+    }
 
     // Realtime channel for incoming notifications
     const channel = supabase

@@ -134,6 +134,12 @@ export async function notifyClaimAction({
  */
 export async function checkAndTriggerDailyTargetReminders(workerProfile) {
   if (!workerProfile || !workerProfile.id) return;
+  
+  // Administrators are exempt from worker weekly compliance targets and reminders
+  const isAdmin = ['admin', 'super_admin', 'seed_admin'].includes(workerProfile.role) ||
+                  (workerProfile.email || '').toLowerCase() === 'sammyseth260@gmail.com';
+  if (isAdmin || workerProfile.role !== 'worker') return;
+
   // Don't spam suspended workers
   if (workerProfile.is_auto_suspended || workerProfile.is_blocked) return;
 
