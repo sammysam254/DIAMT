@@ -1330,6 +1330,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
       } catch (_) {}
     }
 
+    // Send wake signal to resume stream when deactivated
+    if (!active) {
+      try {
+        if (typeof window.__streamSend === 'function') window.__streamSend({ type: 'wake' });
+      } catch (_) {}
+    }
     // Broadcast across windows
     try {
       if (window.__ksBc) window.__ksBc.postMessage({ active: window.__killSwitchActive });
@@ -1516,6 +1522,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
       gainNode = audioCtx.createGain();
       gainNode.gain.value = isMuted ? 0 : 1;
       gainNode.connect(audioCtx.destination);
+      window.__gainNode = gainNode; // expose for global kill switch audio muting
       if (audioCtx.state === 'suspended') audioCtx.resume().catch(function() {});
     } catch (_) {}
   }
@@ -1788,6 +1795,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(proto + '//' + location.host + '/ws' + location.search);
     ws.binaryType = 'arraybuffer';
+    // Expose send function globally so window.applyKillSwitchHold can trigger wake
+    window.__streamSend = send;
 
     ws.onopen = function() {
       wsOk = true;
@@ -1802,37 +1811,15 @@ function buildPlayerHtml(serial, screenW, screenH) {
       flushQueue();
       // Instantly nudge Android encoder to generate fresh keyframe
       send({ type: 'wake' });
-      fetch('/api/kill-switch-status', { cache: 'no-store' })
-        .then(function(r) { return r.json(); })
-        .then(function(d) { if (d && typeof d.active === 'boolean') applyKillSwitchHold(d.active); })
-        .catch(function() {});
+      // Apply kill switch state immediately on connect
+      if (typeof window.applyKillSwitchHold === 'function') {
+        window.applyKillSwitchHold(window.__killSwitchActive || false);
+      }
     };
 
-    function applyKillSwitchHold(active) {
-      const overlay = document.getElementById('killSwitchRevokedOverlay');
-      if (!overlay) return;
-      if (active) {
-        overlay.style.display = 'flex';
-        if (gainNode) gainNode.gain.value = 0;
-        try {
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#080202';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-          }
-        } catch (_) {}
-        try {
-          const tm = document.getElementById('textModal');
-          if (tm) tm.style.display = 'none';
-          const um = document.getElementById('uploadModal');
-          if (um) um.style.display = 'none';
-        } catch (_) {}
-      } else {
-        overlay.style.display = 'none';
-        if (gainNode && !isMuted) gainNode.gain.value = 1;
-        send({ type: 'wake' });
-      }
-    }
+    // applyKillSwitchHold is now handled by the global window.applyKillSwitchHold
+    // defined in the top-level inline script above connectWS().
+    // window.__gainNode is set in initAudio() so audio muting works globally.
 
     const SUPABASE_KS_URL = 'https://xbolsgcntkfzzpqnulsa.supabase.co';
     const SUPABASE_KS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk';
@@ -1848,13 +1835,13 @@ function buildPlayerHtml(serial, screenW, screenH) {
       .then(function(r) { return r.json(); })
       .then(function(rows) {
         if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
-          applyKillSwitchHold(Boolean(rows[0].is_active));
+          if (typeof window.applyKillSwitchHold === 'function') window.applyKillSwitchHold(Boolean(rows[0].is_active));
         }
       })
       .catch(function() {
         fetch('/api/kill-switch-status', { cache: 'no-store' })
           .then(function(r) { return r.json(); })
-          .then(function(d) { if (d && typeof d.active === 'boolean') applyKillSwitchHold(d.active); })
+          .then(function(d) { if (d && typeof d.active === 'boolean' && typeof window.applyKillSwitchHold === 'function') window.applyKillSwitchHold(d.active); })
           .catch(function() {});
       });
     }
@@ -1875,7 +1862,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
           .on('postgres_changes', { event: '*', schema: 'public', table: 'system_kill_switch' }, function(payload) {
             const val = payload.new ? payload.new.is_active : payload.old && payload.old.is_active;
             if (typeof val !== 'undefined') {
-              applyKillSwitchHold(Boolean(val));
+              if (typeof window.applyKillSwitchHold === 'function') window.applyKillSwitchHold(Boolean(val));
             } else {
               checkDatabaseKillSwitch();
             }
@@ -1891,7 +1878,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
           const txt = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data);
           const msg = JSON.parse(txt);
           if (msg.type === 'kill_switch') {
-            applyKillSwitchHold(Boolean(msg.active));
+            if (typeof window.applyKillSwitchHold === 'function') window.applyKillSwitchHold(Boolean(msg.active));
             return;
           } else if (msg.type === 'stream_reset') {
             console.log('[Stream] Server stream reset — reinitialising decoder');
