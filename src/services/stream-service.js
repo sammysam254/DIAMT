@@ -51,6 +51,9 @@ function setKillSwitchActive(active) {
       for (const client of session.wss.clients) {
         if (client.readyState === 1 /* WebSocket.OPEN */) {
           try { client.send(payload); } catch (_) {}
+          if (_isKillSwitchActive) {
+            try { client.send(JSON.stringify({ type: 'stream_revoked', reason: 'kill_switch' })); } catch (_) {}
+          }
         }
       }
     }
@@ -67,6 +70,7 @@ async function syncKillSwitchFromDb() {
   try {
     const r = await fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
       cache: 'no-store',
+      signal: AbortSignal.timeout(1500),
       headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
     });
     if (r.ok) {
@@ -80,7 +84,7 @@ async function syncKillSwitchFromDb() {
     }
   } catch (_) {}
 }
-setInterval(syncKillSwitchFromDb, 1000);
+setInterval(syncKillSwitchFromDb, 500); // 500ms poll for near-instant kill switch enforcement
 syncKillSwitchFromDb();
 
 function findActiveSession(reqUdid, fallbackSerial) {
@@ -571,6 +575,9 @@ async function verifyDeviceAccess(serial, inputCredential) {
 // â”€â”€â”€ 5 Auto-Sliding Cards Presentation (Vertex Digital) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, customNotice) {
+  if (_isKillSwitchActive) {
+    return getStreamKillSwitchRevokedHtml(serial);
+  }
   const prefillSerial = serial ? serial.replace(/"/g, '&quot;') : '';
   const statusMessage = customNotice || (isRevokedOrInvalid 
     ? 'Access credentials for this device were revoked or reset by an administrator. Please provide an active PIN.'
@@ -938,34 +945,56 @@ function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, c
         window.__cardsLocked = Boolean(active);
         const ov = document.getElementById('killSwitchRevokedOverlay');
         if (ov) ov.style.display = active ? 'flex' : 'none';
+        // Disable ALL inputs and buttons when active
         const submitBtn = document.querySelector('.auth-submit');
         if (submitBtn) {
           submitBtn.disabled = active;
-          submitBtn.style.opacity = active ? '0.5' : '1';
+          submitBtn.style.opacity = active ? '0.4' : '1';
           submitBtn.style.cursor = active ? 'not-allowed' : 'pointer';
+        }
+        const udidInput = document.getElementById('udidField');
+        const pinInput = document.getElementById('pinField');
+        if (udidInput) udidInput.disabled = active;
+        if (pinInput) pinInput.disabled = active;
+        // Block all form submissions via pointer-events on carousel
+        const carousel = document.getElementById('carouselWrapper');
+        if (carousel) carousel.style.pointerEvents = active ? 'none' : '';
+        // Make overlay not dismissible by any means
+        if (active && ov) {
+          ov.onclick = null;
+          ov.onkeydown = function(e) { e.stopPropagation(); e.preventDefault(); };
+          // Transition immediately to dedicated revoked page
+          setTimeout(function() { window.location.reload(); }, 200);
         }
       }
 
       function pollDb() {
-        fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
-          cache: 'no-store',
-          headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(rows) {
-          if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
-            applyCardsLock(Boolean(rows[0].is_active));
-          }
-        })
-        .catch(function() {
-          fetch('/api/kill-switch-status', { cache: 'no-store' })
+        // Try local server first (fastest, same-origin)
+        fetch('/api/kill-switch-status', { cache: 'no-store' })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d && typeof d.active === 'boolean') {
+              applyCardsLock(d.active);
+            }
+          })
+          .catch(function() {
+            // Fallback: Supabase REST
+            fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+              cache: 'no-store',
+              headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
+            })
             .then(function(r) { return r.json(); })
-            .then(function(d) { if (d && typeof d.active === 'boolean') applyCardsLock(d.active); });
-        });
+            .then(function(rows) {
+              if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
+                applyCardsLock(Boolean(rows[0].is_active));
+              }
+            })
+            .catch(function() {});
+          });
       }
 
       pollDb();
-      setInterval(pollDb, 800);
+      setInterval(pollDb, 300); // 300ms for near-instant kill switch response
 
       try {
         const bc = new BroadcastChannel('diamt_kill_switch');
@@ -1172,26 +1201,37 @@ function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, c
 
     async function handleUnlock(e) {
       e.preventDefault();
-      if (window.__cardsLocked) {
-        alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Device access is currently locked.');
+      // Always check kill switch from server before allowing PIN unlock
+      // If any check fails (network error, exception), BLOCK access - fail safe
+      let ksActive = window.__cardsLocked || false;
+      try {
+        // First try local server (fastest - same origin)
+        const local = await fetch('/api/kill-switch-status', { cache: 'no-store' });
+        const localData = await local.json();
+        if (localData && typeof localData.active === 'boolean') {
+          ksActive = localData.active;
+        } else {
+          // Fallback: check Supabase directly
+          const r = await fetch('https://xbolsgcntkfzzpqnulsa.supabase.co/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+            cache: 'no-store',
+            headers: {
+              'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk',
+              'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk'
+            }
+          });
+          const rows = await r.json();
+          if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
+            ksActive = Boolean(rows[0].is_active);
+          }
+        }
+      } catch (_) {
+        // Network failure: keep ksActive = window.__cardsLocked (already set above)
+      }
+
+      if (ksActive) {
+        applyCardsLock(true);
         return;
       }
-      try {
-        const r = await fetch('https://xbolsgcntkfzzpqnulsa.supabase.co/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
-          cache: 'no-store',
-          headers: {
-            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk',
-            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk'
-          }
-        });
-        const rows = await r.json();
-        if (Array.isArray(rows) && rows.length > 0 && rows[0].is_active === true) {
-          const ov = document.getElementById('killSwitchRevokedOverlay');
-          if (ov) ov.style.display = 'flex';
-          alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Device access is currently locked.');
-          return;
-        }
-      } catch (_) {}
 
       const udid = document.getElementById('udidField').value.trim();
       const pin = document.getElementById('pinField').value.trim();
@@ -1301,32 +1341,59 @@ function buildPlayerHtml(serial, screenW, screenH) {
   window.applyKillSwitchHold = function(active) {
     window.__killSwitchActive = Boolean(active);
     const overlay = document.getElementById('killSwitchRevokedOverlay');
-    if (overlay) overlay.style.display = active ? 'flex' : 'none';
-    
-    // Blank canvas immediately
-    const canvas = document.getElementById('canvas') || document.querySelector('canvas');
-    if (active && canvas) {
-      try {
+    if (overlay) {
+      overlay.style.display = active ? 'flex' : 'none';
+      overlay.style.pointerEvents = active ? 'all' : 'none';
+      // Prevent any keyboard/click from dismissing overlay
+      if (active) {
+        overlay.onclick = function(e) { e.stopPropagation(); };
+        document.body.style.overflow = 'hidden';
+      } else {
+        document.body.style.overflow = '';
+      }
+    }
+
+    // Blank canvas immediately when activating
+    try {
+      const canvas = document.getElementById('c') || document.getElementById('canvas') || document.querySelector('canvas');
+      if (active && canvas) {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.fillStyle = '#080202';
           ctx.fillRect(0, 0, canvas.width || 720, canvas.height || 1600);
         }
-      } catch (_) {}
-    }
-    
+      }
+    } catch (_) {}
+
     // Mute audio
     if (window.__gainNode) {
       try { window.__gainNode.gain.value = active ? 0 : 1; } catch (_) {}
     }
-    
-    // Hide text/upload modals
+
+    // Hide text/upload modals when activating
     if (active) {
       try {
         const tm = document.getElementById('textModal');
         if (tm) tm.style.display = 'none';
         const um = document.getElementById('uploadModal');
         if (um) um.style.display = 'none';
+      } catch (_) {}
+      // Block all controls: sidebar, canvas interactions
+      try {
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) sidebar.style.pointerEvents = 'none';
+        const stage = document.querySelector('.stage');
+        if (stage) stage.style.pointerEvents = 'none';
+      } catch (_) {}
+      // Immediately transition to dedicated revoked page
+      setTimeout(function() { window.location.reload(); }, 200);
+    } else {
+      // Restore controls
+      try {
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) sidebar.style.pointerEvents = '';
+        const stage = document.querySelector('.stage');
+        if (stage) stage.style.pointerEvents = '';
       } catch (_) {}
     }
 
@@ -1336,33 +1403,41 @@ function buildPlayerHtml(serial, screenW, screenH) {
         if (typeof window.__streamSend === 'function') window.__streamSend({ type: 'wake' });
       } catch (_) {}
     }
-    // Broadcast across windows
+
+    // Broadcast across pop-out windows and tabs
     try {
       if (window.__ksBc) window.__ksBc.postMessage({ active: window.__killSwitchActive });
     } catch (_) {}
   };
 
   function pollSupabase() {
-    fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
-      cache: 'no-store',
-      headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(rows) {
-      if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
-        window.applyKillSwitchHold(Boolean(rows[0].is_active));
-      }
-    })
-    .catch(function() {
-      fetch('/api/kill-switch-status', { cache: 'no-store' })
+    // Try local server first (fastest, same-origin, no CORS issues)
+    fetch('/api/kill-switch-status', { cache: 'no-store' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d && typeof d.active === 'boolean') {
+          window.applyKillSwitchHold(d.active);
+        }
+      })
+      .catch(function() {
+        // Fallback to Supabase REST directly
+        fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+          cache: 'no-store',
+          headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
+        })
         .then(function(r) { return r.json(); })
-        .then(function(d) { if (d && typeof d.active === 'boolean') window.applyKillSwitchHold(d.active); });
-    });
+        .then(function(rows) {
+          if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
+            window.applyKillSwitchHold(Boolean(rows[0].is_active));
+          }
+        })
+        .catch(function() {});
+      });
   }
 
-  // Poll immediately and every 800ms
+  // Poll immediately and every 300ms for near-instant kill switch response
   pollSupabase();
-  setInterval(pollSupabase, 800);
+  setInterval(pollSupabase, 300);
 
   // BroadcastChannel sync across pop-outs and tabs
   try {
@@ -1888,7 +1963,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
           } else if (msg.type === 'stream_revoked') {
             console.warn('[Stream] Access revoked by administrator:', msg.reason);
             try { localStorage.removeItem('device_pin_auth_${serial}'); } catch (_) {}
-            window.location.reload();
+            if (typeof window.applyKillSwitchHold === 'function') window.applyKillSwitchHold(true);
+            setTimeout(function() { window.location.reload(); }, 200);
             return;
           }
           return;
@@ -2315,6 +2391,11 @@ async function startStreamServer(serial, port, aliasSerial) {
     const reqUdid = (url.searchParams.get('udid') || '').trim();
     const candidateAuth = (url.searchParams.get('pin') || url.searchParams.get('key') || url.searchParams.get('token') || '').trim();
 
+    // Always sync kill switch status from DB on incoming HTTP request
+    try {
+      await syncKillSwitchFromDb();
+    } catch (_) {}
+
     // Kill switch status endpoint
     if (p === '/api/kill-switch-status') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -2419,6 +2500,22 @@ async function startStreamServer(serial, port, aliasSerial) {
       return;
     }
 
+    // Sync kill switch state on new WS connection
+    try {
+      await syncKillSwitchFromDb();
+    } catch (_) {}
+
+    if (_isKillSwitchActive) {
+      try {
+        ws.send(JSON.stringify({ type: 'kill_switch', active: true }));
+        ws.send(JSON.stringify({ type: 'stream_revoked', reason: 'kill_switch' }));
+      } catch (_) {}
+      setTimeout(() => {
+        try { ws.close(4003, 'Licence Permanently Revoked'); } catch (_) {}
+      }, 200);
+      return;
+    }
+
     const targetWsSession = findActiveSession(reqWsUdid, serial);
     if (!targetWsSession) {
       ws.close(4004, 'Device Not Found Or Offline');
@@ -2442,10 +2539,13 @@ async function startStreamServer(serial, port, aliasSerial) {
     logger.info(`[StreamServer] WS connected and authorized for ${effectiveWsSerial}`);
     effectiveWsEngine.addClient(ws);
 
+    // If kill switch is active, immediately notify client AND close connection to prevent streaming
     if (_isKillSwitchActive) {
       try {
         ws.send(JSON.stringify({ type: 'kill_switch', active: true }));
       } catch (_) {}
+      // Do not close - keep connection open so client receives the kill_switch message
+      // but block video/audio relay via engine.paused
     }
 
     // Heartbeat verification every 10 seconds: if admin resets PIN/key, revoke stream
