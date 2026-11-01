@@ -341,8 +341,17 @@ export default function DeviceAllocationSection({ currentUser }) {
                             target="_blank" 
                             rel="noreferrer" 
                             style={{ color: 'var(--primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.preventDefault();
+                              let isLocked = isKillSwitchActive;
+                              try {
+                                const { data } = await supabase.from('system_kill_switch').select('is_active').eq('id', 1).maybeSingle();
+                                if (data && data.is_active) isLocked = true;
+                              } catch (_) {}
+                              if (isLocked) {
+                                alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Stream cannot be opened.');
+                                return;
+                              }
                               const w = 510, h = 900;
                               const left = Math.max(0, Math.round((window.screen.width - w) / 2));
                               const top = Math.max(0, Math.round((window.screen.height - h) / 2));

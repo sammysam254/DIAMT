@@ -61,6 +61,15 @@ export function KillSwitchProvider({ children }) {
     };
   }, []);
 
+  // Sync state across all open browser tabs and pop-out stream windows
+  useEffect(() => {
+    try {
+      const bc = new BroadcastChannel('diamt_kill_switch');
+      bc.postMessage({ active: isKillSwitchActive });
+      localStorage.setItem('diamt_kill_switch_active', isKillSwitchActive ? '1' : '0');
+    } catch (_) {}
+  }, [isKillSwitchActive]);
+
   return (
     <KillSwitchContext.Provider value={{ isKillSwitchActive, loaded }}>
       {children}

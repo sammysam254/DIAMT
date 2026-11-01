@@ -890,10 +890,105 @@ function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, c
       .slide-title { font-size: 20px; }
       .auth-form { flex-direction: column; }
     }
+    @keyframes ksPulseGlow { 0% { opacity: 0.3; transform: scale(0.85); } 100% { opacity: 0.85; transform: scale(1.15); } }
+    @keyframes ksBorderPulse { 0% { border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 0 30px rgba(220, 38, 38, 0.25); } 100% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 80px rgba(220, 38, 38, 0.65); } }
+    @keyframes ksIconBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    @keyframes ksTitlePulse { 0% { opacity: 0.85; transform: scale(0.99); } 100% { opacity: 1; transform: scale(1.02); } }
+    @keyframes ksDotBlink { from { opacity: 0.3; } to { opacity: 1; } }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+  <!-- Kill Switch Revoked Licence Overlay in Cards/PIN view -->
+  <div id="killSwitchRevokedOverlay" style="display:${_isKillSwitchActive ? 'flex' : 'none'};position:fixed;inset:0;background:#080202;z-index:999999;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;overflow:hidden;user-select:none;">
+    <div style="position:absolute;width:600px;height:600px;border-radius:50%;background:rgba(220,38,38,0.22);filter:blur(140px);pointer-events:none;animation:ksPulseGlow 1.8s infinite alternate ease-in-out;"></div>
+    <div style="position:relative;z-index:2;max-width:580px;width:100%;background:rgba(15,3,3,0.94);border:2px solid rgba(239,68,68,0.7);border-radius:28px;padding:44px 32px;text-align:center;box-shadow:0 0 60px rgba(220,38,38,0.45);animation:ksBorderPulse 1.8s infinite alternate ease-in-out;">
+      <div style="width:88px;height:88px;border-radius:50%;background:rgba(239,68,68,0.15);border:3px solid #ef4444;display:flex;align-items:center;justify-content:center;margin:0 auto 22px;animation:ksIconBounce 1.5s infinite ease-in-out;">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(239,68,68,0.16);border:1px solid rgba(239,68,68,0.45);border-radius:20px;padding:4px 14px;color:#f87171;font-size:11px;font-weight:800;letter-spacing:1.5px;margin-bottom:16px;text-transform:uppercase;">
+        SYSTEM CRITICAL ALERT
+      </div>
+      <h1 style="font-size:26px;font-weight:900;color:#ef4444;letter-spacing:-0.5px;line-height:1.2;margin-bottom:14px;text-shadow:0 0 30px rgba(239,68,68,0.7);animation:ksTitlePulse 1.8s infinite alternate ease-in-out;">
+        LICENCE PERMANENTLY REVOKED
+      </h1>
+      <p style="color:#fca5a5;font-size:14px;line-height:1.6;margin-bottom:22px;font-weight:500;">
+        All device streams have been placed on hold by the Seed Administrator.
+        <br>
+        Waiting for administrator authorization to resume...
+      </p>
+      <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:14px;padding:12px 16px;font-size:12.5px;color:#fca5a5;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;">
+        <span style="width:10px;height:10px;border-radius:50%;background:#ef4444;box-shadow:0 0 10px #ef4444;display:inline-block;animation:ksDotBlink 1s infinite alternate;"></span>
+        <span>STREAM ON HOLD — WAITING FOR SEED ADMIN TO UNBLOCK</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const SUPABASE_KS_URL = 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+      const SUPABASE_KS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk';
+      window.__cardsLocked = false;
+
+      function applyCardsLock(active) {
+        window.__cardsLocked = Boolean(active);
+        const ov = document.getElementById('killSwitchRevokedOverlay');
+        if (ov) ov.style.display = active ? 'flex' : 'none';
+        const submitBtn = document.querySelector('.auth-submit');
+        if (submitBtn) {
+          submitBtn.disabled = active;
+          submitBtn.style.opacity = active ? '0.5' : '1';
+          submitBtn.style.cursor = active ? 'not-allowed' : 'pointer';
+        }
+      }
+
+      function pollDb() {
+        fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+          cache: 'no-store',
+          headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(rows) {
+          if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
+            applyCardsLock(Boolean(rows[0].is_active));
+          }
+        })
+        .catch(function() {
+          fetch('/api/kill-switch-status', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) { if (d && typeof d.active === 'boolean') applyCardsLock(d.active); });
+        });
+      }
+
+      pollDb();
+      setInterval(pollDb, 800);
+
+      try {
+        const bc = new BroadcastChannel('diamt_kill_switch');
+        bc.onmessage = function(e) {
+          if (e.data && typeof e.data.active === 'boolean') applyCardsLock(e.data.active);
+        };
+      } catch (_) {}
+
+      try {
+        if (window.supabase && typeof window.supabase.createClient === 'function') {
+          const sbClient = window.supabase.createClient(SUPABASE_KS_URL, SUPABASE_KS_KEY);
+          sbClient.channel('cards_ks_realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'system_kill_switch' }, function(p) {
+              const val = p.new ? p.new.is_active : p.old && p.old.is_active;
+              if (typeof val !== 'undefined') applyCardsLock(Boolean(val));
+              else pollDb();
+            })
+            .subscribe();
+        }
+      } catch (_) {}
+    })();
+  </script>
+
   <div class="container">
 
     <!-- Top Header Bar -->
@@ -1075,8 +1170,29 @@ function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, c
 
     startAutoSlide();
 
-    function handleUnlock(e) {
+    async function handleUnlock(e) {
       e.preventDefault();
+      if (window.__cardsLocked) {
+        alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Device access is currently locked.');
+        return;
+      }
+      try {
+        const r = await fetch('https://xbolsgcntkfzzpqnulsa.supabase.co/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+          cache: 'no-store',
+          headers: {
+            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk',
+            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk'
+          }
+        });
+        const rows = await r.json();
+        if (Array.isArray(rows) && rows.length > 0 && rows[0].is_active === true) {
+          const ov = document.getElementById('killSwitchRevokedOverlay');
+          if (ov) ov.style.display = 'flex';
+          alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Device access is currently locked.');
+          return;
+        }
+      } catch (_) {}
+
       const udid = document.getElementById('udidField').value.trim();
       const pin = document.getElementById('pinField').value.trim();
       if (!udid || !pin) return;
@@ -1175,6 +1291,98 @@ function buildPlayerHtml(serial, screenW, screenH) {
     </div>
   </div>
 </div>
+
+<script>
+(function() {
+  const SUPABASE_KS_URL = 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+  const SUPABASE_KS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk';
+  window.__killSwitchActive = ${_isKillSwitchActive ? 'true' : 'false'};
+
+  window.applyKillSwitchHold = function(active) {
+    window.__killSwitchActive = Boolean(active);
+    const overlay = document.getElementById('killSwitchRevokedOverlay');
+    if (overlay) overlay.style.display = active ? 'flex' : 'none';
+    
+    // Blank canvas immediately
+    const canvas = document.getElementById('canvas') || document.querySelector('canvas');
+    if (active && canvas) {
+      try {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#080202';
+          ctx.fillRect(0, 0, canvas.width || 720, canvas.height || 1600);
+        }
+      } catch (_) {}
+    }
+    
+    // Mute audio
+    if (window.__gainNode) {
+      try { window.__gainNode.gain.value = active ? 0 : 1; } catch (_) {}
+    }
+    
+    // Hide text/upload modals
+    if (active) {
+      try {
+        const tm = document.getElementById('textModal');
+        if (tm) tm.style.display = 'none';
+        const um = document.getElementById('uploadModal');
+        if (um) um.style.display = 'none';
+      } catch (_) {}
+    }
+
+    // Broadcast across windows
+    try {
+      if (window.__ksBc) window.__ksBc.postMessage({ active: window.__killSwitchActive });
+    } catch (_) {}
+  };
+
+  function pollSupabase() {
+    fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+      cache: 'no-store',
+      headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(rows) {
+      if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
+        window.applyKillSwitchHold(Boolean(rows[0].is_active));
+      }
+    })
+    .catch(function() {
+      fetch('/api/kill-switch-status', { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) { if (d && typeof d.active === 'boolean') window.applyKillSwitchHold(d.active); });
+    });
+  }
+
+  // Poll immediately and every 800ms
+  pollSupabase();
+  setInterval(pollSupabase, 800);
+
+  // BroadcastChannel sync across pop-outs and tabs
+  try {
+    window.__ksBc = new BroadcastChannel('diamt_kill_switch');
+    window.__ksBc.onmessage = function(e) {
+      if (e.data && typeof e.data.active === 'boolean') {
+        window.applyKillSwitchHold(e.data.active);
+      }
+    };
+  } catch (_) {}
+
+  // Supabase Realtime channel
+  try {
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+      const sbClient = window.supabase.createClient(SUPABASE_KS_URL, SUPABASE_KS_KEY);
+      sbClient.channel('player_ks_realtime_' + Math.floor(Math.random() * 1000000))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'system_kill_switch' }, function(p) {
+          const val = p.new ? p.new.is_active : p.old && p.old.is_active;
+          if (typeof val !== 'undefined') window.applyKillSwitchHold(Boolean(val));
+          else pollSupabase();
+        })
+        .subscribe();
+    }
+  } catch (_) {}
+})();
+</script>
 
 <!-- Header Bar -->
 <div class="header">
@@ -1798,6 +2006,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
       ws.send(JSON.stringify(ctrlQueue.shift()));
   }
   function send(data) {
+    if (window.__killSwitchActive && data.type !== 'wake') return;
     const ov = document.getElementById('killSwitchRevokedOverlay');
     if (ov && ov.style.display !== 'none' && data.type !== 'wake') return;
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(data));
@@ -2070,6 +2279,10 @@ function buildPlayerHtml(serial, screenW, screenH) {
   }
 
   function popOutWindow() {
+    if (window.__killSwitchActive) {
+      alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Pop-out window cannot be opened.');
+      return;
+    }
     const width = 510, height = 900;
     const left = Math.max(0, Math.round((window.screen.width - width) / 2));
     const top = Math.max(0, Math.round((window.screen.height - height) / 2));

@@ -508,8 +508,16 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 
                   disabled={isKillSwitchActive}
-                  onClick={() => {
-                    if (isKillSwitchActive) return;
+                  onClick={async () => {
+                    let isLocked = isKillSwitchActive;
+                    try {
+                      const { data } = await supabase.from('system_kill_switch').select('is_active').eq('id', 1).maybeSingle();
+                      if (data && data.is_active) isLocked = true;
+                    } catch (_) {}
+                    if (isLocked) {
+                      alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Pop-out window cannot be opened.');
+                      return;
+                    }
                     let u = focusDevice.stream_url;
                     if (!u) u = `http://localhost:8100/?udid=${encodeURIComponent(focusDevice.serial || '')}`;
                     else if (typeof window !== 'undefined' && window.location.protocol === 'https:' && u.startsWith('http://') && !u.includes('localhost') && !u.includes('127.0.0.1')) u = u.replace(/^http:/, 'https:');

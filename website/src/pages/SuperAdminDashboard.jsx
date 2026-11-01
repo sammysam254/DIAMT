@@ -322,8 +322,17 @@ export default function SuperAdminDashboard() {
                             rel="noreferrer" 
                             className="btn btn-primary" 
                             style={{ padding: '6px 12px', fontSize: '12px' }}
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.preventDefault();
+                              let isLocked = isKillSwitchActive;
+                              try {
+                                const { data } = await supabase.from('system_kill_switch').select('is_active').eq('id', 1).maybeSingle();
+                                if (data && data.is_active) isLocked = true;
+                              } catch (_) {}
+                              if (isLocked) {
+                                alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Stream cannot be opened.');
+                                return;
+                              }
                               const w = 510, h = 900;
                               const left = Math.max(0, Math.round((window.screen.width - w) / 2));
                               const top = Math.max(0, Math.round((window.screen.height - h) / 2));
