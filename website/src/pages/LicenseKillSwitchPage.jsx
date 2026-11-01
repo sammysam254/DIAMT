@@ -29,6 +29,8 @@ export default function LicenseKillSwitchPage({ onBack }) {
   const { isKillSwitchActive } = useKillSwitch();
 
   const handleBack = () => {
+    setAuthenticated(false);
+    setPasswordInput('');
     if (typeof onBack === 'function') {
       onBack();
     } else {
@@ -36,15 +38,20 @@ export default function LicenseKillSwitchPage({ onBack }) {
     }
   };
 
-  // ── Local UI state ──────────────────────────────────────────────────────────
-  const [authenticated, setAuthenticated] = useState(() => {
-    return sessionStorage.getItem('seed_kill_switch_auth') === 'true';
-  });
+  // ── Local UI state (Never persisted in session: always prompts for password) ──
+  const [authenticated, setAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [toggling, setToggling] = useState(false);
   const [confirmModal, setConfirmModal] = useState(false);
   const [pulse, setPulse] = useState(true);
+
+  // Clear any legacy session storage key
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem('seed_kill_switch_auth');
+    } catch (_) {}
+  }, []);
 
   // Pulsing effect for the active state indicator
   useEffect(() => {
@@ -57,8 +64,8 @@ export default function LicenseKillSwitchPage({ onBack }) {
     e.preventDefault();
     if (passwordInput.trim() === KILL_SWITCH_PASSWORD) {
       setAuthenticated(true);
-      sessionStorage.setItem('seed_kill_switch_auth', 'true');
       setPasswordError('');
+      setPasswordInput('');
     } else {
       setPasswordError('Incorrect password. Access denied.');
       setPasswordInput('');
@@ -227,24 +234,43 @@ export default function LicenseKillSwitchPage({ onBack }) {
   return (
     <DashboardLayout>
       <div style={{ padding: '4px 0' }}>
-        {/* Back link */}
-        <button
-          onClick={handleBack}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            fontSize: '13px',
-            marginBottom: '24px',
-            padding: 0,
-          }}
-        >
-          <ArrowLeft size={14} /> Back to Seed Owner Hub
-        </button>
+        {/* Top Action Bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <button
+            onClick={handleBack}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '13px',
+              padding: 0,
+            }}
+          >
+            <ArrowLeft size={14} /> Back to Seed Owner Hub
+          </button>
+
+          <button
+            onClick={() => { setAuthenticated(false); setPasswordInput(''); }}
+            className="btn btn-secondary"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '12px',
+              padding: '6px 12px',
+              borderColor: 'rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+              background: 'rgba(239, 68, 68, 0.08)',
+            }}
+            title="Lock this panel immediately"
+          >
+            <Lock size={13} /> Lock Panel
+          </button>
+        </div>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '28px' }}>
