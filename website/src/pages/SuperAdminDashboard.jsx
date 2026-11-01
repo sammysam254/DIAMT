@@ -9,9 +9,11 @@ import SystemLogsModal from '../components/SystemLogsModal';
 import DiamtLoader from '../components/DiamtLoader';
 import { generate16CharKey, generate6DigitPin, rotateUrlWithKeyAndPin } from '../lib/keyGenerator';
 import { unsuspendWorkerProfile } from '../lib/complianceService';
+import { useKillSwitch } from '../context/KillSwitchContext';
 
 export default function SuperAdminDashboard() {
   const { profile } = useAuth();
+  const { isKillSwitchActive } = useKillSwitch();
   const [bindingCodeInput, setBindingCodeInput] = useState('');
   const [myBindings, setMyBindings] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -304,11 +306,16 @@ export default function SuperAdminDashboard() {
                           onClick={() => handleRotateStreamLink(d)}
                           className="btn btn-secondary"
                           style={{ padding: '6px 12px', fontSize: '12px' }}
+                          disabled={isKillSwitchActive}
                           title="Rotate stream link and issue a new 16-character access key"
                         >
                           <RotateCcw size={12} /> Rotate Link
                         </button>
-                        {d.stream_url ? (
+                        {isKillSwitchActive ? (
+                          <span className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px' }}>
+                            🔒 Licence Revoked
+                          </span>
+                        ) : d.stream_url ? (
                           <a 
                             href={d.stream_url} 
                             target="_blank" 

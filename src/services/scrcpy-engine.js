@@ -34,7 +34,7 @@ function hasSpsNal(buf) {
 
 /**
  * Extract the encoded frame dimensions directly from an H.264 SPS NAL unit.
- * This is the ground truth — the exact size the scrcpy encoder configured,
+ * This is the ground truth â€” the exact size the scrcpy encoder configured,
  * and the value the server uses to validate INJECT_TOUCH_EVENT dimensions.
  *
  * Reads pic_width_in_mbs_minus1 and pic_height_in_map_units_minus1 from the
@@ -79,7 +79,7 @@ function parseSpsWidth(payload) {
     // seq_parameter_set_id (UE)
     let r = _readUEGolomb(payload, bit); bit = r.bitOffset;
     
-    // For profile 100/110/122/244 — these need chroma/bit-depth parsing (skip for now)
+    // For profile 100/110/122/244 â€” these need chroma/bit-depth parsing (skip for now)
     const needsExtended = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138].includes(profileIdc);
     if (needsExtended && start + 20 >= payload.length) return 0;
     
@@ -176,7 +176,7 @@ function parseSpsHeight(payload) {
 }
 
 /**
- * ScrcpyEngine — manages a scrcpy server session for one device.
+ * ScrcpyEngine â€” manages a scrcpy server session for one device.
  *
  * VIDEO MODE: scrcpy streams H264 over the video socket. We relay raw
  * H264 NAL units directly to WebSocket clients. The browser decodes
@@ -198,7 +198,7 @@ class ScrcpyEngine extends EventEmitter {
     this.isRunning     = false;
     this.videoPort     = null;
 
-    // Device dimensions — populated by scrcpy stdout and video header
+    // Device dimensions â€” populated by scrcpy stdout and video header
     // Initialize to common Android portrait defaults so commands don't fail before stream starts
     this.screenWidth  = 1080;
     this.screenHeight = 2340;
@@ -215,6 +215,7 @@ class ScrcpyEngine extends EventEmitter {
     this._screencapActive = false;
     this.enableAudio = true;
     this.audioSocket = null;
+    this.paused = false;
   }
 
   get isReady() {
@@ -303,7 +304,7 @@ class ScrcpyEngine extends EventEmitter {
       logger.info(`[ScrcpyEngine ${this.serial}] Ultra-low latency 60FPS Scrcpy H264 engine active`);
 
     } catch (err) {
-      logger.warn(`[ScrcpyEngine ${this.serial}] Scrcpy start failed: ${err.message} — freeing phone socket and scheduling auto-recovery`);
+      logger.warn(`[ScrcpyEngine ${this.serial}] Scrcpy start failed: ${err.message} â€” freeing phone socket and scheduling auto-recovery`);
       try {
         await this._adb(['shell', 'pkill -9 -f app_process; pkill -9 -f com.genymobile.scrcpy']).catch(() => {});
       } catch (_) {}
@@ -378,12 +379,12 @@ class ScrcpyEngine extends EventEmitter {
         const msg = d.toString().trim();
         if (msg) logger.warn(`[ScrcpyEngine ${this.serial}] stderr: ${msg}`);
         if (msg.includes('Address already in use')) {
-          logger.warn(`[ScrcpyEngine ${this.serial}] Socket conflict on device — force-killing lingering app_process & scrcpy`);
+          logger.warn(`[ScrcpyEngine ${this.serial}] Socket conflict on device â€” force-killing lingering app_process & scrcpy`);
           this._adb(['shell', 'pkill -9 -f app_process; pkill -9 -f com.genymobile.scrcpy']).catch(() => {});
         }
       });
 
-      // Safety timeout — if no "Device:" within 5s, proceed anyway
+      // Safety timeout â€” if no "Device:" within 5s, proceed anyway
       setTimeout(done, 5000);
     });
 
@@ -491,7 +492,7 @@ class ScrcpyEngine extends EventEmitter {
     }
   }
 
-  // ── Socket connection ─────────────────────────────────────────────────────
+  // â”€â”€ Socket connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async _connectSockets() {
     // Wait for scrcpy server to print its "Device:" ready signal before connecting.
@@ -567,7 +568,7 @@ class ScrcpyEngine extends EventEmitter {
       }
       // 2. Only trigger fallback if video socket is destroyed or disconnected
       if ((!this.videoSocket || this.videoSocket.destroyed) && !this._fallbackActive && this.isRunning) {
-        logger.warn(`[ScrcpyEngine ${this.serial}] Video socket disconnected — starting screenrecord fallback`);
+        logger.warn(`[ScrcpyEngine ${this.serial}] Video socket disconnected â€” starting screenrecord fallback`);
         this._startScreenrecordFallback();
       }
     }, 2000);
@@ -585,8 +586,8 @@ class ScrcpyEngine extends EventEmitter {
           //   [0]      dummy byte (0x00)
           //   [1-4]    codec ID ASCII ("h264")
           //   [5-68]   device name, 64 bytes null-padded
-          //   [69-72]  uint32 BE — negotiated encoder width
-          //   [73-76]  uint32 BE — negotiated encoder height
+          //   [69-72]  uint32 BE â€” negotiated encoder width
+          //   [73-76]  uint32 BE â€” negotiated encoder height
           const w = buf.readUInt32BE(69);
           const h = buf.readUInt32BE(73);
           if (w > 0 && h > 0 && w < 10000 && h < 10000) {
@@ -601,7 +602,7 @@ class ScrcpyEngine extends EventEmitter {
         if (buf.length >= DEVICE_HEADER_LEN + META) {
           const firstPktSize = buf.readUInt32BE(DEVICE_HEADER_LEN + 8);
           if (firstPktSize === 0 || firstPktSize > 2 * 1024 * 1024) {
-            logger.warn(`[ScrcpyEngine ${this.serial}] Unexpected first packet size ${firstPktSize} — trying 1-byte header`);
+            logger.warn(`[ScrcpyEngine ${this.serial}] Unexpected first packet size ${firstPktSize} â€” trying 1-byte header`);
             buf = buf.subarray(1);
           } else {
             buf = buf.subarray(DEVICE_HEADER_LEN);
@@ -666,7 +667,7 @@ class ScrcpyEngine extends EventEmitter {
 
       // Safety reset
       if (buf.length > 1024 * 1024) {
-        logger.warn(`[ScrcpyEngine ${this.serial}] Buffer overflow — resetting`);
+        logger.warn(`[ScrcpyEngine ${this.serial}] Buffer overflow â€” resetting`);
         buf = Buffer.alloc(0);
       }
     });
@@ -730,6 +731,7 @@ class ScrcpyEngine extends EventEmitter {
   }
 
   _broadcastAudio(payload) {
+    if (this.paused) return;
     // Frame layout: [0x41][codec_byte][...payload]
     // codec_byte: 0x4F ('O') = opus, 0x52 ('R') = raw PCM
     const codec = (this._audioCodec === 'opus') ? 0x4F : 0x52;
@@ -746,6 +748,7 @@ class ScrcpyEngine extends EventEmitter {
   }
 
   _broadcastVideo(payload, isKeyframe = false) {
+    if (this.paused) return;
     for (const ws of this.wsClients) {
       if (ws.readyState === 1) {
         // Backpressure protection: drop delta frames if client send buffer is backed up (> 64KB)
@@ -788,7 +791,7 @@ class ScrcpyEngine extends EventEmitter {
           });
 
           if (chunks.length > 0) {
-            // exec-out via spawn stdio:pipe delivers clean binary — no CRLF stripping needed
+            // exec-out via spawn stdio:pipe delivers clean binary â€” no CRLF stripping needed
             const pngData = Buffer.concat(chunks);
             
             // Send to all connected clients
@@ -821,7 +824,7 @@ class ScrcpyEngine extends EventEmitter {
     logger.info(`[ScrcpyEngine ${this.serial}] Screencap streaming started`);
   }
 
-  // ── Control protocol ──────────────────────────────────────────────────────
+  // â”€â”€ Control protocol â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /**
    * INJECT_TOUCH_EVENT (32 bytes, scrcpy 2.x)
@@ -837,6 +840,7 @@ class ScrcpyEngine extends EventEmitter {
    *   [28-31] buttons i32BE (1 on DOWN/MOVE, 0 on UP)
    */
   sendTouchEvent(action, x, y, width, height, pressure = 1.0) {
+    if (this.paused) return false;
     if (!this.controlSocket || this.controlSocket.destroyed) {
       return false;
     }
@@ -892,6 +896,7 @@ class ScrcpyEngine extends EventEmitter {
    *   [10-13] metastate i32BE
    */
   sendKeycode(action, keycode, repeat = 0, metastate = 0) {
+    if (this.paused) return false;
     if (!this.controlSocket || this.controlSocket.destroyed) return false;
     const buf = Buffer.allocUnsafe(14);
     buf.writeUInt8(0, 0);
@@ -910,6 +915,7 @@ class ScrcpyEngine extends EventEmitter {
    *   [5...]  UTF-8 text
    */
   sendText(text) {
+    if (this.paused) return false;
     if (!this.controlSocket || this.controlSocket.destroyed) return false;
     const tb = Buffer.from(text, 'utf-8');
     const buf = Buffer.allocUnsafe(5 + tb.length);
@@ -920,15 +926,15 @@ class ScrcpyEngine extends EventEmitter {
     catch (_) { return false; }
   }
 
-  // ── Reconnect / restart ───────────────────────────────────────────────────
+  // â”€â”€ Reconnect / restart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async _reconnectControl() {
     if (!this.isRunning) return;
-    logger.warn(`[ScrcpyEngine ${this.serial}] Control socket closed — recovering session to rebind sockets`);
+    logger.warn(`[ScrcpyEngine ${this.serial}] Control socket closed â€” recovering session to rebind sockets`);
     this._restart();
   }
 
-  // ── Reset stream state on restart ────────────────────────────────────────
+  // â”€â”€ Reset stream state on restart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   _resetStreamState() {
     this._configPacket   = null;
     this._keyframeBuffer = null;
@@ -966,7 +972,7 @@ class ScrcpyEngine extends EventEmitter {
       await this._connectSockets();
       logger.info(`[ScrcpyEngine ${this.serial}] Restarted successfully`);
     } catch (err) {
-      logger.warn(`[ScrcpyEngine ${this.serial}] Restart failed: ${err.message} — retry in 3s`);
+      logger.warn(`[ScrcpyEngine ${this.serial}] Restart failed: ${err.message} â€” retry in 3s`);
       if (this.isRunning) setTimeout(() => this._restart(), 3000);
     }
   }

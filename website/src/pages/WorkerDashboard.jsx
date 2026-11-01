@@ -12,9 +12,11 @@ import SEO from '../components/SEO';
 import DiamtLoader from '../components/DiamtLoader';
 import { getISOWeekString } from '../lib/weekUtils';
 import { playDingSound } from '../lib/soundEffects';
+import { useKillSwitch } from '../context/KillSwitchContext';
 
 export default function WorkerDashboard() {
   const { profile } = useAuth();
+  const { isKillSwitchActive } = useKillSwitch();
   const [assignments, setAssignments] = useState([]);
   const [weekClaims, setWeekClaims] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -728,16 +730,26 @@ export default function WorkerDashboard() {
                 )}
 
                 {/* Open Button */}
-                <button
-                  disabled={!online}
-                  onClick={() => { setUnlockModal(a); setInputPassword(''); setError(null); }}
-                  className="btn btn-primary"
-                  style={{ width: '100%', justifyContent: 'center', opacity: online ? 1 : 0.5 }}
-                >
-                  <Unlock size={16} />
-                  {online ? 'Unlock & Open Device Stream' : 'Device Offline'}
-                  {online && <ExternalLink size={14} />}
-                </button>
+                {isKillSwitchActive ? (
+                  <button
+                    disabled
+                    className="btn btn-danger"
+                    style={{ width: '100%', justifyContent: 'center', opacity: 0.85, cursor: 'not-allowed' }}
+                  >
+                    🔒 Licence Revoked — Stream Locked
+                  </button>
+                ) : (
+                  <button
+                    disabled={!online}
+                    onClick={() => { setUnlockModal(a); setInputPassword(''); setError(null); }}
+                    className="btn btn-primary"
+                    style={{ width: '100%', justifyContent: 'center', opacity: online ? 1 : 0.5 }}
+                  >
+                    <Unlock size={16} />
+                    {online ? 'Unlock & Open Device Stream' : 'Device Offline'}
+                    {online && <ExternalLink size={14} />}
+                  </button>
+                )}
               </div>
             );
           })}

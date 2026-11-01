@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Key, Smartphone, Users, Lock, CheckCircle, RefreshCw, Trash2, ExternalLink } from 'lucide-react';
+import { Key, Smartphone, Users, Lock, CheckCircle, RefreshCw, Trash2, ExternalLink, AlertTriangle } from 'lucide-react';
+import { useKillSwitch } from '../context/KillSwitchContext';
 import { generate16CharKey, generate6DigitPin, rotateUrlWithKeyAndPin } from '../lib/keyGenerator';
 
 export default function DeviceAllocationSection({ currentUser }) {
+  const { isKillSwitchActive } = useKillSwitch();
   const [devices, setDevices] = useState([]);
   const [users, setUsers] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -273,7 +275,7 @@ export default function DeviceAllocationSection({ currentUser }) {
             </select>
           </div>
 
-          <button type="submit" className="btn btn-primary" disabled={assigning} style={{ height: '42px' }}>
+          <button type="submit" className="btn btn-primary" disabled={assigning || isKillSwitchActive} style={{ height: '42px' }}>
             <CheckCircle size={16} /> {assigning ? 'Allocating...' : 'Allocate & Generate Password'}
           </button>
         </form>
@@ -329,7 +331,11 @@ export default function DeviceAllocationSection({ currentUser }) {
                         🔑 {a.access_password}
                       </td>
                       <td style={{ padding: '14px 12px', fontSize: '12px', fontFamily: 'monospace' }}>
-                        {a.devices?.stream_url ? (
+                        {isKillSwitchActive ? (
+                          <span style={{ color: '#ef4444', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            🔒 Licence Revoked
+                          </span>
+                        ) : a.devices?.stream_url ? (
                           <a 
                             href={a.devices.stream_url} 
                             target="_blank" 
@@ -355,13 +361,14 @@ export default function DeviceAllocationSection({ currentUser }) {
                             onClick={() => handleReKeyAssignment(a.id, deviceName, userEmail, a.devices?.serial, a.devices?.stream_url)}
                             className="btn btn-secondary"
                             style={{ padding: '6px 10px', fontSize: '11px' }}
+                            disabled={isKillSwitchActive}
                             title="Rotate stream link and issue a new 6-digit PIN"
                           >
                             <Key size={12} /> Rotate & Re-Key
                           </button>
                           <button
                             onClick={() => handleRevokeAssignment(a.id, deviceName, userEmail, a.devices?.id)}
-                            disabled={unassigningId === a.id}
+                            disabled={unassigningId === a.id || isKillSwitchActive}
                             className="btn btn-danger"
                             style={{ padding: '6px 10px', fontSize: '11px' }}
                             title="Unallocate device and remove from worker dashboard completely, releasing for re-linking"

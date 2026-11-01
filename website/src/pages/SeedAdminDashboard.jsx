@@ -392,8 +392,9 @@ export default function SeedAdminDashboard() {
                         <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
                           <button
                             onClick={() => handleRotateStreamLink(d)}
+                            disabled={isKillSwitchActive}
                             className="btn btn-secondary"
-                            style={{ padding: '6px 10px', fontSize: '11px' }}
+                            style={{ padding: '6px 10px', fontSize: '11px', opacity: isKillSwitchActive ? 0.5 : 1, cursor: isKillSwitchActive ? 'not-allowed' : 'pointer' }}
                             title="Rotate stream link and issue a new 16-character access key"
                           >
                             <RotateCcw size={12} /> Rotate Link

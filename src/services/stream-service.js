@@ -38,10 +38,14 @@ function isKillSwitchActive() {
 
 function setKillSwitchActive(active) {
   _isKillSwitchActive = Boolean(active);
-  logger.info(`[StreamService] Kill switch state updated: ${_isKillSwitchActive ? 'ACTIVE (holding streams with revoked licence screen)' : 'OFF (streams live)'}`);
+  logger.info(`[StreamService] Kill switch state updated: ${_isKillSwitchActive ? 'ACTIVE (holding streams with revoked licence screen & freezing controls)' : 'OFF (streams live)'}`);
 
-  // Broadcast kill switch state to all active WebSocket clients on all servers
-  for (const session of activeServers.values()) {
+  // Broadcast kill switch state to all unique active sessions across all devices
+  const uniqueSessions = new Set(activeServers.values());
+  for (const session of uniqueSessions) {
+    if (session.engine) {
+      session.engine.paused = _isKillSwitchActive;
+    }
     if (session.wss && session.wss.clients) {
       const payload = JSON.stringify({ type: 'kill_switch', active: _isKillSwitchActive });
       for (const client of session.wss.clients) {
@@ -328,6 +332,10 @@ function get(data, key) {
 }
 
 function handleControl(type, data, serial, engine) {
+  if (_isKillSwitchActive) {
+    logger.warn(`[Control] BLOCKED ${type} on ${serial} — Global Kill Switch is ACTIVE (Licence Revoked)`);
+    return;
+  }
   const W = parseFloat(get(data, 'width'))  || engine.screenWidth  || 720;
   const H = parseFloat(get(data, 'height')) || engine.screenHeight || 1600;
 
@@ -1083,7 +1091,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
 <body>
 
 <!-- Kill Switch Revoked Licence Overlay -->
-<div id="killSwitchRevokedOverlay" style="display:\${_isKillSwitchActive ? 'flex' : 'none'};position:fixed;inset:0;background:#080202;z-index:999999;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;overflow:hidden;user-select:none;">
+<div id="killSwitchRevokedOverlay" style="display:${_isKillSwitchActive ? 'flex' : 'none'};position:fixed;inset:0;background:#080202;z-index:999999;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;overflow:hidden;user-select:none;">
   <div style="position:absolute;width:600px;height:600px;border-radius:50%;background:rgba(220,38,38,0.22);filter:blur(140px);pointer-events:none;animation:ksPulseGlow 1.8s infinite alternate ease-in-out;"></div>
   <div style="position:relative;z-index:2;max-width:580px;width:100%;background:rgba(15,3,3,0.94);border:2px solid rgba(239,68,68,0.7);border-radius:28px;padding:44px 32px;text-align:center;box-shadow:0 0 60px rgba(220,38,38,0.45);animation:ksBorderPulse 1.8s infinite alternate ease-in-out;">
     <div style="width:88px;height:88px;border-radius:50%;background:rgba(239,68,68,0.15);border:3px solid #ef4444;display:flex;align-items:center;justify-content:center;margin:0 auto 22px;animation:ksIconBounce 1.5s infinite ease-in-out;">
@@ -1541,6 +1549,13 @@ function buildPlayerHtml(serial, screenW, screenH) {
       if (active) {
         overlay.style.display = 'flex';
         if (gainNode) gainNode.gain.value = 0;
+        try {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#080202';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+        } catch (_) {}
       } else {
         overlay.style.display = 'none';
         if (gainNode && !isMuted) gainNode.gain.value = 1;
@@ -1548,13 +1563,13 @@ function buildPlayerHtml(serial, screenW, screenH) {
       }
     }
 
-    // Auto-check kill switch status in background every 2s
+    // Auto-check kill switch status in background every 1s
     setInterval(function() {
       fetch('/api/kill-switch-status', { cache: 'no-store' })
         .then(function(r) { return r.json(); })
         .then(function(d) { if (d && typeof d.active === 'boolean') applyKillSwitchHold(d.active); })
         .catch(function() {});
-    }, 2000);
+    }, 1000);
 
     ws.onmessage = function(e) {
       // JSON control messages (stream_reset, kill_switch, etc.)

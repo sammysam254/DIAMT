@@ -339,12 +339,10 @@ app.whenReady().then(async () => {
   // the pulsing red "LICENCE PERMANENTLY REVOKED" screen immediately.
   // When Seed Admin toggles it OFF → unblocks and resumes all device streams in real time.
   try {
-    const ksUrl = process.env.SUPABASE_URL || 'https://vrmzfgfxrycbrtqfygit.supabase.co';
-    const ksKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
     const streamService = require('../services/stream-service');
-    await killSwitchService.startKillSwitchListener(ksUrl, ksKey, {
+    await killSwitchService.startKillSwitchListener(null, null, {
       onActivate: () => {
-        logger.warn('[KillSwitch] Seed Admin activated kill switch — placing all device streams on hold with pulsing red revoked licence screen');
+        logger.warn('[KillSwitch] Seed Admin activated kill switch — placing all device streams on hold with pulsing red revoked licence screen & freezing controls');
         streamService.setKillSwitchActive(true);
       },
       onDeactivate: () => {

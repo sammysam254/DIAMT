@@ -265,6 +265,44 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
         );
       })()}
 
+      {/* Real-time Kill Switch Alert Banner */}
+      {isKillSwitchActive && (
+        <div 
+          style={{ 
+            padding: '16px 20px', 
+            borderRadius: '12px', 
+            background: 'linear-gradient(135deg, rgba(220, 38, 38, 0.25), rgba(15, 23, 42, 0.95))', 
+            border: '2px solid rgba(239, 68, 68, 0.85)', 
+            color: '#f87171', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px', 
+            marginBottom: '20px', 
+            fontWeight: 800,
+            animation: 'killSwitchPulse 1.6s infinite alternate ease-in-out'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ animation: 'killSwitchBounce 1.2s infinite ease-in-out' }}>
+              <AlertTriangle size={24} color="#ef4444" />
+            </div>
+            <div>
+              <div style={{ color: '#ef4444', fontSize: '14px', letterSpacing: '0.5px' }}>
+                GLOBAL SYSTEM KILL SWITCH ACTIVE — ALL STREAMS ON HOLD
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#fca5a5', fontWeight: 500, marginTop: '2px' }}>
+                Licence permanently revoked. All device viewports are masked and user touch/keyboard controls are frozen.
+              </div>
+            </div>
+          </div>
+          <span style={{ fontSize: '11px', background: 'rgba(239, 68, 68, 0.25)', border: '1px solid #ef4444', padding: '4px 10px', borderRadius: '100px', color: '#fff' }}>
+            🔒 CONTROLS FROZEN
+          </span>
+        </div>
+      )}
+
       {/* Grid View */}
       {loading ? (
         <div className="card" style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
@@ -297,8 +335,18 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
               <div 
                 key={d.id}
                 className="card" 
-                style={{ padding: 0, overflow: 'hidden', position: 'relative', cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', borderColor: 'rgba(56, 189, 248, 0.3)' }}
-                onClick={() => setFocusDevice(d)}
+                style={{ 
+                  padding: 0, 
+                  overflow: 'hidden', 
+                  position: 'relative', 
+                  cursor: isKillSwitchActive ? 'not-allowed' : 'pointer', 
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', 
+                  borderColor: isKillSwitchActive ? 'rgba(239, 68, 68, 0.85)' : 'rgba(56, 189, 248, 0.3)',
+                  boxShadow: isKillSwitchActive ? '0 0 25px rgba(220, 38, 38, 0.35)' : 'none'
+                }}
+                onClick={() => {
+                  if (!isKillSwitchActive) setFocusDevice(d);
+                }}
               >
                 {/* Tile Header Bar */}
                 <div style={{ padding: '8px 12px', background: 'rgba(15, 23, 42, 0.95)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
@@ -306,14 +354,62 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                     <Video size={13} color="var(--primary)" />
                     {d.brand || ''} {d.model || 'Android'} ({d.serial})
                   </div>
-                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#f87171', background: 'rgba(239,68,68,0.2)', padding: '2px 6px', borderRadius: '100px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ width: '5px', height: '5px', background: '#f87171', borderRadius: '50%' }}></span> LIVE
+                  <div style={{ 
+                    fontSize: '10px', 
+                    fontWeight: 800, 
+                    color: isKillSwitchActive ? '#ef4444' : '#f87171', 
+                    background: isKillSwitchActive ? 'rgba(239,68,68,0.25)' : 'rgba(239,68,68,0.2)', 
+                    padding: '2px 8px', 
+                    borderRadius: '100px', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '4px',
+                    border: isKillSwitchActive ? '1px solid rgba(239,68,68,0.5)' : 'none'
+                  }}>
+                    <span style={{ width: '5px', height: '5px', background: isKillSwitchActive ? '#ef4444' : '#f87171', borderRadius: '50%' }}></span> 
+                    {isKillSwitchActive ? '🔒 FROZEN' : 'LIVE'}
                   </div>
                 </div>
 
                 {/* Viewport Frame */}
                 <div style={{ position: 'relative', width: '100%', aspectRatio: '9 / 16', background: '#000', overflow: 'hidden' }}>
-                  {streamUrl && !isFocused ? (
+                  {isKillSwitchActive ? (
+                    <div style={{
+                      width: '100%',
+                      height: '100%',
+                      background: 'radial-gradient(circle at center, #5f0f0f 0%, #2b0404 65%, #0d0101 100%)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '16px',
+                      textAlign: 'center',
+                      color: '#fff',
+                      animation: 'killSwitchPulse 1.6s infinite alternate ease-in-out',
+                      userSelect: 'none'
+                    }}>
+                      <div style={{ animation: 'killSwitchBounce 1.2s infinite ease-in-out' }}>
+                        <AlertTriangle size={36} color="#ef4444" />
+                      </div>
+                      <div style={{
+                        color: '#ef4444',
+                        fontWeight: 900,
+                        fontSize: '13px',
+                        marginTop: '12px',
+                        letterSpacing: '0.8px',
+                        textTransform: 'uppercase',
+                        textShadow: '0 0 16px rgba(239,68,68,0.6)'
+                      }}>
+                        LICENCE PERMANENTLY REVOKED
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#fca5a5', marginTop: '6px', fontWeight: 700 }}>
+                        🔒 Stream Frozen & Controls Locked
+                      </div>
+                      <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', marginTop: '4px' }}>
+                        Waiting for administrator
+                      </div>
+                    </div>
+                  ) : streamUrl && !isFocused ? (
                     <iframe 
                       src={streamUrl} 
                       style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }} 
@@ -323,7 +419,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                     />
                   ) : isFocused ? (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', fontSize: '12px', fontWeight: 700 }}>
-                      âš¡ Focused in Active Modal
+                      ⚡ Focused in Active Modal
                     </div>
                   ) : (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
@@ -331,44 +427,49 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                     </div>
                   )}
 
-                  {/* Hover overlay */}
-                  <div style={{
-                    position: 'absolute', inset: 0, background: 'rgba(6, 9, 17, 0.65)', backdropFilter: 'blur(3px)',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                    opacity: 0, transition: 'opacity 0.2s ease', color: '#fff', fontWeight: 800, fontSize: '13px'
-                  }}
-                  className="cctv-hover-target"
-                  >
-                    <Maximize2 size={24} color="var(--primary)" />
-                    <span>Click to Focus & Control</span>
-                    <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>Serial: {d.serial}</span>
-                  </div>
+                  {/* Hover overlay — only active when kill switch is OFF */}
+                  {!isKillSwitchActive && (
+                    <div style={{
+                      position: 'absolute', inset: 0, background: 'rgba(6, 9, 17, 0.65)', backdropFilter: 'blur(3px)',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                      opacity: 0, transition: 'opacity 0.2s ease', color: '#fff', fontWeight: 800, fontSize: '13px'
+                    }}
+                    className="cctv-hover-target"
+                    >
+                      <Maximize2 size={24} color="var(--primary)" />
+                      <span>Click to Focus & Control</span>
+                      <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>Serial: {d.serial}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Card Footer Quick Action Bar */}
                 <div style={{ padding: '8px 12px', background: 'rgba(15, 23, 42, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                   <button 
                     onClick={() => toggleStealthRoot(d.id, isStealthOn)}
+                    disabled={isKillSwitchActive}
                     className="btn btn-secondary"
-                    style={{ fontSize: '11px', padding: '4px 8px', color: isStealthOn ? 'var(--primary)' : 'var(--text-muted)' }}
+                    style={{ fontSize: '11px', padding: '4px 8px', color: isKillSwitchActive ? 'var(--text-muted)' : (isStealthOn ? 'var(--primary)' : 'var(--text-muted)'), opacity: isKillSwitchActive ? 0.5 : 1, cursor: isKillSwitchActive ? 'not-allowed' : 'pointer' }}
                   >
-                    {isStealthOn ? 'ðŸ›¡ï¸ Stealth Root: ON' : 'âšª Stealth Root: OFF'}
+                    {isStealthOn ? '🛡️ Stealth Root: ON' : '⚪ Stealth Root: OFF'}
                   </button>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                     {isSeedAdmin && (
                       <button 
                         onClick={() => deleteDeviceFromView(d.id)}
+                        disabled={isKillSwitchActive}
                         className="btn btn-danger"
-                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                        style={{ fontSize: '11px', padding: '4px 8px', opacity: isKillSwitchActive ? 0.5 : 1, cursor: isKillSwitchActive ? 'not-allowed' : 'pointer' }}
                         title="Delete device from view across all dashboards"
                       >
                         <Trash2 size={12} /> Delete
                       </button>
                     )}
                     <button 
-                      onClick={() => setFocusDevice(d)}
+                      onClick={() => !isKillSwitchActive && setFocusDevice(d)}
+                      disabled={isKillSwitchActive}
                       className="btn btn-primary"
-                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      style={{ fontSize: '11px', padding: '4px 10px', opacity: isKillSwitchActive ? 0.5 : 1, cursor: isKillSwitchActive ? 'not-allowed' : 'pointer' }}
                     >
                       <Eye size={12} /> Focus View
                     </button>
@@ -386,17 +487,29 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
           <div 
             className="modal-box" 
             onClick={e => e.stopPropagation()} 
-            style={{ maxWidth: '560px', height: '92vh', maxHeight: '860px', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+            style={{ 
+              maxWidth: '560px', 
+              height: '92vh', 
+              maxHeight: '860px', 
+              padding: 0, 
+              overflow: 'hidden', 
+              display: 'flex', 
+              flexDirection: 'column',
+              border: isKillSwitchActive ? '2px solid #ef4444' : undefined,
+              boxShadow: isKillSwitchActive ? '0 0 50px rgba(220,38,38,0.5)' : undefined
+            }}
           >
             {/* Header */}
             <div style={{ padding: '14px 20px', background: 'rgba(15, 23, 42, 0.95)', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <strong style={{ color: '#fff', fontSize: '15px' }}>ðŸ“± {focusDevice.brand || ''} {focusDevice.model || 'Android'}</strong>
+                <strong style={{ color: '#fff', fontSize: '15px' }}>📱 {focusDevice.brand || ''} {focusDevice.model || 'Android'}</strong>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>Serial: {focusDevice.serial}</div>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 
+                  disabled={isKillSwitchActive}
                   onClick={() => {
+                    if (isKillSwitchActive) return;
                     let u = focusDevice.stream_url;
                     if (!u) u = `http://localhost:8100/?udid=${encodeURIComponent(focusDevice.serial || '')}`;
                     else if (typeof window !== 'undefined' && window.location.protocol === 'https:' && u.startsWith('http://') && !u.includes('localhost') && !u.includes('127.0.0.1')) u = u.replace(/^http:/, 'https:');
@@ -407,7 +520,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                     window.open(u, `Stream_${focusDevice.serial || 'Device'}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
                   }} 
                   className="btn btn-primary" 
-                  style={{ padding: '6px 14px', fontSize: '12px' }}
+                  style={{ padding: '6px 14px', fontSize: '12px', opacity: isKillSwitchActive ? 0.5 : 1, cursor: isKillSwitchActive ? 'not-allowed' : 'pointer' }}
                 >
                   <ExternalLink size={14} /> Pop Out Window
                 </button>
@@ -419,19 +532,70 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
 
             {/* Interactive Stream Frame */}
             <div style={{ flex: 1, background: '#000', position: 'relative' }}>
-              <iframe 
-                src={(() => {
-                  let u = focusDevice.stream_url;
-                  if (!u) u = `http://localhost:8100/?udid=${encodeURIComponent(focusDevice.serial || '')}`;
-                  else if (typeof window !== 'undefined' && window.location.protocol === 'https:' && u.startsWith('http://') && !u.includes('localhost') && !u.includes('127.0.0.1')) u = u.replace(/^http:/, 'https:');
-                  if (focusDevice.serial && !u.includes('udid=')) u += (u.includes('?') ? '&' : '?') + `udid=${encodeURIComponent(focusDevice.serial)}`;
-                  return u;
-                })()} 
-                style={{ width: '100%', height: '100%', border: 'none' }} 
-                title="Focused Device Stream"
-                referrerPolicy="no-referrer"
-                allow="autoplay; fullscreen"
-              />
+              {isKillSwitchActive ? (
+                <div style={{
+                  width: '100%',
+                  height: '100%',
+                  background: 'radial-gradient(circle at center, #5f0f0f 0%, #2b0404 65%, #0d0101 100%)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '32px',
+                  textAlign: 'center',
+                  color: '#fff',
+                  animation: 'killSwitchPulse 1.6s infinite alternate ease-in-out',
+                  userSelect: 'none'
+                }}>
+                  <div style={{ animation: 'killSwitchBounce 1.2s infinite ease-in-out' }}>
+                    <AlertTriangle size={54} color="#ef4444" />
+                  </div>
+                  <h2 style={{
+                    color: '#ef4444',
+                    fontWeight: 900,
+                    fontSize: '22px',
+                    marginTop: '18px',
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase',
+                    textShadow: '0 0 20px rgba(239,68,68,0.7)'
+                  }}>
+                    LICENCE PERMANENTLY REVOKED
+                  </h2>
+                  <p style={{ color: '#fca5a5', fontSize: '14px', marginTop: '12px', maxWidth: '380px', lineHeight: 1.6, fontWeight: 500 }}>
+                    All device streams and controls have been put on hold by the administrator.
+                  </p>
+                  <div style={{
+                    marginTop: '20px',
+                    padding: '10px 18px',
+                    background: 'rgba(239,68,68,0.15)',
+                    border: '1px solid rgba(239,68,68,0.4)',
+                    borderRadius: '10px',
+                    color: '#f87171',
+                    fontSize: '12.5px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span>
+                    <span>All touch and keyboard controls are frozen</span>
+                  </div>
+                </div>
+              ) : (
+                <iframe 
+                  src={(() => {
+                    let u = focusDevice.stream_url;
+                    if (!u) u = `http://localhost:8100/?udid=${encodeURIComponent(focusDevice.serial || '')}`;
+                    else if (typeof window !== 'undefined' && window.location.protocol === 'https:' && u.startsWith('http://') && !u.includes('localhost') && !u.includes('127.0.0.1')) u = u.replace(/^http:/, 'https:');
+                    if (focusDevice.serial && !u.includes('udid=')) u += (u.includes('?') ? '&' : '?') + `udid=${encodeURIComponent(focusDevice.serial)}`;
+                    return u;
+                  })()} 
+                  style={{ width: '100%', height: '100%', border: 'none' }} 
+                  title="Focused Device Stream"
+                  referrerPolicy="no-referrer"
+                  allow="autoplay; fullscreen"
+                />
+              )}
             </div>
           </div>
         </div>
