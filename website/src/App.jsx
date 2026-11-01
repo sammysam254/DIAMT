@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { KillSwitchProvider, useKillSwitch } from './context/KillSwitchContext';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
@@ -12,16 +13,18 @@ import WorkerClaims from './pages/WorkerClaims';
 import AdminClaims from './pages/AdminClaims';
 import BlockedScreen from './pages/BlockedScreen';
 import DiamtLoader from './components/DiamtLoader';
+import GlobalLockOverlay from './components/GlobalLockOverlay';
 
-function ProtectedRoute({ children, allowedRoles }) {
+function ProtectedRoute({ children, allowedRoles, isSeedAdminRoute }) {
   const { user, profile, loading } = useAuth();
+  const { isKillSwitchActive } = useKillSwitch();
 
   if (loading) {
     return (
-      <DiamtLoader 
-        fullScreen={true} 
-        text="SYNCHRONIZING SECURE HARDWARE CLOUD" 
-        subtext="Authenticating FlexPulse Autonomous Device Farm Nodes..." 
+      <DiamtLoader
+        fullScreen={true}
+        text="SYNCHRONIZING SECURE HARDWARE CLOUD"
+        subtext="Authenticating FlexPulse Autonomous Device Farm Nodes..."
       />
     );
   }
@@ -49,75 +52,85 @@ function ProtectedRoute({ children, allowedRoles }) {
     if (!hasAccess) return <Navigate to="/worker" replace />;
   }
 
+  // ── Global Kill Switch overlay ────────────────────────────────────────────
+  // Seed admin routes are EXEMPT — the seed admin must always be able to reach
+  // the kill switch panel to toggle it back OFF.
+  const isSeedAdmin = profile?.role === 'seed_admin' || profile?.email?.toLowerCase() === 'sammyseth260@gmail.com';
+  if (isKillSwitchActive && !isSeedAdmin) {
+    return <GlobalLockOverlay />;
+  }
+
   return children;
 }
 
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
+      <KillSwitchProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
 
-          <Route 
-            path="/seed-admin" 
-            element={
-              <ProtectedRoute allowedRoles={['seed_admin']}>
-                <SeedAdminDashboard />
-              </ProtectedRoute>
-            } 
-          />
+            <Route
+              path="/seed-admin"
+              element={
+                <ProtectedRoute allowedRoles={['seed_admin']} isSeedAdminRoute={true}>
+                  <SeedAdminDashboard />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route 
-            path="/super-admin" 
-            element={
-              <ProtectedRoute allowedRoles={['super_admin']}>
-                <SuperAdminDashboard />
-              </ProtectedRoute>
-            } 
-          />
+            <Route
+              path="/super-admin"
+              element={
+                <ProtectedRoute allowedRoles={['super_admin']}>
+                  <SuperAdminDashboard />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route 
-            path="/admin" 
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <AdminDashboard />
-              </ProtectedRoute>
-            } 
-          />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route 
-            path="/admin/claims" 
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <AdminClaims />
-              </ProtectedRoute>
-            } 
-          />
+            <Route
+              path="/admin/claims"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminClaims />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route 
-            path="/worker" 
-            element={
-              <ProtectedRoute allowedRoles={['worker']}>
-                <WorkerDashboard />
-              </ProtectedRoute>
-            } 
-          />
+            <Route
+              path="/worker"
+              element={
+                <ProtectedRoute allowedRoles={['worker']}>
+                  <WorkerDashboard />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route 
-            path="/worker/claims" 
-            element={
-              <ProtectedRoute allowedRoles={['worker']}>
-                <WorkerClaims />
-              </ProtectedRoute>
-            } 
-          />
+            <Route
+              path="/worker/claims"
+              element={
+                <ProtectedRoute allowedRoles={['worker']}>
+                  <WorkerClaims />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </BrowserRouter>
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </KillSwitchProvider>
     </AuthProvider>
   );
 }

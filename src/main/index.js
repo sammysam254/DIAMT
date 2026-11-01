@@ -13,6 +13,7 @@ const { isCloudflaredAvailable } = require('../services/tunnel-service');
 const bindingService = require('../services/binding-service');
 const wolService = require('../services/wol-service');
 const { startDashboardServer, openInChrome, stopDashboardServer, getDashboardUrl } = require('../dashboard/server');
+const killSwitchService = require('../services/kill-switch-service');
 
 // ──────────────────────────────────────────────────────────
 //  Single Instance Guard
@@ -219,6 +220,7 @@ async function gracefulShutdown() {
     adbTracker.stopTracking();
     await processManager.stopAll();
     await stopDashboardServer();
+    await killSwitchService.stopKillSwitchListener();
 
     if (tray) {
       tray.destroy();
@@ -330,6 +332,28 @@ app.whenReady().then(async () => {
       wolService.startWolRemoteListener(supabaseUrl, supabaseKey);
     }
   } catch (e) {}
+
+  // -- Global Kill Switch Listener ----------------------------------------------
+  // Monitors the Supabase system_kill_switch table in real time.
+  // When Seed Admin toggles it ON ? gracefully shut down this agent process.
+  // The service-watchdog will NOT restart the agent while the kill switch is
+  // active because the next startup cycle will detect is_active=true and exit.
+  try {
+    const ksUrl = process.env.SUPABASE_URL || 'https://vrmzfgfxrycbrtqfygit.supabase.co';
+    const ksKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+    await killSwitchService.startKillSwitchListener(ksUrl, ksKey, {
+      onActivate: () => {
+        logger.warn('[KillSwitch] Seed Admin activated kill switch � initiating graceful shutdown');
+        gracefulShutdown();
+      },
+      onDeactivate: () => {
+        // When restored the watchdog will automatically restart this agent
+        logger.info('[KillSwitch] Kill switch cleared � agent will restart via watchdog');
+      },
+    });
+  } catch (e) {
+    logger.warn('[KillSwitch] Kill switch listener init notice:', e.message);
+  }
 
   setTimeout(() => refreshTrayMenu(), 3000);
   logger.info('DeviceFarm Agent is fully operational');

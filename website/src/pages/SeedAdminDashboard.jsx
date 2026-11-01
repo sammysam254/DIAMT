@@ -2,16 +2,20 @@ import React, { useEffect, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Shield, Key, CheckCircle, XCircle, Users, RefreshCw, Lock, Unlock, UserX, UserCheck, Smartphone, Trash2, RotateCcw, EyeOff, Zap, Power, Wifi, WifiOff, HelpCircle, Activity } from 'lucide-react';
+import { Shield, Key, CheckCircle, XCircle, Users, RefreshCw, Lock, Unlock, UserX, UserCheck, Smartphone, Trash2, RotateCcw, EyeOff, Zap, Power, Wifi, WifiOff, HelpCircle, Activity, ShieldAlert } from 'lucide-react';
 import CctvWall from '../components/CctvWall';
 import DeviceAllocationSection from '../components/DeviceAllocationSection';
 import SystemLogsModal from '../components/SystemLogsModal';
 import DiamtLoader from '../components/DiamtLoader';
+import LicenseKillSwitchPage from './LicenseKillSwitchPage';
+import { useKillSwitch } from '../context/KillSwitchContext';
 import { generate16CharKey, generate6DigitPin, rotateUrlWithKeyAndPin } from '../lib/keyGenerator';
 import { unsuspendWorkerProfile } from '../lib/complianceService';
 
 export default function SeedAdminDashboard() {
   const { profile: myProfile } = useAuth();
+  const { isKillSwitchActive } = useKillSwitch();
+  const [showKillSwitch, setShowKillSwitch] = useState(false);
   const [bindings, setBindings] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -241,6 +245,11 @@ export default function SeedAdminDashboard() {
 
   return (
     <DashboardLayout>
+      {/* -- Global Kill Switch Panel -- (shown instead of normal dashboard content) */}
+      {showKillSwitch ? (
+        <LicenseKillSwitchPage onBack={() => setShowKillSwitch(false)} />
+      ) : (
+      <>
       <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -252,6 +261,22 @@ export default function SeedAdminDashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            onClick={() => setShowKillSwitch(true)}
+            className="btn btn-danger"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              background: isKillSwitchActive ? 'linear-gradient(135deg, #7f1d1d, #dc2626)' : 'rgba(239,68,68,0.15)',
+              color: '#ef4444',
+              borderColor: isKillSwitchActive ? '#dc2626' : 'rgba(239,68,68,0.4)',
+              fontWeight: 800,
+              boxShadow: isKillSwitchActive ? '0 0 16px rgba(220,38,38,0.5)' : 'none',
+            }}
+            title="Global System Kill Switch — Instant licence enforcement"
+          >
+            <ShieldAlert size={16} />
+            {isKillSwitchActive ? '?? Kill Switch ACTIVE' : '? Kill Switch'}
+          </button>
           <button 
             onClick={() => setLogsModalOpen(true)} 
             className="btn btn-secondary"
@@ -697,6 +722,8 @@ export default function SeedAdminDashboard() {
         isOpen={logsModalOpen} 
         onClose={() => setLogsModalOpen(false)} 
       />
+      </>
+      )}
     </DashboardLayout>
   );
 }

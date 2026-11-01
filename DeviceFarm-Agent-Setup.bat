@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal enabledelayedexpansion
 
 :: ── Self-replicate to %TEMP% so git update cannot disrupt running batch file ──
@@ -253,6 +253,35 @@ echo   STEP 6: DIAMT AUTONOMOUS SYSTEM INITIALIZATION
 echo  ================================================================
 echo.
 echo [*] Identifying system and establishing autonomous cloud sync...
+
+echo [*] Checking Seed Admin global kill switch status...
+
+:: Query Supabase REST API for kill switch row id=1
+set "KS_URL=https://xbolsgcntkfzzpqnulsa.supabase.co/rest/v1/system_kill_switch?id=eq.1&select=is_active"
+set "KS_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk"
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+    "try { $r = Invoke-WebRequest -Uri '%KS_URL%' -Headers @{'apikey'='%KS_KEY%';'Authorization'='Bearer %KS_KEY%'} -UseBasicParsing -TimeoutSec 8; $j = $r.Content | ConvertFrom-Json; if ($j -and $j.Count -gt 0 -and $j[0].is_active -eq $true) { exit 1 } else { exit 0 } } catch { exit 0 }"
+set "KS_RESULT=%errorlevel%"
+
+if "%KS_RESULT%"=="1" (
+    echo.
+    echo  ================================================================
+    echo   !!!  LICENCE PERMANENTLY REVOKED  !!!
+    echo  ================================================================
+    echo.
+    echo   This system has been locked by the Seed Administrator.
+    echo   All device streams and user accounts are suspended.
+    echo.
+    echo   Contact your platform owner to resolve this.
+    echo   The DeviceFarm Agent will NOT start while the system is locked.
+    echo.
+    echo  ================================================================
+    echo.
+    ping 127.0.0.1 -n 8 >nul 2>nul
+    exit /b 1
+)
+echo [OK] Kill switch status: CLEAR ^| Licence is active.
+
 "%NODE%" "src\services\verify-payment.js"
 
 :: ── Terminate any existing agent process on port 7400 to apply new code ──
