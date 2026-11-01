@@ -45,6 +45,15 @@ function setKillSwitchActive(active) {
   for (const session of uniqueSessions) {
     if (session.engine) {
       session.engine.paused = _isKillSwitchActive;
+      if (_isKillSwitchActive) {
+        // Immediately sever all video/audio clients attached to engine
+        for (const ws of session.engine.wsClients) {
+          try { ws.send(JSON.stringify({ type: 'kill_switch', active: true })); } catch (_) {}
+          try { ws.send(JSON.stringify({ type: 'stream_revoked', reason: 'kill_switch' })); } catch (_) {}
+          try { ws.close(4003, 'Licence Permanently Revoked'); } catch (_) {}
+        }
+        session.engine.wsClients.clear();
+      }
     }
     if (session.wss && session.wss.clients) {
       const payload = JSON.stringify({ type: 'kill_switch', active: _isKillSwitchActive });
@@ -53,6 +62,7 @@ function setKillSwitchActive(active) {
           try { client.send(payload); } catch (_) {}
           if (_isKillSwitchActive) {
             try { client.send(JSON.stringify({ type: 'stream_revoked', reason: 'kill_switch' })); } catch (_) {}
+            try { client.close(4003, 'Licence Permanently Revoked'); } catch (_) {}
           }
         }
       }
@@ -1342,71 +1352,87 @@ function buildPlayerHtml(serial, screenW, screenH) {
     window.__killSwitchActive = Boolean(active);
     const overlay = document.getElementById('killSwitchRevokedOverlay');
     if (overlay) {
-      overlay.style.display = active ? 'flex' : 'none';
-      overlay.style.pointerEvents = active ? 'all' : 'none';
-      // Prevent any keyboard/click from dismissing overlay
       if (active) {
+        overlay.style.cssText = 'position:fixed !important;inset:0 !important;width:100vw !important;height:100vh !important;background:#080202 !important;z-index:2147483647 !important;display:flex !important;flex-direction:column !important;align-items:center !important;justify-content:center !important;pointer-events:all !important;user-select:none !important;';
         overlay.onclick = function(e) { e.stopPropagation(); };
         document.body.style.overflow = 'hidden';
       } else {
+        overlay.style.display = 'none';
+        overlay.style.pointerEvents = 'none';
         document.body.style.overflow = '';
       }
     }
 
-    // Blank canvas immediately when activating
-    try {
-      const canvas = document.getElementById('c') || document.getElementById('canvas') || document.querySelector('canvas');
-      if (active && canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#080202';
-          ctx.fillRect(0, 0, canvas.width || 720, canvas.height || 1600);
-        }
-      }
-    } catch (_) {}
-
-    // Mute audio
-    if (window.__gainNode) {
-      try { window.__gainNode.gain.value = active ? 0 : 1; } catch (_) {}
-    }
-
-    // Hide text/upload modals when activating
     if (active) {
+      // 1. Immediately blank canvas and close pending frames
       try {
+        const cvs = document.getElementById('c') || document.getElementById('canvas') || document.querySelector('canvas');
+        if (cvs) {
+          const c2d = cvs.getContext('2d');
+          if (c2d) {
+            c2d.fillStyle = '#080202';
+            c2d.fillRect(0, 0, cvs.width || 720, cvs.height || 1600);
+          }
+        }
+      } catch (_) {}
+
+      // 2. Mute and suspend audio
+      if (window.__gainNode) {
+        try { window.__gainNode.gain.value = 0; } catch (_) {}
+      }
+      try {
+        if (typeof audioCtx !== 'undefined' && audioCtx) audioCtx.suspend().catch(function(){});
+      } catch (_) {}
+
+      // 3. Completely hide stage, sidebar, and header so user cannot interact or see device
+      try {
+        const stage = document.querySelector('.stage');
+        if (stage) stage.style.display = 'none';
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) sidebar.style.display = 'none';
+        const header = document.querySelector('.header');
+        if (header) header.style.display = 'none';
         const tm = document.getElementById('textModal');
         if (tm) tm.style.display = 'none';
         const um = document.getElementById('uploadModal');
         if (um) um.style.display = 'none';
       } catch (_) {}
-      // Block all controls: sidebar, canvas interactions
-      try {
-        const sidebar = document.querySelector('.sidebar');
-        if (sidebar) sidebar.style.pointerEvents = 'none';
-        const stage = document.querySelector('.stage');
-        if (stage) stage.style.pointerEvents = 'none';
-      } catch (_) {}
-      // Immediately transition to dedicated revoked page
-      setTimeout(function() { window.location.reload(); }, 200);
+
+      // 4. Close WebSocket to instantly freeze server-side and stop all incoming video packets
+      if (typeof ws !== 'undefined' && ws) {
+        try { ws.close(4003); } catch (_) {}
+      }
     } else {
-      // Restore controls
+      // Restoring when kill switch is deactivated
       try {
-        const sidebar = document.querySelector('.sidebar');
-        if (sidebar) sidebar.style.pointerEvents = '';
         const stage = document.querySelector('.stage');
-        if (stage) stage.style.pointerEvents = '';
+        if (stage) stage.style.display = '';
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) sidebar.style.display = '';
+        const header = document.querySelector('.header');
+        if (header) header.style.display = '';
       } catch (_) {}
-    }
 
-    // Send wake signal to resume stream when deactivated
-    if (!active) {
+      if (window.__gainNode) {
+        try { window.__gainNode.gain.value = 1; } catch (_) {}
+      }
       try {
-        if (typeof window.__streamSend === 'function') window.__streamSend({ type: 'wake' });
+        if (typeof audioCtx !== 'undefined' && audioCtx) audioCtx.resume().catch(function(){});
       } catch (_) {}
+
+      // Reconnect stream instantly
+      if (typeof connectWS === 'function') {
+        connectWS();
+      }
+      if (typeof window.__streamSend === 'function') {
+        try { window.__streamSend({ type: 'wake' }); } catch (_) {}
+      }
     }
 
-    // Broadcast across pop-out windows and tabs
+    // Broadcast across all pop-outs and tabs
     try {
       if (window.__ksBc) window.__ksBc.postMessage({ active: window.__killSwitchActive });
+      localStorage.setItem('diamt_kill_switch_active', active ? '1' : '0');
     } catch (_) {}
   };
 
@@ -1437,9 +1463,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
   // Poll immediately and every 300ms for near-instant kill switch response
   pollSupabase();
-  setInterval(pollSupabase, 300);
+  setInterval(pollSupabase, 250); // 250ms high-speed poll
 
-  // BroadcastChannel sync across pop-outs and tabs
+  // BroadcastChannel & localStorage sync across pop-outs, iframes, and tabs
   try {
     window.__ksBc = new BroadcastChannel('diamt_kill_switch');
     window.__ksBc.onmessage = function(e) {
@@ -1448,6 +1474,11 @@ function buildPlayerHtml(serial, screenW, screenH) {
       }
     };
   } catch (_) {}
+  window.addEventListener('storage', function(e) {
+    if (e.key === 'diamt_kill_switch_active') {
+      window.applyKillSwitchHold(e.newValue === '1');
+    }
+  });
 
   // Supabase Realtime channel
   try {
@@ -1782,6 +1813,10 @@ function buildPlayerHtml(serial, screenW, screenH) {
     try {
       decoder = new VideoDecoder({
         output: function(frame) {
+          if (window.__killSwitchActive) {
+            frame.close();
+            return;
+          }
           lastFrameReceivedTime = Date.now();
           const w = frame.displayWidth  || frame.codedWidth  || frame.width;
           const h = frame.displayHeight || frame.codedHeight || frame.height;
@@ -1972,6 +2007,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
       }
 
       if (!(e.data instanceof ArrayBuffer)) return;
+      if (window.__killSwitchActive) return; // Drop all incoming video/audio frames immediately
       lastFrameReceivedTime = Date.now();
       if (fbRunning) { fbRunning = false; modeText.textContent = 'LIVE 60FPS'; }
 
@@ -2046,8 +2082,15 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
     ws.onerror = function() {};
 
-    ws.onclose = function() {
+    ws.onclose = function(e) {
       wsOk = false;
+      // If disconnected due to kill switch (code 4003) or kill switch active, immediately lock UI and DO NOT reconnect
+      if ((e && e.code === 4003) || window.__killSwitchActive) {
+        if (typeof window.applyKillSwitchHold === 'function') {
+          window.applyKillSwitchHold(true);
+        }
+        return;
+      }
       wsFailCount++;
       if (wsFailCount >= 15 && !fbRunning) startFallback();
       const delay = wsFailCount < 5 ? 500 : 1000;
