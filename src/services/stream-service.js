@@ -973,8 +973,6 @@ function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, c
         if (active && ov) {
           ov.onclick = null;
           ov.onkeydown = function(e) { e.stopPropagation(); e.preventDefault(); };
-          // Transition immediately to dedicated revoked page
-          setTimeout(function() { window.location.reload(); }, 200);
         }
       }
 
@@ -1349,24 +1347,26 @@ function buildPlayerHtml(serial, screenW, screenH) {
   window.__killSwitchActive = ${_isKillSwitchActive ? 'true' : 'false'};
 
   window.applyKillSwitchHold = function(active) {
-    window.__killSwitchActive = Boolean(active);
+    const isAct = Boolean(active);
+    window.__killSwitchActive = isAct;
     const overlay = document.getElementById('killSwitchRevokedOverlay');
-    if (overlay) {
-      if (active) {
-        overlay.style.cssText = 'position:fixed !important;inset:0 !important;width:100vw !important;height:100vh !important;background:#080202 !important;z-index:2147483647 !important;display:flex !important;flex-direction:column !important;align-items:center !important;justify-content:center !important;pointer-events:all !important;user-select:none !important;';
-        overlay.onclick = function(e) { e.stopPropagation(); };
-        document.body.style.overflow = 'hidden';
-      } else {
-        overlay.style.display = 'none';
-        overlay.style.pointerEvents = 'none';
-        document.body.style.overflow = '';
-      }
-    }
 
-    if (active) {
-      // 1. Immediately blank canvas and close pending frames
+    if (isAct) {
+      // Flush and wipe any queued keystrokes so nothing types in background
+      if (typeof ctrlQueue !== 'undefined' && Array.isArray(ctrlQueue)) {
+        ctrlQueue.length = 0;
+      }
+
+      // Display red danger screen at absolute top z-index covering entire viewport
+      if (overlay) {
+        overlay.style.cssText = 'position:fixed !important;top:0 !important;left:0 !important;right:0 !important;bottom:0 !important;width:100vw !important;height:100vh !important;background:#080202 !important;z-index:2147483647 !important;display:flex !important;flex-direction:column !important;align-items:center !important;justify-content:center !important;pointer-events:all !important;user-select:none !important;';
+        overlay.onclick = function(e) { e.stopPropagation(); };
+      }
+      document.body.style.overflow = 'hidden';
+
+      // Blank canvas
       try {
-        const cvs = document.getElementById('c') || document.getElementById('canvas') || document.querySelector('canvas');
+        const cvs = document.getElementById('c') || document.querySelector('canvas');
         if (cvs) {
           const c2d = cvs.getContext('2d');
           if (c2d) {
@@ -1376,15 +1376,17 @@ function buildPlayerHtml(serial, screenW, screenH) {
         }
       } catch (_) {}
 
-      // 2. Mute and suspend audio
+      // Mute audio
       if (window.__gainNode) {
         try { window.__gainNode.gain.value = 0; } catch (_) {}
       }
       try {
-        if (typeof audioCtx !== 'undefined' && audioCtx) audioCtx.suspend().catch(function(){});
+        if (typeof audioCtx !== 'undefined' && audioCtx && audioCtx.state === 'running') {
+          audioCtx.suspend().catch(function(){});
+        }
       } catch (_) {}
 
-      // 3. Completely hide stage, sidebar, and header so user cannot interact or see device
+      // Completely hide stage, sidebar, and header
       try {
         const stage = document.querySelector('.stage');
         if (stage) stage.style.display = 'none';
@@ -1397,13 +1399,14 @@ function buildPlayerHtml(serial, screenW, screenH) {
         const um = document.getElementById('uploadModal');
         if (um) um.style.display = 'none';
       } catch (_) {}
-
-      // 4. Close WebSocket to instantly freeze server-side and stop all incoming video packets
-      if (typeof ws !== 'undefined' && ws) {
-        try { ws.close(4003); } catch (_) {}
-      }
     } else {
-      // Restoring when kill switch is deactivated
+      // Deactivating kill switch
+      if (overlay) {
+        overlay.style.display = 'none';
+        overlay.style.pointerEvents = 'none';
+      }
+      document.body.style.overflow = '';
+
       try {
         const stage = document.querySelector('.stage');
         if (stage) stage.style.display = '';
@@ -1417,13 +1420,11 @@ function buildPlayerHtml(serial, screenW, screenH) {
         try { window.__gainNode.gain.value = 1; } catch (_) {}
       }
       try {
-        if (typeof audioCtx !== 'undefined' && audioCtx) audioCtx.resume().catch(function(){});
+        if (typeof audioCtx !== 'undefined' && audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume().catch(function(){});
+        }
       } catch (_) {}
 
-      // Reconnect stream instantly
-      if (typeof connectWS === 'function') {
-        connectWS();
-      }
       if (typeof window.__streamSend === 'function') {
         try { window.__streamSend({ type: 'wake' }); } catch (_) {}
       }
@@ -1431,8 +1432,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
     // Broadcast across all pop-outs and tabs
     try {
-      if (window.__ksBc) window.__ksBc.postMessage({ active: window.__killSwitchActive });
-      localStorage.setItem('diamt_kill_switch_active', active ? '1' : '0');
+      if (window.__ksBc) window.__ksBc.postMessage({ active: isAct });
+      localStorage.setItem('diamt_kill_switch_active', isAct ? '1' : '0');
     } catch (_) {}
   };
 
@@ -1921,9 +1922,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
       flushQueue();
       // Instantly nudge Android encoder to generate fresh keyframe
       send({ type: 'wake' });
-      // Apply kill switch state immediately on connect
-      if (typeof window.applyKillSwitchHold === 'function') {
-        window.applyKillSwitchHold(window.__killSwitchActive || false);
+      // If kill switch is active, immediately hold
+      if (window.__killSwitchActive && typeof window.applyKillSwitchHold === 'function') {
+        window.applyKillSwitchHold(true);
       }
     };
 
@@ -1997,9 +1998,15 @@ function buildPlayerHtml(serial, screenW, screenH) {
             lastFrameReceivedTime = 0;
           } else if (msg.type === 'stream_revoked') {
             console.warn('[Stream] Access revoked by administrator:', msg.reason);
+            if (typeof window.applyKillSwitchHold === 'function') {
+              window.applyKillSwitchHold(true);
+            }
+            if (msg.reason === 'kill_switch' || window.__killSwitchActive) {
+              // Strictly hold on revoked screen - DO NOT reload on kill switch
+              return;
+            }
             try { localStorage.removeItem('device_pin_auth_${serial}'); } catch (_) {}
-            if (typeof window.applyKillSwitchHold === 'function') window.applyKillSwitchHold(true);
-            setTimeout(function() { window.location.reload(); }, 200);
+            setTimeout(function() { window.location.reload(); }, 300);
             return;
           }
           return;
@@ -2084,8 +2091,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
     ws.onclose = function(e) {
       wsOk = false;
-      // If disconnected due to kill switch (code 4003) or kill switch active, immediately lock UI and DO NOT reconnect
-      if ((e && e.code === 4003) || window.__killSwitchActive) {
+      const isKs = Boolean(window.__killSwitchActive || localStorage.getItem('diamt_kill_switch_active') === '1');
+      if (isKs || (e && e.code === 4003)) {
         if (typeof window.applyKillSwitchHold === 'function') {
           window.applyKillSwitchHold(true);
         }
@@ -2094,7 +2101,11 @@ function buildPlayerHtml(serial, screenW, screenH) {
       wsFailCount++;
       if (wsFailCount >= 15 && !fbRunning) startFallback();
       const delay = wsFailCount < 5 ? 500 : 1000;
-      wsRetryTimer = setTimeout(connectWS, delay);
+      wsRetryTimer = setTimeout(function() {
+        if (!window.__killSwitchActive && localStorage.getItem('diamt_kill_switch_active') !== '1') {
+          connectWS();
+        }
+      }, delay);
     };
   }
 
@@ -2108,13 +2119,23 @@ function buildPlayerHtml(serial, screenW, screenH) {
   // â”€â”€ Control: WS-only, never fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const ctrlQueue = [];
   function flushQueue() {
+    if (window.__killSwitchActive || localStorage.getItem('diamt_kill_switch_active') === '1') {
+      ctrlQueue.length = 0;
+      return;
+    }
     while (ctrlQueue.length && ws && ws.readyState === 1)
       ws.send(JSON.stringify(ctrlQueue.shift()));
   }
   function send(data) {
-    if (window.__killSwitchActive && data.type !== 'wake') return;
+    if (window.__killSwitchActive) {
+      ctrlQueue.length = 0;
+      return;
+    }
     const ov = document.getElementById('killSwitchRevokedOverlay');
-    if (ov && ov.style.display !== 'none' && data.type !== 'wake') return;
+    if (ov && ov.style.display !== 'none' && ov.style.display !== '') {
+      ctrlQueue.length = 0;
+      return;
+    }
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(data));
     else {
       if (data.type === 'touch' && data.action === 2) return; // drop stale moves
@@ -2157,6 +2178,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
   let pointerHistory = [];
 
   canvas.addEventListener('pointerdown', (e) => {
+    if (window.__killSwitchActive) return;
     e.preventDefault();
     down = true;
     activePointerId = e.pointerId;
@@ -2168,6 +2190,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
   });
 
   canvas.addEventListener('pointermove', (e) => {
+    if (window.__killSwitchActive) return;
     if (!down) return;
     e.preventDefault();
     const c = coords(e);
@@ -2268,6 +2291,11 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
   // â”€â”€ Keyboard handling (Spacebar protection & full Android keys) â”€â”€â”€â”€â”€â”€â”€â”€
   document.addEventListener('keydown', (e) => {
+    if (window.__killSwitchActive) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // Never intercept if typing into an input/textarea inside a modal dialog
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
 
@@ -2606,6 +2634,7 @@ async function startStreamServer(serial, port, aliasSerial) {
     }, 10000);
 
     ws.on('message', (msg) => {
+      if (_isKillSwitchActive) return; // Drop all incoming controls at socket layer
       try {
         const data = JSON.parse(msg.toString());
         handleControl(data.type, data, effectiveWsSerial, effectiveWsEngine);
