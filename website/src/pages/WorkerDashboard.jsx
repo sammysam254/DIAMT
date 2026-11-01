@@ -192,10 +192,11 @@ export default function WorkerDashboard() {
           streamUrl = streamUrl.replace(/([?&])pin=[^&]*/g, '$1');
           streamUrl += (streamUrl.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(unlockModal.access_password.trim());
         }
+        const routerStreamUrl = `/stream?target=${encodeURIComponent(streamUrl)}&serial=${encodeURIComponent(unlockModal.devices?.serial || '')}&brand=${encodeURIComponent(unlockModal.devices?.brand || '')}&model=${encodeURIComponent(unlockModal.devices?.model || '')}&pin=${encodeURIComponent(unlockModal.access_password.trim())}`;
         const w = 510, h = 900;
         const left = Math.max(0, Math.round((window.screen.width - w) / 2));
         const top = Math.max(0, Math.round((window.screen.height - h) / 2));
-        window.open(streamUrl, `Stream_${unlockModal.devices?.serial || 'Device'}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
+        window.open(routerStreamUrl, `Stream_${unlockModal.devices?.serial || 'Device'}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
       }
       setUnlockModal(null);
       setInputPassword('');

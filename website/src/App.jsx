@@ -13,6 +13,7 @@ import WorkerDashboard from './pages/WorkerDashboard';
 import WorkerClaims from './pages/WorkerClaims';
 import AdminClaims from './pages/AdminClaims';
 import BlockedScreen from './pages/BlockedScreen';
+import StreamPlayerPage from './pages/StreamPlayerPage';
 import DiamtLoader from './components/DiamtLoader';
 import GlobalLockOverlay from './components/GlobalLockOverlay';
 
@@ -133,6 +134,15 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['worker']}>
                   <WorkerClaims />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/stream"
+              element={
+                <ProtectedRoute allowedRoles={['seed_admin', 'super_admin', 'admin', 'worker']}>
+                  <StreamPlayerPage />
                 </ProtectedRoute>
               }
             />

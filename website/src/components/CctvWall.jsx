@@ -525,7 +525,8 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                     const w = 510, h = 900;
                     const left = Math.max(0, Math.round((window.screen.width - w) / 2));
                     const top = Math.max(0, Math.round((window.screen.height - h) / 2));
-                    window.open(u, `Stream_${focusDevice.serial || 'Device'}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
+                    const routerUrl = `/stream?target=${encodeURIComponent(u)}&serial=${encodeURIComponent(focusDevice.serial || '')}&brand=${encodeURIComponent(focusDevice.brand || '')}&model=${encodeURIComponent(focusDevice.model || '')}`;
+                    window.open(routerUrl, `Stream_${focusDevice.serial || 'Device'}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
                   }} 
                   className="btn btn-primary" 
                   style={{ padding: '6px 14px', fontSize: '12px', opacity: isKillSwitchActive ? 0.5 : 1, cursor: isKillSwitchActive ? 'not-allowed' : 'pointer' }}

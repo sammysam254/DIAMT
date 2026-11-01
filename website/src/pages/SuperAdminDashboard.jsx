@@ -336,7 +336,8 @@ export default function SuperAdminDashboard() {
                               const w = 510, h = 900;
                               const left = Math.max(0, Math.round((window.screen.width - w) / 2));
                               const top = Math.max(0, Math.round((window.screen.height - h) / 2));
-                              window.open(d.stream_url, `Stream_${d.serial || 'Device'}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
+                              const routerUrl = `/stream?target=${encodeURIComponent(d.stream_url)}&serial=${encodeURIComponent(d.serial || '')}&brand=${encodeURIComponent(d.brand || '')}&model=${encodeURIComponent(d.model || '')}`;
+                              window.open(routerUrl, `Stream_${d.serial || 'Device'}`, `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no,status=no,location=no,toolbar=no,menubar=no,popup=yes`);
                             }}
                           >
                             Open Stream <ExternalLink size={12} />
