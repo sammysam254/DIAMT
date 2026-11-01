@@ -1,10 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Shield, Server, Users, Smartphone, X, Key, DollarSign, FileText } from 'lucide-react';
+import { useKillSwitch } from '../context/KillSwitchContext';
+import { Shield, Server, Users, Smartphone, X, Key, DollarSign, FileText, ShieldAlert } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose }) {
   const { profile } = useAuth();
+  const { isKillSwitchActive } = useKillSwitch();
   const role = profile?.role || 'worker';
 
   const isSeed = role === 'seed_admin';
@@ -25,18 +27,41 @@ export default function Sidebar({ isOpen, onClose }) {
     transition: 'all 0.2s ease'
   });
 
+  // Special style for kill switch link — always red-tinted
+  const killSwitchLinkStyle = ({ isActive }) => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 16px',
+    borderRadius: '10px',
+    textDecoration: 'none',
+    color: isActive ? '#fff' : (isKillSwitchActive ? '#ef4444' : '#f87171'),
+    background: isActive
+      ? 'linear-gradient(135deg, #7f1d1d, #dc2626)'
+      : isKillSwitchActive
+      ? 'rgba(239,68,68,0.15)'
+      : 'rgba(239,68,68,0.06)',
+    border: isKillSwitchActive
+      ? '1px solid rgba(239,68,68,0.5)'
+      : '1px solid rgba(239,68,68,0.2)',
+    fontWeight: 700,
+    fontSize: '14px',
+    transition: 'all 0.2s ease',
+    boxShadow: isKillSwitchActive ? '0 0 12px rgba(220,38,38,0.3)' : 'none',
+  });
+
   return (
     <>
       {/* Mobile Drawer Overlay */}
       {isOpen && (
-        <div 
-          onClick={onClose} 
+        <div
+          onClick={onClose}
           style={{
             position: 'fixed',
             inset: 0,
             background: 'rgba(0,0,0,0.5)',
             zIndex: 45
-          }} 
+          }}
         />
       )}
 
@@ -96,6 +121,35 @@ export default function Sidebar({ isOpen, onClose }) {
         <NavLink to="/worker/claims" onClick={onClose} style={linkStyle}>
           <DollarSign size={18} /> My Claims & Records
         </NavLink>
+
+        {/* ── Kill Switch — Seed Admin only ───────────────────────────────── */}
+        {isSeed && (
+          <>
+            {/* Divider */}
+            <div style={{
+              height: '1px',
+              background: 'rgba(239,68,68,0.2)',
+              margin: '6px 0',
+            }} />
+            <NavLink to="/seed-admin/kill-switch" onClick={onClose} style={killSwitchLinkStyle}>
+              <ShieldAlert size={18} />
+              <span style={{ flex: 1 }}>Kill Switch</span>
+              {isKillSwitchActive && (
+                <span style={{
+                  fontSize: '9px',
+                  fontWeight: 900,
+                  letterSpacing: '0.8px',
+                  background: '#dc2626',
+                  color: '#fff',
+                  padding: '2px 6px',
+                  borderRadius: '8px',
+                }}>
+                  ACTIVE
+                </span>
+              )}
+            </NavLink>
+          </>
+        )}
 
         <div style={{ marginTop: 'auto', padding: '14px', background: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
           <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>

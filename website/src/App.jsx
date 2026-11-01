@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import SeedAdminDashboard from './pages/SeedAdminDashboard';
+import LicenseKillSwitchPage from './pages/LicenseKillSwitchPage';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import WorkerDashboard from './pages/WorkerDashboard';
@@ -78,6 +79,15 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['seed_admin']} isSeedAdminRoute={true}>
                   <SeedAdminDashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/seed-admin/kill-switch"
+              element={
+                <ProtectedRoute allowedRoles={['seed_admin']} isSeedAdminRoute={true}>
+                  <LicenseKillSwitchPage />
                 </ProtectedRoute>
               }
             />

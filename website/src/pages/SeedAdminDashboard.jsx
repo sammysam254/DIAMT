@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -7,15 +8,14 @@ import CctvWall from '../components/CctvWall';
 import DeviceAllocationSection from '../components/DeviceAllocationSection';
 import SystemLogsModal from '../components/SystemLogsModal';
 import DiamtLoader from '../components/DiamtLoader';
-import LicenseKillSwitchPage from './LicenseKillSwitchPage';
 import { useKillSwitch } from '../context/KillSwitchContext';
 import { generate16CharKey, generate6DigitPin, rotateUrlWithKeyAndPin } from '../lib/keyGenerator';
 import { unsuspendWorkerProfile } from '../lib/complianceService';
 
 export default function SeedAdminDashboard() {
+  const navigate = useNavigate();
   const { profile: myProfile } = useAuth();
   const { isKillSwitchActive } = useKillSwitch();
-  const [showKillSwitch, setShowKillSwitch] = useState(false);
   const [bindings, setBindings] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -204,7 +204,7 @@ export default function SeedAdminDashboard() {
         }).eq('device_id', device.id);
       } catch (_) {}
 
-      alert(`✅ Stream link rotated successfully!\n\nNew 16-Char URL Key: ${newKey}\nNew 6-Digit Stream PIN: ${newPin}\n\nThe previous link and PIN have been invalidated.`);
+      alert(`Ã¢Å“â€¦ Stream link rotated successfully!\n\nNew 16-Char URL Key: ${newKey}\nNew 6-Digit Stream PIN: ${newPin}\n\nThe previous link and PIN have been invalidated.`);
       loadData();
     } catch (err) {
       alert('Error rotating stream link: ' + err.message);
@@ -213,7 +213,7 @@ export default function SeedAdminDashboard() {
 
   const handleWakeOnLan = async (machine) => {
     if (!machine.mac_address || machine.mac_address === '00:00:00:00:00:00') {
-      alert(`⚠️ No MAC address recorded for ${machine.machine_name || 'this machine'}.\n\nPlease ensure the agent has connected at least once to sync its hardware network identity.`);
+      alert(`Ã¢Å¡Â Ã¯Â¸Â No MAC address recorded for ${machine.machine_name || 'this machine'}.\n\nPlease ensure the agent has connected at least once to sync its hardware network identity.`);
       return;
     }
 
@@ -233,7 +233,7 @@ export default function SeedAdminDashboard() {
         },
       });
 
-      alert(`⚡ Wake-on-LAN Magic Packet sent to:\n\nMachine: ${machine.machine_name}\nMAC: ${machine.mac_address}\nBroadcast: ${machine.broadcast_ip || '255.255.255.255'}\n\nOnline farm relay agents will broadcast the UDP Magic Packet to wake the computer.`);
+      alert(`Ã¢Å¡Â¡ Wake-on-LAN Magic Packet sent to:\n\nMachine: ${machine.machine_name}\nMAC: ${machine.mac_address}\nBroadcast: ${machine.broadcast_ip || '255.255.255.255'}\n\nOnline farm relay agents will broadcast the UDP Magic Packet to wake the computer.`);
     } catch (err) {
       alert('Error sending Wake-on-LAN request: ' + err.message);
     } finally {
@@ -245,11 +245,6 @@ export default function SeedAdminDashboard() {
 
   return (
     <DashboardLayout>
-      {/* -- Global Kill Switch Panel -- (shown instead of normal dashboard content) */}
-      {showKillSwitch ? (
-        <LicenseKillSwitchPage onBack={() => setShowKillSwitch(false)} />
-      ) : (
-      <>
       <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -262,7 +257,7 @@ export default function SeedAdminDashboard() {
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button
-            onClick={() => setShowKillSwitch(true)}
+            onClick={() => navigate('/seed-admin/kill-switch')}
             className="btn btn-danger"
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
@@ -271,11 +266,12 @@ export default function SeedAdminDashboard() {
               borderColor: isKillSwitchActive ? '#dc2626' : 'rgba(239,68,68,0.4)',
               fontWeight: 800,
               boxShadow: isKillSwitchActive ? '0 0 16px rgba(220,38,38,0.5)' : 'none',
+              cursor: 'pointer',
             }}
-            title="Global System Kill Switch � Instant licence enforcement"
+            title="Global System Kill Switch — Instant licence enforcement"
           >
             <ShieldAlert size={16} />
-            {isKillSwitchActive ? '?? Kill Switch ACTIVE' : '? Kill Switch'}
+            {isKillSwitchActive ? '🔴 Kill Switch ACTIVE' : '⚠ Kill Switch'}
           </button>
           <button 
             onClick={() => setLogsModalOpen(true)} 
@@ -378,7 +374,7 @@ export default function SeedAdminDashboard() {
                           className={`btn ${isAvailableRental ? 'btn-success' : 'btn-secondary'}`}
                           style={{ padding: '4px 10px', fontSize: '11px' }}
                         >
-                          {isAvailableRental ? '🛒 Released to Store' : '🔒 Hold in Inventory'}
+                          {isAvailableRental ? 'Ã°Å¸â€ºâ€™ Released to Store' : 'Ã°Å¸â€â€™ Hold in Inventory'}
                         </button>
                       </td>
                       <td style={{ padding: '14px 12px' }}>
@@ -520,7 +516,7 @@ export default function SeedAdminDashboard() {
                             style={{ padding: '5px 10px', fontSize: '11px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                             title="Send Wake-on-LAN Magic Packet to turn on this computer remotely"
                           >
-                            <Zap size={12} /> {isWaking ? 'Waking...' : '⚡ Wake Machine'}
+                            <Zap size={12} /> {isWaking ? 'Waking...' : 'Ã¢Å¡Â¡ Wake Machine'}
                           </button>
                           <button 
                             onClick={() => toggleMode(b.binding_code, b.license_mode)}
@@ -694,10 +690,10 @@ export default function SeedAdminDashboard() {
             </p>
 
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '14px', marginBottom: '16px', fontSize: '13px', lineHeight: '1.6' }}>
-              <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: '6px' }}>🔧 Prerequisite Computer Setup (One-Time):</div>
+              <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: '6px' }}>Ã°Å¸â€Â§ Prerequisite Computer Setup (One-Time):</div>
               <ol style={{ paddingLeft: '20px', margin: 0, color: 'var(--text-main)' }}>
                 <li style={{ marginBottom: '6px' }}>
-                  <strong>Windows Device Manager:</strong> Open <em>Device Manager</em> → expand <em>Network Adapters</em> → Right click Ethernet/Wi-Fi Card → <em>Properties</em> → <em>Power Management</em> tab → check <strong>"Allow this device to wake the computer"</strong> and <strong>"Only allow a magic packet to wake the computer"</strong>.
+                  <strong>Windows Device Manager:</strong> Open <em>Device Manager</em> Ã¢â€ â€™ expand <em>Network Adapters</em> Ã¢â€ â€™ Right click Ethernet/Wi-Fi Card Ã¢â€ â€™ <em>Properties</em> Ã¢â€ â€™ <em>Power Management</em> tab Ã¢â€ â€™ check <strong>"Allow this device to wake the computer"</strong> and <strong>"Only allow a magic packet to wake the computer"</strong>.
                 </li>
                 <li style={{ marginBottom: '6px' }}>
                   <strong>Advanced Tab:</strong> In the same network properties window, switch to the <em>Advanced</em> tab and set <strong>"Wake on Magic Packet"</strong> to <em>Enabled</em>.
@@ -722,8 +718,6 @@ export default function SeedAdminDashboard() {
         isOpen={logsModalOpen} 
         onClose={() => setLogsModalOpen(false)} 
       />
-      </>
-      )}
     </DashboardLayout>
   );
 }
