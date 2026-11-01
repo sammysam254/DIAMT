@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useKillSwitch } from '../context/KillSwitchContext';
 import { Video, Shield, Maximize2, RefreshCw, X, ArrowLeft, Eye, Play, Trash2, ExternalLink, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
+  const { isKillSwitchActive } = useKillSwitch();
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cctvLocked, setCctvLocked] = useState(false);
@@ -117,7 +119,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
   if (cctvLocked && !isSeedAdmin && !isSuperAdmin) {
     return (
       <div className="card" style={{ marginTop: '24px', background: 'rgba(251, 113, 133, 0.08)', borderColor: 'rgba(251, 113, 133, 0.3)', textAlign: 'center', padding: '32px' }}>
-        <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔒</div>
+        <div style={{ fontSize: '36px', marginBottom: '12px' }}>ðŸ”’</div>
         <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--danger)' }}>Live Admin Monitor Control Locked</h3>
         <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
           Access to the live admin monitor control wall has been locked by Super Admin.
@@ -128,13 +130,43 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
 
   return (
     <div style={{ marginTop: '28px' }}>
+      {/* Global Kill Switch Banner */}
+      {isKillSwitchActive && (
+        <div 
+          className="card" 
+          style={{ 
+            background: 'rgba(239, 68, 68, 0.15)', 
+            border: '2px solid rgba(239, 68, 68, 0.7)', 
+            borderRadius: '16px', 
+            padding: '16px 20px', 
+            marginBottom: '20px',
+            boxShadow: '0 0 30px rgba(220, 38, 38, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+          }}
+        >
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(239,68,68,0.25)', border: '2px solid #ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <AlertTriangle size={20} color="#ef4444" />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 900, color: '#ef4444', letterSpacing: '0.5px' }}>
+              GLOBAL SYSTEM KILL SWITCH ACTIVE — LICENCE PERMANENTLY REVOKED
+            </div>
+            <div style={{ fontSize: '12px', color: '#fca5a5', marginTop: '2px' }}>
+              All device streams are currently locked and on hold. All external stream links and viewers are displaying the red pulsing revoked licence screen until the Seed Admin toggles the switch off.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Admin Monitor Header */}
       <div className="card" style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.95), rgba(6,9,17,0.98))', borderColor: 'rgba(56,189,248,0.35)', marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <div className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
               <span style={{ width: '6px', height: '6px', background: '#f87171', borderRadius: '50%', animation: 'pulse 1s infinite' }}></span>
-              🔴 LIVE ADMIN MONITOR CONTROL
+              ðŸ”´ LIVE ADMIN MONITOR CONTROL
             </div>
             <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>Multi-Machine Live Monitor Wall</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
@@ -149,7 +181,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                 className={`btn ${cctvLocked ? 'btn-danger' : 'btn-primary'}`}
                 style={{ fontSize: '12px', padding: '8px 14px' }}
               >
-                {cctvLocked ? '🔒 Admin Monitor: LOCKED' : '🔓 Admin Monitor: ALLOWED'}
+                {cctvLocked ? 'ðŸ”’ Admin Monitor: LOCKED' : 'ðŸ”“ Admin Monitor: ALLOWED'}
               </button>
             )}
             <button onClick={() => fetchDevicesAndLockState(true)} className="btn btn-secondary" style={{ fontSize: '12px', padding: '8px 14px' }}>
@@ -291,7 +323,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                     />
                   ) : isFocused ? (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', fontSize: '12px', fontWeight: 700 }}>
-                      ⚡ Focused in Active Modal
+                      âš¡ Focused in Active Modal
                     </div>
                   ) : (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
@@ -320,7 +352,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                     className="btn btn-secondary"
                     style={{ fontSize: '11px', padding: '4px 8px', color: isStealthOn ? 'var(--primary)' : 'var(--text-muted)' }}
                   >
-                    {isStealthOn ? '🛡️ Stealth Root: ON' : '⚪ Stealth Root: OFF'}
+                    {isStealthOn ? 'ðŸ›¡ï¸ Stealth Root: ON' : 'âšª Stealth Root: OFF'}
                   </button>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                     {isSeedAdmin && (
@@ -359,7 +391,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
             {/* Header */}
             <div style={{ padding: '14px 20px', background: 'rgba(15, 23, 42, 0.95)', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <strong style={{ color: '#fff', fontSize: '15px' }}>📱 {focusDevice.brand || ''} {focusDevice.model || 'Android'}</strong>
+                <strong style={{ color: '#fff', fontSize: '15px' }}>ðŸ“± {focusDevice.brand || ''} {focusDevice.model || 'Android'}</strong>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>Serial: {focusDevice.serial}</div>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

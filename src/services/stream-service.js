@@ -11,7 +11,7 @@ const bindingService = require('./binding-service');
 const licenseService = require('./license-service');
 const cache = require('./cache-service');
 
-// ─── Config & ADB ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Config & ADB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function loadConfig() {
   for (const p of [path.join(process.cwd(), 'config.json'), path.join(__dirname, '..', '..', 'config.json')]) {
@@ -29,6 +29,29 @@ function resolveAdbBin() {
   return 'adb';
 }
 const ADB_BIN = resolveAdbBin();
+
+let _isKillSwitchActive = false;
+
+function isKillSwitchActive() {
+  return _isKillSwitchActive;
+}
+
+function setKillSwitchActive(active) {
+  _isKillSwitchActive = Boolean(active);
+  logger.info(`[StreamService] Kill switch state updated: ${_isKillSwitchActive ? 'ACTIVE (holding streams with revoked licence screen)' : 'OFF (streams live)'}`);
+
+  // Broadcast kill switch state to all active WebSocket clients on all servers
+  for (const session of activeServers.values()) {
+    if (session.wss && session.wss.clients) {
+      const payload = JSON.stringify({ type: 'kill_switch', active: _isKillSwitchActive });
+      for (const client of session.wss.clients) {
+        if (client.readyState === 1 /* WebSocket.OPEN */) {
+          try { client.send(payload); } catch (_) {}
+        }
+      }
+    }
+  }
+}
 
 const activeServers = new Map();
 
@@ -71,7 +94,7 @@ function findActiveSession(reqUdid, fallbackSerial) {
   return null;
 }
 
-// ─── Persistent ADB input shell (fallback when scrcpy not ready) ─────────────
+// â”€â”€â”€ Persistent ADB input shell (fallback when scrcpy not ready) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const inputShells = new Map();
 function getInputShell(serial) {
@@ -89,23 +112,200 @@ function adbInput(serial, cmd) {
   catch (_) { exec(`"${ADB_BIN}" -s ${serial} shell ${cmd}`); }
 }
 
-// ─── Payment-blocked HTML ────────────────────────────────────────────────────
+// â”€â”€â”€ Payment-blocked HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function getStreamBlockedHtml(serial, checkoutUrl, s = {}) {
   const fee = s.monthlyFee || 30;
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Stream Blocked</title>
 <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#060911;color:#f8fafc;font-family:system-ui;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}.card{background:#0f172a;border:1px solid rgba(239,68,68,.45);border-radius:24px;padding:40px 32px;max-width:520px;width:100%;text-align:center}.price{font-size:46px;font-weight:800;color:#38bdf8;margin:12px 0 4px}.btn{display:block;width:100%;padding:15px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;text-decoration:none;font-weight:700;border-radius:14px;font-size:15px;border:none;cursor:pointer;margin-top:16px}</style>
 </head><body><div class="card">
-<div style="font-size:28px;margin-bottom:12px">🔒</div>
+<div style="font-size:28px;margin-bottom:12px">ðŸ”’</div>
 <h2>Monthly Rental Payment Required</h2>
 <div class="price">$${fee}.00 USD</div>
 <p style="color:#94a3b8;margin:8px 0 16px">Device: <code>${serial}</code></p>
-<a href="${checkoutUrl}" target="_blank" class="btn">💳 Pay to Unlock Stream</a>
-<button onclick="location.reload()" class="btn" style="background:rgba(255,255,255,.08);color:#94a3b8;margin-top:8px">🔄 Refresh</button>
+<a href="${checkoutUrl}" target="_blank" class="btn">ðŸ’³ Pay to Unlock Stream</a>
+<button onclick="location.reload()" class="btn" style="background:rgba(255,255,255,.08);color:#94a3b8;margin-top:8px">ðŸ”„ Refresh</button>
 </div></body></html>`;
 }
 
-// ─── Screencap fallback (one-shot, for /screen.jpg HTTP endpoint) ────────────
+// ─── Global Kill Switch Revoked Licence HTML ─────────────────────────────────
+
+function getStreamKillSwitchRevokedHtml(serial) {
+  const safeSerial = serial ? String(serial).replace(/"/g, '&quot;') : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LICENCE PERMANENTLY REVOKED</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      min-height: 100vh;
+      background: #080202;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      overflow: hidden;
+      user-select: none;
+    }
+    .glow-blob {
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: rgba(220, 38, 38, 0.22);
+      filter: blur(140px);
+      animation: pulseGlow 1.8s infinite alternate ease-in-out;
+      pointer-events: none;
+    }
+    @keyframes pulseGlow {
+      0% { opacity: 0.3; transform: scale(0.85); }
+      100% { opacity: 0.85; transform: scale(1.15); }
+    }
+    .card {
+      position: relative;
+      z-index: 2;
+      max-width: 580px;
+      width: 100%;
+      background: rgba(15, 3, 3, 0.94);
+      border: 2px solid rgba(239, 68, 68, 0.7);
+      border-radius: 28px;
+      padding: 48px 36px;
+      text-align: center;
+      box-shadow: 0 0 60px rgba(220, 38, 38, 0.45), 0 0 120px rgba(220, 38, 38, 0.15);
+      animation: borderPulse 1.8s infinite alternate ease-in-out;
+    }
+    @keyframes borderPulse {
+      0% { border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 0 30px rgba(220, 38, 38, 0.25); }
+      100% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 80px rgba(220, 38, 38, 0.65); }
+    }
+    .danger-icon-box {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      background: rgba(239, 68, 68, 0.15);
+      border: 3px solid #ef4444;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      animation: iconBounce 1.5s infinite ease-in-out;
+    }
+    @keyframes iconBounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(239, 68, 68, 0.16);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      border-radius: 20px;
+      padding: 4px 14px;
+      color: #f87171;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      margin-bottom: 18px;
+      text-transform: uppercase;
+    }
+    .title {
+      font-size: 28px;
+      font-weight: 900;
+      color: #ef4444;
+      letter-spacing: -0.5px;
+      line-height: 1.2;
+      margin-bottom: 16px;
+      text-shadow: 0 0 30px rgba(239, 68, 68, 0.7);
+      animation: titlePulse 1.8s infinite alternate ease-in-out;
+    }
+    @keyframes titlePulse {
+      0% { opacity: 0.85; transform: scale(0.99); }
+      100% { opacity: 1; transform: scale(1.02); }
+    }
+    .desc {
+      color: #fca5a5;
+      font-size: 14.5px;
+      line-height: 1.6;
+      margin-bottom: 24px;
+      font-weight: 500;
+    }
+    .status-box {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 14px;
+      padding: 14px 18px;
+      font-size: 13px;
+      color: #fca5a5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 700;
+    }
+    .pulse-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ef4444;
+      box-shadow: 0 0 10px #ef4444;
+      animation: dotBlink 1s infinite alternate;
+    }
+    @keyframes dotBlink {
+      from { opacity: 0.3; }
+      to { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow-blob"></div>
+  <div class="card">
+    <div class="danger-icon-box">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    </div>
+    <div class="badge">SYSTEM CRITICAL ALERT</div>
+    <h1 class="title">LICENCE PERMANENTLY REVOKED</h1>
+    <p class="desc">
+      All device streams have been placed on hold by the Seed Administrator.
+      <br>
+      ${safeSerial ? `Device [${safeSerial}] stream is locked and waiting for administrator to unblock.` : 'This stream is locked and waiting for administrator to unblock.'}
+    </p>
+    <div class="status-box">
+      <div class="pulse-dot"></div>
+      <span>STREAM ON HOLD — WAITING FOR SEED ADMIN TO UNBLOCK</span>
+    </div>
+  </div>
+
+  <script>
+    (function pollStatus() {
+      setInterval(async function() {
+        try {
+          const res = await fetch('/api/kill-switch-status', { cache: 'no-store' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.active === false) {
+              window.location.reload();
+            }
+          }
+        } catch (_) {}
+      }, 1500);
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+// â”€â”€â”€ Screencap fallback (one-shot, for /screen.jpg HTTP endpoint) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function captureOneFrame(serial) {
   return new Promise((resolve) => {
@@ -114,14 +314,14 @@ function captureOneFrame(serial) {
     p.stdout.on('data', c => chunks.push(c));
     p.on('close', code => {
       if (code !== 0 || !chunks.length) return resolve(null);
-      // exec-out via spawn stdio:pipe delivers clean binary — no CRLF stripping needed
+      // exec-out via spawn stdio:pipe delivers clean binary â€” no CRLF stripping needed
       resolve(Buffer.concat(chunks));
     });
     p.on('error', () => resolve(null));
   });
 }
 
-// ─── Shared control dispatcher ────────────────────────────────────────────────
+// â”€â”€â”€ Shared control dispatcher â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function get(data, key) {
   return typeof data.get === 'function' ? data.get(key) : data[key];
@@ -217,7 +417,7 @@ function handleControl(type, data, serial, engine) {
 }
 
 
-// ─── Server-Side Realtime Device Credential Verification (Redis-backed) ──────
+// â”€â”€â”€ Server-Side Realtime Device Credential Verification (Redis-backed) â”€â”€â”€â”€â”€â”€
 
 async function verifyDeviceAccess(serial, inputCredential) {
   if (!serial) return false;
@@ -241,7 +441,7 @@ async function verifyDeviceAccess(serial, inputCredential) {
     }
   } catch (_) {}
 
-  // 2. Cache miss — query Supabase for active credentials
+  // 2. Cache miss â€” query Supabase for active credentials
   const cfg = loadConfig();
   const supaUrl = cfg.supabaseUrl;
   const supaKey = cfg.supabaseServiceRoleKey || cfg.supabaseAnonKey;
@@ -305,7 +505,7 @@ async function verifyDeviceAccess(serial, inputCredential) {
   }
 }
 
-// ─── 5 Auto-Sliding Cards Presentation (Vertex Digital) ─────────────────────
+// â”€â”€â”€ 5 Auto-Sliding Cards Presentation (Vertex Digital) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, customNotice) {
   const prefillSerial = serial ? serial.replace(/"/g, '&quot;') : '';
@@ -318,7 +518,7 @@ function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, c
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vertex Digital — Enterprise Systems &amp; Management</title>
+  <title>Vertex Digital â€” Enterprise Systems &amp; Management</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -823,7 +1023,7 @@ function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, c
 </html>`;
 }
 
-// ─── Player HTML (WebCodecs H264 decoder + screencap fallback) ───────────────
+// â”€â”€â”€ Player HTML (WebCodecs H264 decoder + screencap fallback) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function buildPlayerHtml(serial, screenW, screenH) {
   return `<!DOCTYPE html>
@@ -872,9 +1072,44 @@ function buildPlayerHtml(serial, screenW, screenH) {
     .mobile-nav{display:none !important}
     .stage{flex:1;display:flex;flex-direction:row !important;align-items:center;justify-content:center;gap:10px;width:100%;min-height:0;padding:6px 10px}
     canvas{display:block;max-height:calc(100vh - 55px);max-width:calc(100vw - 65px);width:auto;height:auto;cursor:default;touch-action:none;-webkit-tap-highlight-color:transparent}
+    
+    @keyframes ksPulseGlow { 0% { opacity: 0.3; transform: scale(0.85); } 100% { opacity: 0.85; transform: scale(1.15); } }
+    @keyframes ksBorderPulse { 0% { border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 0 30px rgba(220, 38, 38, 0.25); } 100% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 80px rgba(220, 38, 38, 0.65); } }
+    @keyframes ksIconBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    @keyframes ksTitlePulse { 0% { opacity: 0.85; transform: scale(0.99); } 100% { opacity: 1; transform: scale(1.02); } }
+    @keyframes ksDotBlink { from { opacity: 0.3; } to { opacity: 1; } }
   </style>
 </head>
 <body>
+
+<!-- Kill Switch Revoked Licence Overlay -->
+<div id="killSwitchRevokedOverlay" style="display:\${_isKillSwitchActive ? 'flex' : 'none'};position:fixed;inset:0;background:#080202;z-index:999999;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;overflow:hidden;user-select:none;">
+  <div style="position:absolute;width:600px;height:600px;border-radius:50%;background:rgba(220,38,38,0.22);filter:blur(140px);pointer-events:none;animation:ksPulseGlow 1.8s infinite alternate ease-in-out;"></div>
+  <div style="position:relative;z-index:2;max-width:580px;width:100%;background:rgba(15,3,3,0.94);border:2px solid rgba(239,68,68,0.7);border-radius:28px;padding:44px 32px;text-align:center;box-shadow:0 0 60px rgba(220,38,38,0.45);animation:ksBorderPulse 1.8s infinite alternate ease-in-out;">
+    <div style="width:88px;height:88px;border-radius:50%;background:rgba(239,68,68,0.15);border:3px solid #ef4444;display:flex;align-items:center;justify-content:center;margin:0 auto 22px;animation:ksIconBounce 1.5s infinite ease-in-out;">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    </div>
+    <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(239,68,68,0.16);border:1px solid rgba(239,68,68,0.45);border-radius:20px;padding:4px 14px;color:#f87171;font-size:11px;font-weight:800;letter-spacing:1.5px;margin-bottom:16px;text-transform:uppercase;">
+      SYSTEM CRITICAL ALERT
+    </div>
+    <h1 style="font-size:26px;font-weight:900;color:#ef4444;letter-spacing:-0.5px;line-height:1.2;margin-bottom:14px;text-shadow:0 0 30px rgba(239,68,68,0.7);animation:ksTitlePulse 1.8s infinite alternate ease-in-out;">
+      LICENCE PERMANENTLY REVOKED
+    </h1>
+    <p style="color:#fca5a5;font-size:14px;line-height:1.6;margin-bottom:22px;font-weight:500;">
+      All device streams have been placed on hold by the Seed Administrator.
+      <br>
+      Waiting for administrator authorization to resume...
+    </p>
+    <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:14px;padding:12px 16px;font-size:12.5px;color:#fca5a5;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;">
+      <span style="width:10px;height:10px;border-radius:50%;background:#ef4444;box-shadow:0 0 10px #ef4444;display:inline-block;animation:ksDotBlink 1s infinite alternate;"></span>
+      <span>STREAM ON HOLD — WAITING FOR SEED ADMIN TO UNBLOCK</span>
+    </div>
+  </div>
+</div>
 
 <!-- Header Bar -->
 <div class="header">
@@ -937,7 +1172,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
 <div class="modal" id="debugModal">
   <div class="mbox">
     <div style="font-weight:700;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-      <span>🐞 Stream Diagnostics</span>
+      <span>ðŸž Stream Diagnostics</span>
       <button onclick="document.getElementById('debugModal').style.display='none'" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer">&times;</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:#94a3b8">
@@ -959,7 +1194,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
   let nativeW = ${screenW}, nativeH = ${screenH};
 
-  // ── FPS counter ─────────────────────────────────────────────────────────
+  // â”€â”€ FPS counter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let fc = 0, fpsT = performance.now();
   function countFrame() {
     fc++;
@@ -967,7 +1202,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (now - fpsT >= 1000) { fpsEl.textContent = fc + 'fps'; fc = 0; fpsT = now; }
   }
 
-  // ── rAF draw queue ───────────────────────────────────────────────────────
+  // â”€â”€ rAF draw queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let pendingFrame = null, rafId = null;
   function queueDraw(bitmapOrImage) {
     if (pendingFrame && pendingFrame.close) pendingFrame.close();
@@ -989,7 +1224,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     countFrame();
   }
 
-  // ── Audio — WebCodecs AudioDecoder (Opus) with raw PCM fallback ────────────
+  // â”€â”€ Audio â€” WebCodecs AudioDecoder (Opus) with raw PCM fallback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let audioCtx = null;
   let audioDecoder = null;
   let audioDecoderReady = false;
@@ -1135,7 +1370,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     } catch (_) {}
   }
 
-  // ── Mute toggle ──────────────────────────────────────────────────────────
+  // â”€â”€ Mute toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function toggleMute() {
     isMuted = !isMuted;
     if (gainNode) gainNode.gain.value = isMuted ? 0 : 1;
@@ -1169,7 +1404,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     window.addEventListener(evt, initAudio, { passive: true });
   });
 
-  // ── WebCodecs H264 Decoder ───────────────────────────────────────────────
+  // â”€â”€ WebCodecs H264 Decoder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let decoder = null;
   let decoderReady = false;
   let hasKeyframe = false;
@@ -1236,7 +1471,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     return false;
   }
 
-  // ── WebSocket connection ─────────────────────────────────────────────────
+  // â”€â”€ WebSocket connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let ws = null, wsOk = false;
   let wsFailCount = 0;
   let wsRetryTimer = null;
@@ -1248,18 +1483,18 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (!wsOk) return;
     if (lastFrameReceivedTime === 0) return;
     if (Date.now() - lastFrameReceivedTime > 15000 && !fbRunning) {
-      console.warn('[Watchdog] No frames for 15s — starting HTTP fallback');
+      console.warn('[Watchdog] No frames for 15s â€” starting HTTP fallback');
       startFallback();
     }
   }, 1000);
 
-  // Separate first-frame watchdog — if WS is open but no frame ever arrives in 12s, fallback
+  // Separate first-frame watchdog â€” if WS is open but no frame ever arrives in 12s, fallback
   let firstFrameTimer = null;
   function startFirstFrameWatchdog() {
     if (firstFrameTimer) clearTimeout(firstFrameTimer);
     firstFrameTimer = setTimeout(function() {
       if (wsOk && lastFrameReceivedTime === 0 && !fbRunning) {
-        console.warn('[Watchdog] No first frame within 12s — starting HTTP fallback');
+        console.warn('[Watchdog] No first frame within 12s â€” starting HTTP fallback');
         startFallback();
       }
     }, 12000);
@@ -1294,15 +1529,43 @@ function buildPlayerHtml(serial, screenW, screenH) {
       flushQueue();
       // Instantly nudge Android encoder to generate fresh keyframe
       send({ type: 'wake' });
+      fetch('/api/kill-switch-status', { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) { if (d && typeof d.active === 'boolean') applyKillSwitchHold(d.active); })
+        .catch(function() {});
     };
 
+    function applyKillSwitchHold(active) {
+      const overlay = document.getElementById('killSwitchRevokedOverlay');
+      if (!overlay) return;
+      if (active) {
+        overlay.style.display = 'flex';
+        if (gainNode) gainNode.gain.value = 0;
+      } else {
+        overlay.style.display = 'none';
+        if (gainNode && !isMuted) gainNode.gain.value = 1;
+        send({ type: 'wake' });
+      }
+    }
+
+    // Auto-check kill switch status in background every 2s
+    setInterval(function() {
+      fetch('/api/kill-switch-status', { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) { if (d && typeof d.active === 'boolean') applyKillSwitchHold(d.active); })
+        .catch(function() {});
+    }, 2000);
+
     ws.onmessage = function(e) {
-      // JSON control messages (stream_reset, etc.)
+      // JSON control messages (stream_reset, kill_switch, etc.)
       if (typeof e.data === 'string' || e.data instanceof ArrayBuffer && e.data.byteLength > 0 && new Uint8Array(e.data)[0] === 0x7B) {
         try {
           const txt = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data);
           const msg = JSON.parse(txt);
-          if (msg.type === 'stream_reset') {
+          if (msg.type === 'kill_switch') {
+            applyKillSwitchHold(Boolean(msg.active));
+            return;
+          } else if (msg.type === 'stream_reset') {
             console.log('[Stream] Server stream reset — reinitialising decoder');
             resetDecoder();
             fbRunning = false;
@@ -1324,7 +1587,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
       const rawU8 = new Uint8Array(e.data);
       if (rawU8.length < 4) return;
 
-      // Handle tagged Audio binary frames — [0x41]['O'=opus / 'R'=raw][...payload]
+      // Handle tagged Audio binary frames â€” [0x41]['O'=opus / 'R'=raw][...payload]
       if (rawU8[0] === 0x41) {
         if (rawU8.length < 3) return;
         const codec = rawU8[1]; // 0x4F='O' opus, 0x52='R' raw
@@ -1401,20 +1664,22 @@ function buildPlayerHtml(serial, screenW, screenH) {
     };
   }
 
-  // ── HTTP screencap fallback ───────────────────────────────────────────────
-  // DISABLED — strict scrcpy H264 only, no fallback
+  // â”€â”€ HTTP screencap fallback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // DISABLED â€” strict scrcpy H264 only, no fallback
   let fbRunning = false;
   function startFallback() {
     // Disabled
   }
 
-  // ── Control: WS-only, never fetch ───────────────────────────────────────
+  // â”€â”€ Control: WS-only, never fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const ctrlQueue = [];
   function flushQueue() {
     while (ctrlQueue.length && ws && ws.readyState === 1)
       ws.send(JSON.stringify(ctrlQueue.shift()));
   }
   function send(data) {
+    const ov = document.getElementById('killSwitchRevokedOverlay');
+    if (ov && ov.style.display !== 'none' && data.type !== 'wake') return;
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(data));
     else {
       if (data.type === 'touch' && data.action === 2) return; // drop stale moves
@@ -1449,7 +1714,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     };
   }
 
-  // ── Natural Human Pointer & Fling Mechanics ──────────────────────────
+  // â”€â”€ Natural Human Pointer & Fling Mechanics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let down = false;
   let activePointerId = null;
   let moveRaf = null;
@@ -1537,7 +1802,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
   canvas.addEventListener('pointercancel', releasePointer);
   window.addEventListener('pointerup', releasePointer);
 
-  // ── Ultra-Smooth Continuous Wheel Scrolling (35ms Responsive Bucket) ───
+  // â”€â”€ Ultra-Smooth Continuous Wheel Scrolling (35ms Responsive Bucket) â”€â”€â”€
   let wheelAccum = 0;
   let wheelTimer = null;
   let lastWheelPos = null;
@@ -1566,7 +1831,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     }
   }, { passive:false });
 
-  // ── Keyboard handling (Spacebar protection & full Android keys) ────────
+  // â”€â”€ Keyboard handling (Spacebar protection & full Android keys) â”€â”€â”€â”€â”€â”€â”€â”€
   document.addEventListener('keydown', (e) => {
     // Never intercept if typing into an input/textarea inside a modal dialog
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
@@ -1700,7 +1965,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
 }
 
 
-// ─── startStreamServer ───────────────────────────────────────────────────────
+// â”€â”€â”€ startStreamServer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 async function startStreamServer(serial, port, aliasSerial) {
@@ -1715,7 +1980,7 @@ async function startStreamServer(serial, port, aliasSerial) {
     .catch((err) => logger.warn(`[StreamServer] ScrcpyEngine failed for ${serial}: ${err.message}`));
 
 
-  // ── HTTP handler ──────────────────────────────────────────────────────────
+  // â”€â”€ HTTP handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -1729,6 +1994,25 @@ async function startStreamServer(serial, port, aliasSerial) {
     const p   = url.pathname;
     const reqUdid = (url.searchParams.get('udid') || '').trim();
     const candidateAuth = (url.searchParams.get('pin') || url.searchParams.get('key') || url.searchParams.get('token') || '').trim();
+
+    // Kill switch status endpoint
+    if (p === '/api/kill-switch-status') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ active: _isKillSwitchActive }));
+      return;
+    }
+
+    // ── Global Kill Switch enforcement ──────────────────────────────────────
+    if (_isKillSwitchActive) {
+      if (p === '/control' || p === '/upload' || p === '/screen.jpg') {
+        res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'Licence permanently revoked — stream on hold' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(getStreamKillSwitchRevokedHtml(reqUdid || serial));
+      return;
+    }
 
     // 1. Bare domain or no UDID provided -> show the 5 auto-sliding cards presentation
     if (!reqUdid) {
@@ -1802,7 +2086,7 @@ async function startStreamServer(serial, port, aliasSerial) {
     res.end(buildPlayerHtml(effectiveSerial, playerW, playerH));
   });
 
-  // ── WebSocket — relay H264 + audio from scrcpy engine to browser ─────────
+  // â”€â”€ WebSocket â€” relay H264 + audio from scrcpy engine to browser â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const wss = new WebSocket.Server({ server, path: '/ws', perMessageDeflate: false });
 
   wss.on('connection', async (ws, req) => {
@@ -1837,6 +2121,12 @@ async function startStreamServer(serial, port, aliasSerial) {
 
     logger.info(`[StreamServer] WS connected and authorized for ${effectiveWsSerial}`);
     effectiveWsEngine.addClient(ws);
+
+    if (_isKillSwitchActive) {
+      try {
+        ws.send(JSON.stringify({ type: 'kill_switch', active: true }));
+      } catch (_) {}
+    }
 
     // Heartbeat verification every 10 seconds: if admin resets PIN/key, revoke stream
     const authWatcherTimer = setInterval(async () => {
@@ -1899,7 +2189,7 @@ async function startStreamServer(serial, port, aliasSerial) {
   });
 }
 
-// ─── Exports ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Exports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function buildStreamUrl(tunnelDomain, port, serial) {
   const cleanDomain = (tunnelDomain || 'localhost:8100').replace(/\/+$/, '');
@@ -1913,4 +2203,11 @@ function killStreamServer(streamProcess) {
   }
 }
 
-module.exports = { startStreamServer, buildStreamUrl, killStreamServer };
+module.exports = {
+  startStreamServer,
+  buildStreamUrl,
+  killStreamServer,
+  isKillSwitchActive,
+  setKillSwitchActive,
+  getStreamKillSwitchRevokedHtml,
+};

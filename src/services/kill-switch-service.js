@@ -6,15 +6,8 @@
  * Listens to the Supabase Realtime channel for changes to the
  * `system_kill_switch` table (singleton row id=1).
  *
- * • When is_active flips TRUE  → calls onActivate()  (shuts streams, closes app)
- * • When is_active flips FALSE → calls onDeactivate() (resumes — watchdog restarts agent)
- *
- * Usage (in index.js):
- *   const killSwitch = require('../services/kill-switch-service');
- *   killSwitch.startKillSwitchListener(supabaseUrl, supabaseKey, {
- *     onActivate:   () => gracefulShutdown(),
- *     onDeactivate: () => logger.info('[KillSwitch] System restored by Seed Admin'),
- *   });
+ * • When is_active flips TRUE  → calls onActivate()   (holds all streams, serves pulsing red revoked licence screen)
+ * • When is_active flips FALSE → calls onDeactivate() (unblocks all streams instantly in real time)
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -22,6 +15,15 @@ const logger = require('../utils/logger');
 
 let _channel = null;
 let _client = null;
+let _isKillSwitchActive = false;
+
+function isKillSwitchActive() {
+  return _isKillSwitchActive;
+}
+
+function setKillSwitchActive(state) {
+  _isKillSwitchActive = Boolean(state);
+}
 
 /**
  * Start listening for kill switch changes.
@@ -42,21 +44,26 @@ async function startKillSwitchListener(supabaseUrl, supabaseKey, callbacks) {
     });
 
     // ── 1. Fetch current state on startup ──────────────────────────────────
-    const { data, error } = await _client
-      .from('system_kill_switch')
-      .select('is_active')
-      .eq('id', 1)
-      .single();
+    try {
+      const { data, error } = await _client
+        .from('system_kill_switch')
+        .select('is_active')
+        .eq('id', 1)
+        .single();
 
-    if (!error && data?.is_active === true) {
-      logger.warn('[KillSwitch] Kill switch is ACTIVE on startup — shutting down immediately');
-      if (typeof callbacks?.onActivate === 'function') {
-        callbacks.onActivate();
+      if (!error && data?.is_active === true) {
+        _isKillSwitchActive = true;
+        logger.warn('[KillSwitch] Kill switch is ACTIVE on startup — holding all device streams in revoked licence state');
+        if (typeof callbacks?.onActivate === 'function') {
+          callbacks.onActivate();
+        }
+      } else {
+        _isKillSwitchActive = false;
+        logger.info('[KillSwitch] System licence status: CLEAR — streams active');
       }
-      return; // No point subscribing — we're shutting down
+    } catch (e) {
+      logger.warn('[KillSwitch] Initial status check warning:', e.message);
     }
-
-    logger.info('[KillSwitch] System licence status: CLEAR — listening for changes');
 
     // ── 2. Subscribe to real-time changes ─────────────────────────────────
     _channel = _client
@@ -71,14 +78,15 @@ async function startKillSwitchListener(supabaseUrl, supabaseKey, callbacks) {
         },
         (payload) => {
           const newState = Boolean(payload?.new?.is_active);
+          _isKillSwitchActive = newState;
 
           if (newState) {
-            logger.warn('[KillSwitch] ⚠ KILL SWITCH ACTIVATED by Seed Admin — shutting down all streams');
+            logger.warn('[KillSwitch] ⚠ KILL SWITCH ACTIVATED by Seed Admin — placing all device streams on hold with red revoked licence screen');
             if (typeof callbacks?.onActivate === 'function') {
               callbacks.onActivate();
             }
           } else {
-            logger.info('[KillSwitch] ✅ Kill switch DEACTIVATED by Seed Admin — system restored');
+            logger.info('[KillSwitch] ✅ Kill switch DEACTIVATED by Seed Admin — instantly unblocking and resuming all device streams');
             if (typeof callbacks?.onDeactivate === 'function') {
               callbacks.onDeactivate();
             }
@@ -109,5 +117,9 @@ async function stopKillSwitchListener() {
   }
 }
 
-module.exports = { startKillSwitchListener, stopKillSwitchListener };
-
+module.exports = {
+  startKillSwitchListener,
+  stopKillSwitchListener,
+  isKillSwitchActive,
+  setKillSwitchActive,
+};

@@ -147,8 +147,8 @@ function startDashboardServer(port = 7400) {
       const fullUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const url = fullUrl.pathname;
 
-      // ── API Routes ────────────────────────────────────────────────────────
-      // ── Public endpoint for initial binding code (no auth required) ────
+      // â”€â”€ API Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // â”€â”€ Public endpoint for initial binding code (no auth required) â”€â”€â”€â”€
       if (url === '/api/binding/code') {
         const bindingCode = bindingService.getOrGenerateBindingCode();
         
@@ -244,6 +244,17 @@ function startDashboardServer(port = 7400) {
         return;
       }
 
+      if (url === '/api/kill-switch-status' || fullUrl.pathname === '/api/kill-switch-status') {
+        const killSwitchService = require('../services/kill-switch-service');
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        });
+        res.end(JSON.stringify({ active: killSwitchService.isKillSwitchActive() }));
+        return;
+      }
+
       if (url === '/download/installer' || url === '/download/agent') {
         const setupBatPath = path.join(__dirname, '..', '..', 'DeviceFarm-Agent-Setup.bat');
         if (fs.existsSync(setupBatPath)) {
@@ -260,7 +271,7 @@ function startDashboardServer(port = 7400) {
         return;
       }
 
-      // ── Proxy Handling ──────────────────────────────────────────────────
+      // â”€â”€ Proxy Handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       const actionParam = fullUrl.searchParams.get('action');
       const udidParam = fullUrl.searchParams.get('udid');
       const remoteParam = fullUrl.searchParams.get('remote');
@@ -289,14 +300,14 @@ function startDashboardServer(port = 7400) {
             proxyReq.destroy();
             if (!res.headersSent) {
               res.writeHead(504, { 'Content-Type': 'text/plain' });
-              res.end('Gateway Timeout — device stream response timed out');
+              res.end('Gateway Timeout â€” device stream response timed out');
             }
           });
 
           proxyReq.on('error', () => {
             if (!res.headersSent) {
               res.writeHead(502, { 'Content-Type': 'text/plain' });
-              res.end('Bad Gateway — device stream unavailable');
+              res.end('Bad Gateway â€” device stream unavailable');
             } else {
               try { res.destroy(); } catch (_) {}
             }
@@ -318,7 +329,7 @@ function startDashboardServer(port = 7400) {
             <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Device Not Found — ${requestedSerial}</title>
+              <title>Device Not Found â€” ${requestedSerial}</title>
               <style>
                 body { background: #07090e; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
                 .card { max-width: 500px; width: 100%; background: #0f172a; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 20px; padding: 36px 28px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.6); }
@@ -332,13 +343,13 @@ function startDashboardServer(port = 7400) {
             </head>
             <body>
               <div class="card">
-                <div class="icon">📱</div>
+                <div class="icon">ðŸ“±</div>
                 <h2>Device Not Connected Here</h2>
                 <p>Device <code>${requestedSerial}</code> is not plugged into this machine (Binding Code: <strong>${currentBinding}</strong>).</p>
                 <div class="box">
                   <strong>Why am I seeing this?</strong><br>
-                  • This device is plugged into a different computer (e.g. your remote USA host).<br>
-                  • To stream this remote device, open it via your DIAMT cloud dashboard once that host is running.
+                  â€¢ This device is plugged into a different computer (e.g. your remote USA host).<br>
+                  â€¢ To stream this remote device, open it via your DIAMT cloud dashboard once that host is running.
                 </div>
                 <a href="/" class="btn">View Local Dashboard</a>
               </div>
@@ -349,7 +360,7 @@ function startDashboardServer(port = 7400) {
         }
       }
 
-        // ── Serve Index HTML Page ───────────────────────────────────────────
+        // â”€â”€ Serve Index HTML Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         fs.readFile(htmlPath, (err, data) => {
           if (err) {
             res.writeHead(500, { 'Content-Type': 'text/plain' });
