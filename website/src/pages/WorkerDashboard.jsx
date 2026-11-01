@@ -165,9 +165,21 @@ export default function WorkerDashboard() {
     }
   };
 
-  const handleUnlock = (e) => {
+  const handleUnlock = async (e) => {
     e.preventDefault();
     setError(null);
+
+    // Check database kill switch status directly before opening stream
+    let isLocked = isKillSwitchActive;
+    try {
+      const { data } = await supabase.from('system_kill_switch').select('is_active').eq('id', 1).maybeSingle();
+      if (data && data.is_active) isLocked = true;
+    } catch (_) {}
+
+    if (isLocked) {
+      setError('LICENCE PERMANENTLY REVOKED — All device streams and controls have been put on hold by the administrator.');
+      return;
+    }
 
     if (inputPassword.trim() === unlockModal.access_password.trim()) {
       let streamUrl = unlockModal.devices?.stream_url;
@@ -741,7 +753,20 @@ export default function WorkerDashboard() {
                 ) : (
                   <button
                     disabled={!online}
-                    onClick={() => { setUnlockModal(a); setInputPassword(''); setError(null); }}
+                    onClick={async () => {
+                      let isLocked = isKillSwitchActive;
+                      try {
+                        const { data } = await supabase.from('system_kill_switch').select('is_active').eq('id', 1).maybeSingle();
+                        if (data && data.is_active) isLocked = true;
+                      } catch (_) {}
+                      if (isLocked) {
+                        alert('⚠️ LICENCE PERMANENTLY REVOKED\n\nAll device streams have been placed on hold by the administrator. Streams and controls are currently locked.');
+                        return;
+                      }
+                      setUnlockModal(a);
+                      setInputPassword('');
+                      setError(null);
+                    }}
                     className="btn btn-primary"
                     style={{ width: '100%', justifyContent: 'center', opacity: online ? 1 : 0.5 }}
                   >
@@ -759,39 +784,77 @@ export default function WorkerDashboard() {
       {/* Password Unlock Modal */}
       {unlockModal && (
         <div className="modal-overlay" onClick={() => setUnlockModal(null)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Lock size={20} color="var(--primary)" /> Unlock Device Stream
-            </h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '16px' }}>
-              Enter the password to open <b>{unlockModal.devices?.brand} {unlockModal.devices?.model}</b>.
-            </p>
-
-            {error && (
-              <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px', padding: '8px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px' }}>
-                {error}
+          <div 
+            className="modal-box" 
+            onClick={e => e.stopPropagation()}
+            style={isKillSwitchActive ? {
+              border: '2px solid #ef4444',
+              boxShadow: '0 0 50px rgba(220,38,38,0.5)',
+              background: 'radial-gradient(circle at center, #350808 0%, #150202 85%)',
+              textAlign: 'center',
+              padding: '36px 24px',
+              animation: 'killSwitchPulse 1.6s infinite alternate ease-in-out'
+            } : {}}
+          >
+            {isKillSwitchActive ? (
+              <div>
+                <div style={{ animation: 'killSwitchBounce 1.2s infinite ease-in-out', marginBottom: '16px' }}>
+                  <AlertTriangle size={52} color="#ef4444" />
+                </div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.5)', borderRadius: '20px', padding: '4px 14px', color: '#f87171', fontSize: '11px', fontWeight: 800, letterSpacing: '1.5px', marginBottom: '14px', textTransform: 'uppercase' }}>
+                  SYSTEM CRITICAL ALERT
+                </div>
+                <h3 style={{ fontSize: '20px', fontWeight: 900, color: '#ef4444', letterSpacing: '-0.5px', marginBottom: '12px' }}>
+                  LICENCE PERMANENTLY REVOKED
+                </h3>
+                <p style={{ color: '#fca5a5', fontSize: '13.5px', lineHeight: 1.6, marginBottom: '22px', fontWeight: 500 }}>
+                  All device streams and controls have been placed on hold by the administrator.
+                  <br />
+                  Waiting for administrator authorization to resume...
+                </p>
+                <div style={{ padding: '10px 16px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '10px', color: '#f87171', fontSize: '12px', fontWeight: 700, marginBottom: '22px' }}>
+                  🔒 Controls Frozen — Stream is locked
+                </div>
+                <button type="button" onClick={() => setUnlockModal(null)} className="btn btn-danger" style={{ width: '100%', justifyContent: 'center' }}>
+                  Close
+                </button>
               </div>
+            ) : (
+              <>
+                <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Lock size={20} color="var(--primary)" /> Unlock Device Stream
+                </h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '16px' }}>
+                  Enter the password to open <b>{unlockModal.devices?.brand} {unlockModal.devices?.model}</b>.
+                </p>
+
+                {error && (
+                  <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px', padding: '8px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px' }}>
+                    {error}
+                  </div>
+                )}
+
+                <form onSubmit={handleUnlock} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <input
+                    type="password"
+                    required
+                    autoFocus
+                    className="input-field"
+                    placeholder="Enter Access Password"
+                    value={inputPassword}
+                    onChange={e => setInputPassword(e.target.value)}
+                  />
+                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                    <button type="button" onClick={() => setUnlockModal(null)} className="btn btn-secondary">
+                      Cancel
+                    </button>
+                    <button type="submit" className="btn btn-primary">
+                      Unlock Stream <ExternalLink size={14} />
+                    </button>
+                  </div>
+                </form>
+              </>
             )}
-
-            <form onSubmit={handleUnlock} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <input
-                type="password"
-                required
-                autoFocus
-                className="input-field"
-                placeholder="Enter Access Password"
-                value={inputPassword}
-                onChange={e => setInputPassword(e.target.value)}
-              />
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                <button type="button" onClick={() => setUnlockModal(null)} className="btn btn-secondary">
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Unlock Stream <ExternalLink size={14} />
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

@@ -59,6 +59,30 @@ function setKillSwitchActive(active) {
 
 const activeServers = new Map();
 
+// ── Continuous Supabase Database Sync for Kill Switch ───────────────────────
+const SUPABASE_KS_URL = 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+const SUPABASE_KS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk';
+
+async function syncKillSwitchFromDb() {
+  try {
+    const r = await fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+      cache: 'no-store',
+      headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
+    });
+    if (r.ok) {
+      const rows = await r.json();
+      if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
+        const dbState = Boolean(rows[0].is_active);
+        if (dbState !== _isKillSwitchActive) {
+          setKillSwitchActive(dbState);
+        }
+      }
+    }
+  } catch (_) {}
+}
+setInterval(syncKillSwitchFromDb, 1000);
+syncKillSwitchFromDb();
+
 function findActiveSession(reqUdid, fallbackSerial) {
   if (!reqUdid && fallbackSerial) return activeServers.get(fallbackSerial) || null;
   if (!reqUdid) return activeServers.values().next().value || null;
@@ -266,6 +290,7 @@ function getStreamKillSwitchRevokedHtml(serial) {
       to { opacity: 1; }
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div class="glow-blob"></div>
@@ -290,20 +315,50 @@ function getStreamKillSwitchRevokedHtml(serial) {
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    (function pollStatus() {
-      setInterval(async function() {
+    const SUPABASE_KS_URL = 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+    const SUPABASE_KS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk';
+
+    async function checkResumeFromDb() {
+      try {
+        const r = await fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+          cache: 'no-store',
+          headers: { 'apikey': SUPABASE_KS_KEY, 'Authorization': 'Bearer ' + SUPABASE_KS_KEY }
+        });
+        if (r.ok) {
+          const rows = await r.json();
+          if (Array.isArray(rows) && rows.length > 0 && rows[0].is_active === false) {
+            window.location.reload();
+            return;
+          }
+        }
+      } catch (_) {
         try {
           const res = await fetch('/api/kill-switch-status', { cache: 'no-store' });
           if (res.ok) {
             const data = await res.json();
-            if (data && data.active === false) {
-              window.location.reload();
-            }
+            if (data && data.active === false) window.location.reload();
           }
         } catch (_) {}
-      }, 1500);
-    })();
+      }
+    }
+
+    // Direct database check every 1s
+    setInterval(checkResumeFromDb, 1000);
+
+    // Supabase Realtime channel for instant reload the millisecond admin toggles off
+    try {
+      if (window.supabase && typeof window.supabase.createClient === 'function') {
+        const sbClient = window.supabase.createClient(SUPABASE_KS_URL, SUPABASE_KS_KEY);
+        sbClient.channel('revoked_page_realtime_' + Math.floor(Math.random() * 100000))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'system_kill_switch' }, function(payload) {
+            const val = payload.new ? payload.new.is_active : payload.old && payload.old.is_active;
+            if (val === false) window.location.reload();
+          })
+          .subscribe();
+      }
+    } catch (_) {}
   </script>
 </body>
 </html>`;
@@ -836,6 +891,7 @@ function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, c
       .auth-form { flex-direction: column; }
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div class="container">
@@ -1087,6 +1143,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     @keyframes ksTitlePulse { 0% { opacity: 0.85; transform: scale(0.99); } 100% { opacity: 1; transform: scale(1.02); } }
     @keyframes ksDotBlink { from { opacity: 0.3; } to { opacity: 1; } }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -1556,6 +1613,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
           }
         } catch (_) {}
+        try {
+          const tm = document.getElementById('textModal');
+          if (tm) tm.style.display = 'none';
+          const um = document.getElementById('uploadModal');
+          if (um) um.style.display = 'none';
+        } catch (_) {}
       } else {
         overlay.style.display = 'none';
         if (gainNode && !isMuted) gainNode.gain.value = 1;
@@ -1563,13 +1626,55 @@ function buildPlayerHtml(serial, screenW, screenH) {
       }
     }
 
-    // Auto-check kill switch status in background every 1s
-    setInterval(function() {
-      fetch('/api/kill-switch-status', { cache: 'no-store' })
-        .then(function(r) { return r.json(); })
-        .then(function(d) { if (d && typeof d.active === 'boolean') applyKillSwitchHold(d.active); })
-        .catch(function() {});
-    }, 1000);
+    const SUPABASE_KS_URL = 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+    const SUPABASE_KS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk';
+
+    function checkDatabaseKillSwitch() {
+      fetch(SUPABASE_KS_URL + '/rest/v1/system_kill_switch?id=eq.1&select=is_active', {
+        cache: 'no-store',
+        headers: {
+          'apikey': SUPABASE_KS_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_KS_KEY
+        }
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(rows) {
+        if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].is_active !== 'undefined') {
+          applyKillSwitchHold(Boolean(rows[0].is_active));
+        }
+      })
+      .catch(function() {
+        fetch('/api/kill-switch-status', { cache: 'no-store' })
+          .then(function(r) { return r.json(); })
+          .then(function(d) { if (d && typeof d.active === 'boolean') applyKillSwitchHold(d.active); })
+          .catch(function() {});
+      });
+    }
+
+    // Direct database check immediately on load before user can interact
+    checkDatabaseKillSwitch();
+
+    // High-frequency 1s polling direct to database
+    setInterval(checkDatabaseKillSwitch, 1000);
+
+    // Direct Supabase Realtime channel for millisecond-instant update while user operates the phone
+    try {
+      if (window.supabase && typeof window.supabase.createClient === 'function') {
+        const sbClient = window.supabase.createClient(SUPABASE_KS_URL, SUPABASE_KS_KEY, {
+          realtime: { params: { eventsPerSecond: 10 } }
+        });
+        sbClient.channel('stream_ks_realtime_' + Math.floor(Math.random() * 1000000))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'system_kill_switch' }, function(payload) {
+            const val = payload.new ? payload.new.is_active : payload.old && payload.old.is_active;
+            if (typeof val !== 'undefined') {
+              applyKillSwitchHold(Boolean(val));
+            } else {
+              checkDatabaseKillSwitch();
+            }
+          })
+          .subscribe();
+      }
+    } catch (_) {}
 
     ws.onmessage = function(e) {
       // JSON control messages (stream_reset, kill_switch, etc.)
@@ -2002,7 +2107,7 @@ async function startStreamServer(serial, port, aliasSerial) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=()');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:;");
+    res.setHeader('Content-Security-Policy', "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' https: blob:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' https: data:; connect-src * 'self' ws: wss: https:;");
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     const url = new URL(req.url, `http://localhost:${port}`);
