@@ -39,14 +39,35 @@ shell.CurrentDirectory = scriptDir
 ' 0 = Hide window, False = Do not wait for script to finish (runs detached in background)
 shell.Run cmdToRun, 0, False
 
-' 3. Ensure cloudflared named tunnel daemon runs silently in background
-Dim cloudflaredPath
+' 3. Optionally launch cloudflared tunnel daemon if a token is configured in config.json
+Dim cloudflaredPath, cfgPath, cfgContent, cfToken, re, tokenMatch
 cloudflaredPath = scriptDir & "\assets\bin\cloudflared.exe"
 If Not fso.FileExists(cloudflaredPath) Then cloudflaredPath = "C:\cloudflared\cloudflared.exe"
 If Not fso.FileExists(cloudflaredPath) Then cloudflaredPath = "C:\Program Files\cloudflared\cloudflared.exe"
 If Not fso.FileExists(cloudflaredPath) Then cloudflaredPath = "C:\Program Files (x86)\cloudflared\cloudflared.exe"
-If fso.FileExists(cloudflaredPath) Then
-    shell.Run """" & cloudflaredPath & """ tunnel run --token eyJhIjoiYzFlMzEyY2Q2YWFjNTNlOWJkYWUzZTY5MmJiMWM4Y2MiLCJ0IjoiZWI3NGIxNjMtMzcxOC00YWEwLWE1NGYtYmE5MDMwZDZkNzYyIiwicyI6Ik5EVmxPV1l3TkRBdE5HSXdZUzAwTldabUxXRTVOMlF0T0dNd1pETmlZMk14WkRrNSJ9 --protocol quic --ha-connections 1 --no-autoupdate", 0, False
+
+cfgPath = scriptDir & "\config.json"
+cfToken = ""
+If fso.FileExists(cfgPath) Then
+    On Error Resume Next
+    Dim ts
+    Set ts = fso.OpenTextFile(cfgPath, 1)
+    cfgContent = ts.ReadAll
+    ts.Close
+    Set ts = Nothing
+    Set re = New RegExp
+    re.Pattern = """cloudflareToken""\s*:\s*""([^""]+)"""
+    re.IgnoreCase = True
+    Set tokenMatch = re.Execute(cfgContent)
+    If tokenMatch.Count > 0 Then
+        cfToken = tokenMatch(0).SubMatches(0)
+    End If
+    Set re = Nothing
+    On Error GoTo 0
+End If
+
+If fso.FileExists(cloudflaredPath) And Len(cfToken) > 0 Then
+    shell.Run """" & cloudflaredPath & """ tunnel run --token " & cfToken, 0, False
 End If
 
 ' 4. Open dashboard in default browser

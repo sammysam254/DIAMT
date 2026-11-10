@@ -119,7 +119,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
   if (cctvLocked && !isSeedAdmin && !isSuperAdmin) {
     return (
       <div className="card" style={{ marginTop: '24px', background: 'rgba(251, 113, 133, 0.08)', borderColor: 'rgba(251, 113, 133, 0.3)', textAlign: 'center', padding: '32px' }}>
-        <div style={{ fontSize: '36px', marginBottom: '12px' }}>ðŸ”’</div>
+        <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔒</div>
         <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--danger)' }}>Live Admin Monitor Control Locked</h3>
         <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
           Access to the live admin monitor control wall has been locked by Super Admin.
@@ -166,7 +166,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
           <div>
             <div className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
               <span style={{ width: '6px', height: '6px', background: '#f87171', borderRadius: '50%', animation: 'pulse 1s infinite' }}></span>
-              ðŸ”´ LIVE ADMIN MONITOR CONTROL
+              🔴 LIVE ADMIN MONITOR CONTROL
             </div>
             <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>Multi-Machine Live Monitor Wall</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
@@ -181,7 +181,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                 className={`btn ${cctvLocked ? 'btn-danger' : 'btn-primary'}`}
                 style={{ fontSize: '12px', padding: '8px 14px' }}
               >
-                {cctvLocked ? 'ðŸ”’ Admin Monitor: LOCKED' : 'ðŸ”“ Admin Monitor: ALLOWED'}
+                {cctvLocked ? '🔒 Admin Monitor: LOCKED' : 'ðŸ”“ Admin Monitor: ALLOWED'}
               </button>
             )}
             <button onClick={() => fetchDevicesAndLockState(true)} className="btn btn-secondary" style={{ fontSize: '12px', padding: '8px 14px' }}>

@@ -186,6 +186,9 @@ for %%I in ("%NODE%") do set "NODE_DIR=%%~dpI"
 set "PATH=%NODE_DIR%;%PATH%"
 echo [OK] Node.js added to PATH: %NODE_DIR%
 
+:: Copy .env if present in current dir
+if exist "%CURRENT_DIR%\.env" copy /Y "%CURRENT_DIR%\.env" "%INSTALL_DIR%\.env" >nul 2>&1
+
 :: Patch config.json with correct binary paths and DIAMT cloud config
 echo [*] Patching config.json with local binary paths and DIAMT configuration...
 "%NODE%" -e "const fs=require('fs'),p='config.json',cfg=fs.existsSync(p)?JSON.parse(fs.readFileSync(p)):{}; cfg.adbPath=require('path').join(process.cwd(),'assets','bin','adb.exe'); cfg.cloudflaredPath=require('path').join(process.cwd(),'assets','bin','cloudflared.exe'); cfg.supabaseUrl='https://xbolsgcntkfzzpqnulsa.supabase.co'; cfg.supabaseAnonKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk'; cfg.supabaseServiceRoleKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTc5NTY1MCwiZXhwIjoyMTA1MzcxNjUwfQ.ok_mAqsFkfvP-NyZRiiPmF_eL2blTYI2shnsDAmkefw'; cfg.domain='devicecontrol.diamt.site'; cfg.cloudflareToken='eyJhIjoiYzFlMzEyY2Q2YWFjNTNlOWJkYWUzZTY5MmJiMWM4Y2MiLCJ0IjoiZWI3NGIxNjMtMzcxOC00YWEwLWE1NGYtYmE5MDMwZDZkNzYyIiwicyI6Ik5EVmxPV1l3TkRBdE5HSXdZUzAwTldabUxXRTVOMlF0T0dNd1pETmlZMk14WkRrNSJ9'; fs.writeFileSync(p,JSON.stringify(cfg,null,2));"

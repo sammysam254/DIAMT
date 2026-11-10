@@ -567,12 +567,20 @@
 
     function popoutFromModal() {
       if (!activeStreamUrl) return;
-      const w = 510, h = 900;
-      const left = Math.max(0, Math.round((window.screen.width - w) / 2));
-      const top = Math.max(0, Math.round((window.screen.height - h) / 2));
-      const pop = window.open(activeStreamUrl, 'Stream_Popout', `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no`);
-      if (!pop || pop.closed || typeof pop.closed === 'undefined') {
+      const isMobile = typeof window !== 'undefined' && (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth <= 768);
+      if (isMobile) {
         window.open(activeStreamUrl, '_blank');
+      } else {
+        const screenW = window.screen.availWidth || window.screen.width || 1280;
+        const screenH = window.screen.availHeight || window.screen.height || 900;
+        const w = Math.min(screenW - 20, 520);
+        const h = Math.min(screenH - 40, 940);
+        const left = Math.max(0, Math.round((screenW - w) / 2));
+        const top = Math.max(0, Math.round((screenH - h) / 2));
+        const pop = window.open(activeStreamUrl, 'Stream_Popout', `width=${w},height=${h},top=${top},left=${left},resizable=yes,scrollbars=no`);
+        if (!pop || pop.closed || typeof pop.closed === 'undefined') {
+          window.open(activeStreamUrl, '_blank');
+        }
       }
       closeInlineViewer();
     }

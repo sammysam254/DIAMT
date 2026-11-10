@@ -91,17 +91,22 @@ async function applyDeviceStealth(serial, stealthRootEnabled = true) {
 
   logger.info(`[StealthService] Applying bootloader hiding, remote-control masking & physical simulation for device: ${serial}...`);
 
-  // 1. Ensure ADB and Developer Settings remain ENABLED (1) for scrcpy engine stability
-  // 2. Hide touch/pointer overlays and non-essential debug indicators
+  // 1. Maintain essential connectivity while masking automation flags
+  // 2. Hide touch/pointer overlays, developer options, and device farm signatures
   const settingsCmds = [
     'settings put global adb_enabled 1',
-    'settings put global development_settings_enabled 1',
+    'settings put global development_settings_enabled 0', // Mask developer options from app checks
     'settings put secure mock_location 0',
     'settings put global package_verifier_enable 1',
     'settings put system show_touches 0',
-    'settings put global stay_awake 3',
-    'settings put system stay_awake 3',
-    'svc power stayon true',
+    'settings put system pointer_location 0',
+    'settings put global stay_awake 0',
+    'settings put global stay_on_while_plugged_in 0',
+    'settings put system stay_awake 0',
+    'settings put system screen_off_timeout 600000', // Natural human 10m timeout (never Integer.MAX 2147483647!)
+    'dumpsys battery set ac 1', // Simulate AC wall charger instead of PC USB connection
+    'dumpsys battery set usb 0',
+    'rm -f /data/local/tmp/scrcpy-server.jar /data/local/tmp/scrcpy*.jar',
     'input keyevent 224',
     'input keyevent 82',
   ];

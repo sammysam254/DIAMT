@@ -204,7 +204,7 @@ export default function SeedAdminDashboard() {
         }).eq('device_id', device.id);
       } catch (_) {}
 
-      alert(`Ã¢Å“â€¦ Stream link rotated successfully!\n\nNew 16-Char URL Key: ${newKey}\nNew 6-Digit Stream PIN: ${newPin}\n\nThe previous link and PIN have been invalidated.`);
+      alert(`✅ Stream link rotated successfully!\n\nNew 16-Char URL Key: ${newKey}\nNew 6-Digit Stream PIN: ${newPin}\n\nThe previous link and PIN have been invalidated.`);
       loadData();
     } catch (err) {
       alert('Error rotating stream link: ' + err.message);
@@ -213,7 +213,7 @@ export default function SeedAdminDashboard() {
 
   const handleWakeOnLan = async (machine) => {
     if (!machine.mac_address || machine.mac_address === '00:00:00:00:00:00') {
-      alert(`Ã¢Å¡Â Ã¯Â¸Â No MAC address recorded for ${machine.machine_name || 'this machine'}.\n\nPlease ensure the agent has connected at least once to sync its hardware network identity.`);
+      alert(`⚠️ No MAC address recorded for ${machine.machine_name || 'this machine'}.\n\nPlease ensure the agent has connected at least once to sync its hardware network identity.`);
       return;
     }
 
@@ -233,7 +233,7 @@ export default function SeedAdminDashboard() {
         },
       });
 
-      alert(`Ã¢Å¡Â¡ Wake-on-LAN Magic Packet sent to:\n\nMachine: ${machine.machine_name}\nMAC: ${machine.mac_address}\nBroadcast: ${machine.broadcast_ip || '255.255.255.255'}\n\nOnline farm relay agents will broadcast the UDP Magic Packet to wake the computer.`);
+      alert(`⚡ Wake-on-LAN Magic Packet sent to:\n\nMachine: ${machine.machine_name}\nMAC: ${machine.mac_address}\nBroadcast: ${machine.broadcast_ip || '255.255.255.255'}\n\nOnline farm relay agents will broadcast the UDP Magic Packet to wake the computer.`);
     } catch (err) {
       alert('Error sending Wake-on-LAN request: ' + err.message);
     } finally {
@@ -374,7 +374,7 @@ export default function SeedAdminDashboard() {
                           className={`btn ${isAvailableRental ? 'btn-success' : 'btn-secondary'}`}
                           style={{ padding: '4px 10px', fontSize: '11px' }}
                         >
-                          {isAvailableRental ? 'Ã°Å¸â€ºâ€™ Released to Store' : 'Ã°Å¸â€â€™ Hold in Inventory'}
+                          {isAvailableRental ? '🛒 Released to Store' : 'Ã°Å¸â€â€™ Hold in Inventory'}
                         </button>
                       </td>
                       <td style={{ padding: '14px 12px' }}>
@@ -517,7 +517,7 @@ export default function SeedAdminDashboard() {
                             style={{ padding: '5px 10px', fontSize: '11px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                             title="Send Wake-on-LAN Magic Packet to turn on this computer remotely"
                           >
-                            <Zap size={12} /> {isWaking ? 'Waking...' : 'Ã¢Å¡Â¡ Wake Machine'}
+                            <Zap size={12} /> {isWaking ? 'Waking...' : '⚡ Wake Machine'}
                           </button>
                           <button 
                             onClick={() => toggleMode(b.binding_code, b.license_mode)}
@@ -694,7 +694,7 @@ export default function SeedAdminDashboard() {
               <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: '6px' }}>Ã°Å¸â€Â§ Prerequisite Computer Setup (One-Time):</div>
               <ol style={{ paddingLeft: '20px', margin: 0, color: 'var(--text-main)' }}>
                 <li style={{ marginBottom: '6px' }}>
-                  <strong>Windows Device Manager:</strong> Open <em>Device Manager</em> Ã¢â€ â€™ expand <em>Network Adapters</em> Ã¢â€ â€™ Right click Ethernet/Wi-Fi Card Ã¢â€ â€™ <em>Properties</em> Ã¢â€ â€™ <em>Power Management</em> tab Ã¢â€ â€™ check <strong>"Allow this device to wake the computer"</strong> and <strong>"Only allow a magic packet to wake the computer"</strong>.
+                  <strong>Windows Device Manager:</strong> Open <em>Device Manager</em> → expand <em>Network Adapters</em> → Right click Ethernet/Wi-Fi Card → <em>Properties</em> → <em>Power Management</em> tab → check <strong>"Allow this device to wake the computer"</strong> and <strong>"Only allow a magic packet to wake the computer"</strong>.
                 </li>
                 <li style={{ marginBottom: '6px' }}>
                   <strong>Advanced Tab:</strong> In the same network properties window, switch to the <em>Advanced</em> tab and set <strong>"Wake on Magic Packet"</strong> to <em>Enabled</em>.
