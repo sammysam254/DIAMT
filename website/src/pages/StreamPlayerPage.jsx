@@ -308,7 +308,7 @@ export default function StreamPlayerPage() {
               display: 'block'
             }}
             title={`Stream_${serial}`}
-            allow="autoplay; fullscreen"
+            allow="autoplay *; fullscreen *; clipboard-write *"
             referrerPolicy="no-referrer"
           />
         ) : (

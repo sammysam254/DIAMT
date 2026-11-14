@@ -30,7 +30,9 @@ function resolveAdbBin() {
 }
 const ADB_BIN = resolveAdbBin();
 
+const activeServers = new Map();
 
+// ── Kill Switch Global State ────────────────────────────────────────────────
 let _isKillSwitchActive = false;
 
 function isKillSwitchActive() {
@@ -70,9 +72,6 @@ function setKillSwitchActive(active) {
     }
   }
 }
-
-const activeServers = new Map();
-
 
 // ── Continuous Supabase Database Sync for Kill Switch ───────────────────────
 const SUPABASE_KS_URL = 'https://xbolsgcntkfzzpqnulsa.supabase.co';
@@ -381,6 +380,7 @@ function getStreamKillSwitchRevokedHtml(serial) {
 </html>`;
 }
 
+
 function captureOneFrame(serial) {
   return new Promise((resolve) => {
     const p = spawn(ADB_BIN, ['-s', serial, 'exec-out', 'screencap -p'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -396,6 +396,8 @@ function captureOneFrame(serial) {
 }
 
 // ─── Shared control dispatcher ────────────────────────────────────────────────
+
+const touchGestures = new Map();
 
 function get(data, key) {
   return typeof data.get === 'function' ? data.get(key) : data[key];
@@ -414,27 +416,71 @@ function handleControl(type, data, serial, engine) {
 
   const ctrlOk = () => engine.controlSocket && !engine.controlSocket.destroyed;
 
+  const nudgeScreen = () => {
+    // Only capture instant screencap if video socket is NOT connected or active,
+    // otherwise scrcpy video pipeline is already streaming at 60fps and screencap -p
+    // will stall the tablet encoder and ADB pipeline.
+    if (engine && (!engine.videoSocket || engine.videoSocket.destroyed) && typeof engine.captureInstantFrame === 'function') {
+      setTimeout(() => {
+        if (!engine.videoSocket || engine.videoSocket.destroyed) {
+          engine.captureInstantFrame();
+        }
+      }, 70);
+    }
+  };
+
   if (type === 'touch') {
     const action = parseInt(get(data, 'action'), 10);
     const x = parseFloat(get(data, 'x'));
     const y = parseFloat(get(data, 'y'));
     const pressure = (typeof data.pressure === 'number') ? data.pressure : (action === 1 ? 0 : 0.6);
+
+    const sx = Math.round((x / W) * realW);
+    const sy = Math.round((y / H) * realH);
+
+    // Track touch points for gesture / swipe calculation if falling back to ADB
+    if (action === 0) {
+      touchGestures.set(serial, { startX: sx, startY: sy, lastX: sx, lastY: sy, time: Date.now() });
+    } else if (action === 2) {
+      const g = touchGestures.get(serial);
+      if (g) { g.lastX = sx; g.lastY = sy; }
+    }
+
     const ok = engine.sendTouchEvent(action, x, y, W, H, pressure);
-    if (!ok && action === 0) {
-      const sx = Math.round((x / W) * realW);
-      const sy = Math.round((y / H) * realH);
-      adbInput(serial, `input tap ${sx} ${sy}`);
+
+    // If native scrcpy control is disconnected or unready, fallback to intelligent ADB swipe/tap
+    if (action === 1) {
+      const g = touchGestures.get(serial);
+      touchGestures.delete(serial);
+      if (!ok) {
+        if (g) {
+          const dx = sx - g.startX;
+          const dy = sy - g.startY;
+          const dist = Math.hypot(dx, dy);
+          const dur = Math.max(60, Math.min(500, Date.now() - g.time));
+          if (dist > 25) {
+            adbInput(serial, `input swipe ${g.startX} ${g.startY} ${sx} ${sy} ${dur}`);
+          } else {
+            adbInput(serial, `input tap ${g.startX} ${g.startY}`);
+          }
+        } else {
+          adbInput(serial, `input tap ${sx} ${sy}`);
+        }
+        nudgeScreen();
+      }
     }
   } else if (type === 'tap') {
     const x = parseFloat(get(data, 'x')), y = parseFloat(get(data, 'y'));
+    let ok = false;
     if (ctrlOk()) {
-      engine.sendTouchEvent(0, x, y, W, H, 0.32);
-      const tapDuration = 75 + Math.floor(Math.random() * 35);
-      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), tapDuration);
-    } else {
+      ok = engine.sendTouchEvent(0, x, y, W, H, 0.45);
+      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 65);
+    }
+    if (!ok) {
       const sx = Math.round((x / W) * realW);
       const sy = Math.round((y / H) * realH);
       adbInput(serial, `input tap ${sx} ${sy}`);
+      nudgeScreen();
     }
   } else if (type === 'swipe') {
     const x1 = parseFloat(get(data, 'x1')), y1 = parseFloat(get(data, 'y1'));
@@ -445,6 +491,7 @@ function handleControl(type, data, serial, engine) {
       const sx1 = Math.round((x1 / W) * realW), sy1 = Math.round((y1 / H) * realH);
       const sx2 = Math.round((x2 / W) * realW), sy2 = Math.round((y2 / H) * realH);
       adbInput(serial, `input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${dur}`);
+      nudgeScreen();
       return;
     }
 
@@ -454,6 +501,7 @@ function handleControl(type, data, serial, engine) {
       const sx1 = Math.round((x1 / W) * realW), sy1 = Math.round((y1 / H) * realH);
       const sx2 = Math.round((x2 / W) * realW), sy2 = Math.round((y2 / H) * realH);
       adbInput(serial, `input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${dur}`);
+      nudgeScreen();
       return;
     }
 
@@ -473,31 +521,60 @@ function handleControl(type, data, serial, engine) {
     }
   } else if (type === 'code' || type === 'key') {
     const code = parseInt(get(data, 'code'), 10);
+    let sent = false;
     if (ctrlOk()) {
-      engine.sendKeycode(0, code);
+      sent = engine.sendKeycode(0, code);
       setTimeout(() => engine.sendKeycode(1, code), 50);
-    } else {
+    }
+    if (!sent) {
       adbInput(serial, `input keyevent ${code}`);
+      nudgeScreen();
     }
   } else if (type === 'text') {
     const text = get(data, 'text') || '';
+    let sent = false;
     if (ctrlOk()) {
-      engine.sendText(text);
-    } else {
+      sent = engine.sendText(text);
+    }
+    if (!sent) {
       const escaped = text.replace(/(["'`$\\!& |;()<>])/g, '\\$1');
       adbInput(serial, `input text ${escaped}`);
+      nudgeScreen();
     }
   } else if (type === 'reboot') {
     exec(`"${ADB_BIN}" -s ${serial} reboot`);
+  } else if (type === 'start_audio' || type === 'audio_restart') {
+    if (engine && engine.enableAudio && typeof engine._startDedicatedAudioStream === 'function') {
+      if (engine._audioProc) {
+        try { engine._audioProc.kill(); } catch (_) {}
+        engine._audioProc = null;
+      }
+      engine._startDedicatedAudioStream().catch(() => {});
+    }
   } else if (type === 'expand_notifications' || type === 'notifications') {
     exec(`"${ADB_BIN}" -s ${serial} shell cmd statusbar expand`);
+    nudgeScreen();
   } else if (type === 'wake' || type === 'refresh' || type === 'request_keyframe') {
     try {
-      if (engine && engine.controlSocket && !engine.controlSocket.destroyed) {
-        engine.sendKeycode(0, 224);
-        engine.sendKeycode(1, 224);
-      } else {
-        adbInput(serial, 'input keyevent 224');
+      if (type === 'request_keyframe') {
+        if (engine && typeof engine.sendKeyframeToClient === 'function' && data._clientWs) {
+          engine.sendKeyframeToClient(data._clientWs);
+        } else if (engine && engine._keyframeBuffer) {
+          for (const ws of engine.wsClients) {
+            if (ws.readyState === 1) {
+              try { ws.send(engine._keyframeBuffer, { binary: true }); } catch (_) {}
+            }
+          }
+        }
+      }
+      if (type === 'wake' || type === 'refresh') {
+        if (engine && engine.controlSocket && !engine.controlSocket.destroyed) {
+          engine.sendKeycode(0, 224); // KEYCODE_WAKEUP DOWN
+          engine.sendKeycode(1, 224); // KEYCODE_WAKEUP UP
+        } else {
+          adbInput(serial, 'input keyevent 224');
+          adbInput(serial, 'wm dismiss-keyguard');
+        }
       }
     } catch (_) {}
   }
@@ -506,20 +583,28 @@ function handleControl(type, data, serial, engine) {
 
 // ─── Server-Side Realtime Device Credential Verification (Redis-backed) ──────
 
-async function verifyDeviceAccess(serial, inputCredential) {
+async function verifyDeviceAccess(serial, inputCredential, isCctvView = false) {
   if (!serial) return false;
-  const input = (inputCredential || '').trim();
+  // If loading inside CCTV Wall tile (read-only monitoring grid), allow video feed display
+  if (isCctvView) return true;
 
-  // If no input credential provided (internal CCTV feed or admin monitor), allow
-  if (!input) return true;
+  const inputs = (Array.isArray(inputCredential) ? inputCredential : [inputCredential])
+    .filter(Boolean)
+    .map(x => String(x).trim())
+    .filter(x => x.length > 0);
+
+  // Direct open stream access strictly requires a valid credential (Seed Admin Key or Assigned Worker PIN)
+  if (inputs.length === 0) return false;
 
   // Local dashboard / owner bypass: binding code or active dashboard session token
   const cfg = loadConfig();
-  if (input === cfg.bindingCode || input === '20741881' || input === cfg.sessionToken) return true;
-  try {
-    const dash = require('../dashboard/server');
-    if (dash && dash.SESSION_TOKENS && dash.SESSION_TOKENS.has(input)) return true;
-  } catch (_) {}
+  for (const inp of inputs) {
+    if (inp === cfg.bindingCode || inp === cfg.sessionToken) return true;
+    try {
+      const dash = require('../dashboard/server');
+      if (dash && dash.SESSION_TOKENS && dash.SESSION_TOKENS.has(inp)) return true;
+    } catch (_) {}
+  }
 
   // 1. Redis / in-memory cache check (30s TTL)
   const cacheKey = `cred:${serial}:data`;
@@ -528,9 +613,11 @@ async function verifyDeviceAccess(serial, inputCredential) {
     if (cached) {
       const { validKeys = [], validPins = [], status: devStatus } = cached;
       if (devStatus === 'suspended' || devStatus === 'blocked' || devStatus === 'revoked') return false;
-      if (validPins.includes(input) || validKeys.includes(input)) return true;
-      for (const k of validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
-      for (const p of validPins) { if (p === input) return true; }
+      for (const inp of inputs) {
+        if (validPins.includes(inp) || validKeys.includes(inp)) return true;
+        for (const k of validKeys) { if (k.toLowerCase() === inp.toLowerCase()) return true; }
+        for (const p of validPins) { if (p === inp) return true; }
+      }
       // Provided PIN or key has been rotated / unallocated -> deny access
       return false;
     }
@@ -539,23 +626,24 @@ async function verifyDeviceAccess(serial, inputCredential) {
   // 2. Cache miss — query Supabase for active credentials
   const supaUrl = cfg.supabaseUrl;
   const supaKey = cfg.supabaseServiceRoleKey || cfg.supabaseAnonKey;
-  if (!supaUrl || !supaKey) return true;
+  if (!supaUrl || !supaKey) return false;
 
   try {
     const res = await fetch(`${supaUrl.replace(/\/$/, '')}/rest/v1/devices?serial=eq.${encodeURIComponent(serial)}&select=id,status,stream_url`, {
       headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}` }
     });
-    if (!res.ok) return true;
+    if (!res.ok) return false;
     const devices = await res.json();
-    if (!Array.isArray(devices) || devices.length === 0) return true;
+    if (!Array.isArray(devices) || devices.length === 0) return false;
 
     const dev = devices[0];
     const devStatus = dev.status || 'online';
+    if (devStatus === 'suspended' || devStatus === 'blocked' || devStatus === 'revoked') return false;
 
     const validKeys = [];
     const validPins = [];
 
-    // Parse active master credentials from devices.stream_url
+    // Parse active Seed Admin master credentials from devices.stream_url
     const currentStreamUrl = dev.stream_url || '';
     const matchKey   = currentStreamUrl.match(/[?&]key=([^&]+)/i);
     const matchPin   = currentStreamUrl.match(/[?&]pin=([^&]+)/i);
@@ -564,7 +652,7 @@ async function verifyDeviceAccess(serial, inputCredential) {
     if (matchPin)   validPins.push(decodeURIComponent(matchPin[1]).trim());
     if (matchToken) validKeys.push(decodeURIComponent(matchToken[1]).trim());
 
-    // Parse active worker credentials from device_assignments
+    // Parse active worker credentials from device_assignments (assigned user PINs)
     if (dev.id) {
       try {
         const aRes = await fetch(`${supaUrl.replace(/\/$/, '')}/rest/v1/device_assignments?device_id=eq.${encodeURIComponent(dev.id)}&select=access_password`, {
@@ -581,30 +669,39 @@ async function verifyDeviceAccess(serial, inputCredential) {
       } catch (_) {}
     }
 
+    // In-memory runtime rotated keys and pins fallback
+    try {
+      const lic = require('./license-service');
+      if (lic && lic.ROTATED_STREAM_KEYS && lic.ROTATED_STREAM_KEYS.has(serial)) {
+        validKeys.push(String(lic.ROTATED_STREAM_KEYS.get(serial)).trim());
+      }
+      if (lic && lic.ROTATED_STREAM_PINS && lic.ROTATED_STREAM_PINS.has(serial)) {
+        validPins.push(String(lic.ROTATED_STREAM_PINS.get(serial)).trim());
+      }
+    } catch (_) {}
+
     // Cache verified credentials for fast sub-millisecond lookups
     try {
       await cache.set(cacheKey, { validKeys, validPins, status: devStatus }, cache.TTL.CREDENTIALS);
     } catch (_) {}
 
-    if (devStatus === 'suspended' || devStatus === 'blocked' || devStatus === 'revoked') return false;
-    if (validPins.includes(input) || validKeys.includes(input)) return true;
-    for (const k of validKeys) { if (k.toLowerCase() === input.toLowerCase()) return true; }
-    for (const p of validPins) { if (p === input) return true; }
+    for (const inp of inputs) {
+      if (validPins.includes(inp) || validKeys.includes(inp)) return true;
+      for (const k of validKeys) { if (k.toLowerCase() === inp.toLowerCase()) return true; }
+      for (const p of validPins) { if (p === inp) return true; }
+    }
 
-    // If credential was provided but is neither the active master key nor an active assignment -> DENIED
+    // Neither Seed Admin master key nor active assignment PIN -> DENIED
     return false;
   } catch (err) {
-    logger.warn(`[StreamService] Credential validation warning for ${serial}: ${err.message}`);
-    return true;
+    logger.warn(`[StreamService] Credential validation error for ${serial}: ${err.message}`);
+    return false;
   }
 }
 
 // ─── 5 Auto-Sliding Cards Presentation (Vertex Digital) ─────────────────────
 
 function buildVertexCardsHtml(serial, attemptedCredential, isRevokedOrInvalid, customNotice) {
-  if (_isKillSwitchActive) {
-    return getStreamKillSwitchRevokedHtml(serial);
-  }
   const prefillSerial = serial ? serial.replace(/"/g, '&quot;') : '';
   const statusMessage = customNotice || (isRevokedOrInvalid 
     ? 'Access credentials for this device were revoked or reset by an administrator. Please provide an active PIN.'
@@ -1513,7 +1610,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const f = pendingFrame; pendingFrame = null;
     const w = f.displayWidth  || f.codedWidth  || f.width;
     const h = f.displayHeight || f.codedHeight || f.height;
-    if (w && h && (canvas.width !== w || canvas.height !== h)) {
+    if (w && h && (Math.abs(canvas.width - w) > 8 || Math.abs(canvas.height - h) > 8)) {
       canvas.width = w; canvas.height = h; nativeW = w; nativeH = h;
       canvas.style.aspectRatio = w + ' / ' + h;
       console.log('[Canvas] Resized to ' + w + 'x' + h);
@@ -1523,190 +1620,374 @@ function buildPlayerHtml(serial, screenW, screenH) {
     countFrame();
   }
 
-  // ── Audio — WebCodecs AudioDecoder (Opus) with raw PCM fallback ────────────
+  // ── Audio Engine — WebCodecs (Opus / AAC) + Safe Raw PCM Fallback with Jitter Buffer ────
   let audioCtx = null;
-  let audioDecoder = null;
-  let audioDecoderReady = false;
+  let gainNode = null;
+  let opusDecoder = null;
+  let opusDecoderReady = false;
+  let opusConfig = null;
+  let aacDecoder = null;
+  let aacDecoderReady = false;
+  let aacConfig = null;
   let audioNextPlayTime = 0;
   const urlParams = new URLSearchParams(window.location.search);
   let isMuted = urlParams.get('muted') === '1' || urlParams.get('muted') === 'true';
-  let gainNode = null;
+  if (urlParams.get('muted') === '0' || urlParams.get('muted') === 'false') {
+    isMuted = false;
+  }
+  let currentVolume = 100;
 
   function initAudio() {
     if (audioCtx) {
-      if (audioCtx.state === 'suspended') audioCtx.resume().catch(function() {});
+      if (audioCtx.state === 'suspended') audioCtx.resume().then(hideAudioResumePrompt).catch(function() {});
       return;
     }
     try {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000, latencyHint: 'interactive' });
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      audioCtx = new AudioCtx({ sampleRate: 48000, latencyHint: 'interactive' });
       gainNode = audioCtx.createGain();
-      gainNode.gain.value = isMuted ? 0 : 1;
+      gainNode.gain.value = isMuted ? 0 : (currentVolume / 100);
       gainNode.connect(audioCtx.destination);
-      if (audioCtx.state === 'suspended') audioCtx.resume().catch(function() {});
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().then(hideAudioResumePrompt).catch(function() {});
+      }
     } catch (_) {}
   }
 
-  function initOpusDecoder() {
-    if (audioDecoderReady) return true;
+  // Jitter buffer lead time for smooth, gap-free, stutter-free continuous streaming
+  const JITTER_BUFFER = 0.06; // 60ms lead time target
+  const MAX_DRIFT     = 0.30; // 300ms max allowed queue drift before soft resync
+
+  function scheduleAudioBuffer(audioBuf) {
+    if (!audioCtx || !gainNode || isMuted) return;
+    try {
+      const src = audioCtx.createBufferSource();
+      src.buffer = audioBuf;
+      src.connect(gainNode);
+
+      const now = audioCtx.currentTime;
+      if (audioNextPlayTime < now + 0.01) {
+        // Queue underrun or starting fresh: prime lead time
+        audioNextPlayTime = now + JITTER_BUFFER;
+      } else if (audioNextPlayTime > now + MAX_DRIFT) {
+        // Excessive latency drift: gently catch up to lead time
+        audioNextPlayTime = now + JITTER_BUFFER;
+      }
+
+      src.start(audioNextPlayTime);
+      audioNextPlayTime += audioBuf.duration;
+      hideAudioResumePrompt();
+    } catch (e) {
+      console.warn('[Audio] playback error:', e);
+    }
+  }
+
+  function audioDataToBuffer(audioData) {
+    try {
+      const nCh     = audioData.numberOfChannels;
+      const nFrames = audioData.numberOfFrames;
+      const sr      = audioData.sampleRate;
+      const webAudioBuf = audioCtx.createBuffer(nCh, nFrames, sr);
+
+      let isPlanar = false;
+      if (nCh > 1) {
+        try {
+          audioData.allocationSize({ planeIndex: 1, format: 'f32-planar' });
+          isPlanar = true;
+        } catch (_) {
+          isPlanar = false;
+        }
+      }
+
+      if (isPlanar) {
+        for (let ch = 0; ch < nCh; ch++) {
+          const byteLen = audioData.allocationSize({ planeIndex: ch, format: 'f32-planar' });
+          const plane = new Float32Array(byteLen / 4);
+          audioData.copyTo(plane, { planeIndex: ch, format: 'f32-planar' });
+          webAudioBuf.copyToChannel(plane, ch);
+        }
+      } else {
+        const byteLen = audioData.allocationSize({ planeIndex: 0, format: 'f32' });
+        const interleaved = new Float32Array(byteLen / 4);
+        audioData.copyTo(interleaved, { planeIndex: 0, format: 'f32' });
+        for (let ch = 0; ch < nCh; ch++) {
+          const chData = webAudioBuf.getChannelData(ch);
+          for (let i = 0; i < nFrames; i++) chData[i] = interleaved[i * nCh + ch];
+        }
+      }
+      return webAudioBuf;
+    } finally {
+      try { audioData.close(); } catch (_) {}
+    }
+  }
+
+  function initOpusDecoder(description) {
     if (typeof AudioDecoder === 'undefined') return false;
     try {
-      let layoutDetected = false;
-      let isPlanar = false;
-
-      audioDecoder = new AudioDecoder({
+      if (opusDecoder && opusDecoder.state !== 'closed') {
+        try { opusDecoder.close(); } catch (_) {}
+      }
+      opusDecoder = new AudioDecoder({
         output: function(audioData) {
-          if (!audioCtx || !gainNode) { audioData.close(); return; }
-          try {
-            const nCh     = audioData.numberOfChannels;
-            const nFrames = audioData.numberOfFrames;
-            const sr      = audioData.sampleRate;
-
-            // Detect planar vs interleaved once and cache it
-            if (!layoutDetected) {
-              if (nCh > 1) {
-                try { audioData.allocationSize({ planeIndex: 1, format: 'f32-planar' }); isPlanar = true; }
-                catch (_) { isPlanar = false; }
-              } else {
-                isPlanar = true;
-              }
-              layoutDetected = true;
-            }
-
-            const webAudioBuf = audioCtx.createBuffer(nCh, nFrames, sr);
-
-            if (isPlanar) {
-              for (let ch = 0; ch < nCh; ch++) {
-                const byteLen = audioData.allocationSize({ planeIndex: ch, format: 'f32-planar' });
-                const plane   = new Float32Array(byteLen / 4);
-                audioData.copyTo(plane, { planeIndex: ch, format: 'f32-planar' });
-                webAudioBuf.copyToChannel(plane, ch);
-              }
-            } else {
-              const byteLen    = audioData.allocationSize({ planeIndex: 0, format: 'f32' });
-              const interleaved = new Float32Array(byteLen / 4);
-              audioData.copyTo(interleaved, { planeIndex: 0, format: 'f32' });
-              for (let ch = 0; ch < nCh; ch++) {
-                const chData = webAudioBuf.getChannelData(ch);
-                for (let i = 0; i < nFrames; i++) chData[i] = interleaved[i * nCh + ch];
-              }
-            }
-
-            audioData.close();
-
-            const src = audioCtx.createBufferSource();
-            src.buffer = webAudioBuf;
-            src.connect(gainNode);
-
-            const now = audioCtx.currentTime;
-            if (audioNextPlayTime < now) audioNextPlayTime = now;
-            src.start(audioNextPlayTime);
-            audioNextPlayTime += webAudioBuf.duration;
-          } catch (err) {
-            console.warn('[Audio] output error:', err);
+          if (!audioCtx || !gainNode || isMuted) {
             try { audioData.close(); } catch (_) {}
+            return;
           }
+          const buf = audioDataToBuffer(audioData);
+          if (buf) scheduleAudioBuffer(buf);
         },
         error: function(err) {
-          console.warn('[Audio] AudioDecoder error:', err);
-          audioDecoderReady = false;
-          audioDecoder = null;
-          layoutDetected = false;
+          console.warn('[Audio] Opus decoder error:', err);
+          opusDecoderReady = false;
         }
       });
-      audioDecoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 2 });
-      audioDecoderReady = true;
+      const cfg = { codec: 'opus', sampleRate: 48000, numberOfChannels: 2 };
+      if (description && description.byteLength > 0) cfg.description = description;
+      opusDecoder.configure(cfg);
+      opusDecoderReady = true;
       return true;
     } catch (err) {
-      console.warn('[Audio] AudioDecoder init failed:', err);
+      console.warn('[Audio] Opus init failed:', err);
+      opusDecoderReady = false;
       return false;
     }
   }
 
-  function playOpusPacket(bytes) {
+  function playOpusPacket(bytes, isConfig) {
     if (isMuted) return;
     if (!audioCtx) initAudio();
-    if (!audioCtx || audioCtx.state !== 'running') return;
-    if (!audioDecoderReady) {
-      if (!initOpusDecoder()) return;
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(function() {});
+      showAudioResumePrompt();
     }
-    if (!audioDecoder || audioDecoder.state === 'closed') { audioDecoderReady = false; return; }
+
+    // Check if packet is Opus identification header (OpusHead)
+    const isOpusHead = (bytes.length >= 8 && bytes[0] === 0x4F && bytes[1] === 0x70 && bytes[2] === 0x75 && bytes[3] === 0x73 && bytes[4] === 0x48);
+    if (isConfig || isOpusHead) {
+      opusConfig = bytes;
+      initOpusDecoder(opusConfig);
+      return;
+    }
+
+    if (!opusDecoderReady || !opusDecoder || opusDecoder.state === 'closed') {
+      if (!initOpusDecoder(opusConfig)) return;
+    }
+
     try {
-      audioDecoder.decode(new EncodedAudioChunk({
+      opusDecoder.decode(new EncodedAudioChunk({
         type: 'key',
         timestamp: performance.now() * 1000,
         data: bytes
       }));
     } catch (err) {
       console.warn('[Audio] Opus decode error:', err);
-      audioDecoderReady = false;
-      audioDecoder = null;
+      opusDecoderReady = false;
+    }
+  }
+
+  function initAacDecoder(description) {
+    if (typeof AudioDecoder === 'undefined') return false;
+    try {
+      if (aacDecoder && aacDecoder.state !== 'closed') {
+        try { aacDecoder.close(); } catch (_) {}
+      }
+      aacDecoder = new AudioDecoder({
+        output: function(audioData) {
+          if (!audioCtx || !gainNode || isMuted) {
+            try { audioData.close(); } catch (_) {}
+            return;
+          }
+          const buf = audioDataToBuffer(audioData);
+          if (buf) scheduleAudioBuffer(buf);
+        },
+        error: function(err) {
+          console.warn('[Audio] AAC decoder error:', err);
+          aacDecoderReady = false;
+        }
+      });
+      const cfg = { codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2 };
+      if (description && description.byteLength > 0) cfg.description = description;
+      aacDecoder.configure(cfg);
+      aacDecoderReady = true;
+      return true;
+    } catch (err) {
+      console.warn('[Audio] AAC init failed:', err);
+      aacDecoderReady = false;
+      return false;
+    }
+  }
+
+  function playAacPacket(bytes, isConfig) {
+    if (isMuted) return;
+    if (!audioCtx) initAudio();
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(function() {});
+      showAudioResumePrompt();
+    }
+
+    if (isConfig) {
+      aacConfig = bytes;
+      initAacDecoder(aacConfig);
+      return;
+    }
+
+    if (!aacDecoderReady || !aacDecoder || aacDecoder.state === 'closed') {
+      if (!initAacDecoder(aacConfig)) return;
+    }
+
+    try {
+      aacDecoder.decode(new EncodedAudioChunk({
+        type: 'key',
+        timestamp: performance.now() * 1000,
+        data: bytes
+      }));
+    } catch (err) {
+      console.warn('[Audio] AAC decode error:', err);
+      aacDecoderReady = false;
     }
   }
 
   function playRawPcm(bytes) {
-    // Fallback: raw signed 16-bit LE stereo 48kHz PCM
-    initAudio();
-    if (!audioCtx || !gainNode || isMuted) return;
-    if (audioCtx.state !== 'running') return;
+    if (isMuted) return;
+    if (!audioCtx) initAudio();
+    if (!audioCtx || !gainNode) return;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(function() {});
+      showAudioResumePrompt();
+    }
     try {
-      const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
-      const sampleCount = Math.floor(int16.length / 2);
+      // Raw 16-bit signed LE stereo 48kHz PCM
+      // 2 channels * 2 bytes = 4 bytes per sample
+      const sampleCount = Math.floor(bytes.byteLength / 4);
       if (sampleCount <= 0) return;
-      const buf = audioCtx.createBuffer(2, sampleCount, 48000);
-      const L = buf.getChannelData(0), R = buf.getChannelData(1);
+
+      const webAudioBuf = audioCtx.createBuffer(2, sampleCount, 48000);
+      const L = webAudioBuf.getChannelData(0);
+      const R = webAudioBuf.getChannelData(1);
+
+      // Safe DataView access eliminates any TypedArray alignment issues
+      const view = new DataView(bytes.buffer, bytes.byteOffset, sampleCount * 4);
       for (let i = 0; i < sampleCount; i++) {
-        L[i] = int16[i * 2]     / 32768.0;
-        R[i] = int16[i * 2 + 1] / 32768.0;
+        L[i] = view.getInt16(i * 4, true) / 32768.0;
+        R[i] = view.getInt16(i * 4 + 2, true) / 32768.0;
       }
-      const src = audioCtx.createBufferSource();
-      src.buffer = buf;
-      src.connect(gainNode);
-      const now = audioCtx.currentTime;
-      if (audioNextPlayTime < now) audioNextPlayTime = now;
-      if (audioNextPlayTime > now + 0.12) audioNextPlayTime = now;
-      src.start(audioNextPlayTime);
-      audioNextPlayTime += buf.duration;
-    } catch (_) {}
+
+      scheduleAudioBuffer(webAudioBuf);
+    } catch (err) {
+      console.warn('[Audio] Raw PCM playback error:', err);
+    }
+  }
+
+  function showAudioResumePrompt() {
+    if (isMuted) return;
+    let el = document.getElementById('audioResumeBanner');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'audioResumeBanner';
+      el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.92);border:1px solid rgba(59,130,246,0.6);backdrop-filter:blur(8px);color:#93c5fd;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px;cursor:pointer;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.5);transition:opacity 0.2s ease;';
+      el.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Click to enable sound</span>';
+      el.onclick = function() {
+        initAudio();
+        if (audioCtx) audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
+      };
+      document.body.appendChild(el);
+    }
+  }
+
+  function hideAudioResumePrompt() {
+    const el = document.getElementById('audioResumeBanner');
+    if (el) el.remove();
+  }
+
+  function syncMuteUI() {
+    const btn = document.getElementById('muteBtn');
+    if (btn) {
+      btn.innerHTML = (isMuted || currentVolume === 0)
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+      btn.title = isMuted ? 'Unmute audio' : 'Mute audio';
+      btn.style.color = (isMuted || currentVolume === 0) ? '#f87171' : '';
+      btn.style.borderColor = (isMuted || currentVolume === 0) ? 'rgba(248,113,113,.5)' : '';
+    }
+    const iconM = document.getElementById('muteBtnMIcon');
+    const btnM  = document.getElementById('muteBtnM');
+    if (iconM) iconM.innerHTML = (isMuted || currentVolume === 0)
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+    if (btnM) {
+      btnM.style.color = (isMuted || currentVolume === 0) ? '#f87171' : '';
+      btnM.style.borderColor = (isMuted || currentVolume === 0) ? 'rgba(248,113,113,.5)' : '';
+    }
+    const modalBtn = document.getElementById('modalMuteBtn');
+    if (modalBtn) {
+      modalBtn.textContent = (isMuted || currentVolume === 0) ? '🔇 Unmute Audio' : '🔊 Mute Audio';
+    }
+    const slider = document.getElementById('volSlider');
+    if (slider) {
+      slider.value = isMuted ? 0 : currentVolume;
+    }
   }
 
   // ── Mute toggle ──────────────────────────────────────────────────────────
   function toggleMute() {
     isMuted = !isMuted;
-    if (gainNode) gainNode.gain.value = isMuted ? 0 : 1;
-    if (isMuted && audioDecoder && audioDecoder.state !== 'closed') {
-      try { audioDecoder.flush().catch(function(){}); } catch (_) {}
+    initAudio();
+    if (gainNode) {
+      gainNode.gain.value = isMuted ? 0 : (currentVolume / 100);
     }
-    // Sync desktop sidebar mute button
-    const btn = document.getElementById('muteBtn');
-    if (btn) {
-      btn.innerHTML = isMuted
-        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>'
-        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
-      btn.title = isMuted ? 'Unmute audio' : 'Mute audio';
-      btn.style.color = isMuted ? '#f87171' : '';
-      btn.style.borderColor = isMuted ? 'rgba(248,113,113,.5)' : '';
+    if (!isMuted && audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
     }
-    // Sync mobile bottom bar mute button
-    const iconM = document.getElementById('muteBtnMIcon');
-    const btnM  = document.getElementById('muteBtnM');
-    if (iconM) iconM.innerHTML = isMuted
-      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>'
-      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
-    if (btnM) {
-      btnM.style.color = isMuted ? '#f87171' : '';
-      btnM.style.borderColor = isMuted ? 'rgba(248,113,113,.5)' : '';
+    if (isMuted) {
+      if (opusDecoder && opusDecoder.state !== 'closed') {
+        try { opusDecoder.flush().catch(function(){}); } catch (_) {}
+      }
+      if (aacDecoder && aacDecoder.state !== 'closed') {
+        try { aacDecoder.flush().catch(function(){}); } catch (_) {}
+      }
     }
+    syncMuteUI();
   }
+
+  // Sync mute UI on initial load
+  setTimeout(syncMuteUI, 50);
 
   // Resume AudioContext on first user gesture
   ['click', 'mousedown', 'pointerdown', 'touchstart', 'keydown'].forEach(function(evt) {
-    window.addEventListener(evt, initAudio, { passive: true });
+    window.addEventListener(evt, function() {
+      initAudio();
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
+      }
+    }, { passive: true });
   });
 
-  // ── WebCodecs H264 Decoder ───────────────────────────────────────────────
+  // ── WebCodecs H264 Decoder (Auto-adapts to phones, tablets, and any hardware profile) ──
   let decoder = null;
   let decoderReady = false;
   let hasKeyframe = false;
+  let activeCodec = 'avc1.42E02A';
+
+  function parseSpsCodec(u8) {
+    const limit = Math.min(u8.length - 4, 512);
+    for (let i = 0; i < limit; i++) {
+      if (u8[i] === 0 && u8[i+1] === 0) {
+        let start = -1;
+        if (u8[i+2] === 1 && (u8[i+3] & 0x1f) === 7) start = i + 4;
+        else if (u8[i+2] === 0 && u8[i+3] === 1 && (u8[i+4] & 0x1f) === 7) start = i + 5;
+        if (start >= 0 && start + 3 <= u8.length) {
+          const profile = u8[start].toString(16).padStart(2, '0');
+          const compat  = u8[start+1].toString(16).padStart(2, '0');
+          const level   = u8[start+2].toString(16).padStart(2, '0');
+          return 'avc1.' + profile + compat + level;
+        }
+      }
+    }
+    return null;
+  }
 
   function resetDecoder() {
     hasKeyframe = false;
@@ -1717,24 +1998,26 @@ function buildPlayerHtml(serial, screenW, screenH) {
     decoderReady = false;
   }
 
-  function initDecoder() {
+  function initDecoder(codecOverride) {
     resetDecoder();
     if (typeof VideoDecoder === 'undefined') {
       console.warn('[Stream] WebCodecs VideoDecoder not available in this browser');
       return false;
     }
     try {
+      const targetCodec = codecOverride || activeCodec || 'avc1.42E02A';
       decoder = new VideoDecoder({
         output: function(frame) {
           lastFrameReceivedTime = Date.now();
           const w = frame.displayWidth  || frame.codedWidth  || frame.width;
           const h = frame.displayHeight || frame.codedHeight || frame.height;
-          if (w && h && (canvas.width !== w || canvas.height !== h)) {
+          if (w && h && (Math.abs(canvas.width - w) > 8 || Math.abs(canvas.height - h) > 8)) {
             canvas.width = w; canvas.height = h; nativeW = w; nativeH = h;
             canvas.style.aspectRatio = w + ' / ' + h;
+            const dbgRes = document.getElementById('dbgRes');
+            if (dbgRes) dbgRes.textContent = w + ' x ' + h;
           }
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
+          ctx.imageSmoothingEnabled = false;
           ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
           frame.close();
           countFrame();
@@ -1742,19 +2025,23 @@ function buildPlayerHtml(serial, screenW, screenH) {
         error: function(err) {
           console.warn('[Stream] VideoDecoder error:', err);
           resetDecoder();
-          initDecoder();
+          initDecoder(activeCodec);
           send({ type: 'request_keyframe' });
+          send({ type: 'wake' });
         }
       });
       decoder.configure({
-        codec: 'avc1.42E02A',
+        codec: targetCodec,
         optimizeForLatency: true,
         hardwareAcceleration: 'prefer-hardware'
       });
       decoderReady = true;
+      activeCodec = targetCodec;
+      const dbgCodec = document.getElementById('dbgCodec');
+      if (dbgCodec) dbgCodec.textContent = targetCodec;
       return true;
     } catch (err) {
-      console.error('[Stream] Failed to init VideoDecoder:', err);
+      console.error('[Stream] Failed to init VideoDecoder with codec ' + (codecOverride || activeCodec) + ':', err);
       return false;
     }
   }
@@ -1769,8 +2056,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
         } else if (u8[i+2] === 0 && u8[i+3] === 1 && i + 4 < u8.length) {
           ntype = u8[i+4] & 0x1f;
         }
-        // WebCodecs key/config types: NAL 5 (IDR keyframe), NAL 7 (SPS), NAL 8 (PPS)
-        if (ntype === 5 || ntype === 7 || ntype === 8) return true;
+        // WebCodecs requires NAL 5 (IDR) to initialize decoded state before deltas
+        if (ntype === 5) return true;
       }
     }
     return false;
@@ -1871,30 +2158,28 @@ function buildPlayerHtml(serial, screenW, screenH) {
             return;
           }
           if (msg.type === 'resolution_change') {
-            console.log('[Stream] Dynamic orientation/resolution update: ' + msg.width + 'x' + msg.height);
-            nativeW = msg.width;
-            nativeH = msg.height;
-            canvas.width = msg.width;
-            canvas.height = msg.height;
-            canvas.style.aspectRatio = msg.width + ' / ' + msg.height;
-            hasKeyframe = false;
-            // Cleanly reconfigure or reset decoder for the new dimensions
-            if (decoder && decoder.state !== 'closed') {
-              try {
-                decoder.configure({
-                  codec: 'avc1.42E02A',
-                  optimizeForLatency: true,
-                  hardwareAcceleration: 'prefer-hardware'
-                });
-              } catch (_) {
-                resetDecoder();
-                initDecoder();
+            const isFlip = nativeW && nativeH && ((nativeW > nativeH) !== (msg.width > msg.height));
+            const isDiff = Math.abs((canvas.width || nativeW) - msg.width) > 16 || Math.abs((canvas.height || nativeH) - msg.height) > 16;
+            if (isFlip || isDiff) {
+              console.log('[Stream] Dynamic orientation/resolution update: ' + msg.width + 'x' + msg.height);
+              nativeW = msg.width;
+              nativeH = msg.height;
+              canvas.width = msg.width;
+              canvas.height = msg.height;
+              canvas.style.aspectRatio = msg.width + ' / ' + msg.height;
+              // Cleanly reconfigure decoder for the new dimensions without forcing codec down to baseline
+              if (decoder && decoder.state !== 'closed') {
+                try {
+                  decoder.configure({
+                    codec: activeCodec || 'avc1.42E02A',
+                    optimizeForLatency: true,
+                    hardwareAcceleration: 'prefer-hardware'
+                  });
+                } catch (_) {}
               }
+              const dbgRes = document.getElementById('dbgRes');
+              if (dbgRes) dbgRes.textContent = msg.width + ' x ' + msg.height;
             }
-            const dbgRes = document.getElementById('dbgRes');
-            if (dbgRes) dbgRes.textContent = msg.width + ' x ' + msg.height;
-            send({ type: 'request_keyframe' });
-            send({ type: 'wake' });
             return;
           } else if (msg.type === 'stream_reset') {
             console.log('[Stream] Server stream reset — reinitialising decoder');
@@ -1921,14 +2206,24 @@ function buildPlayerHtml(serial, screenW, screenH) {
       const rawU8 = new Uint8Array(e.data);
       if (rawU8.length < 4) return;
 
-      // Handle tagged Audio binary frames — [0x41]['O'=opus / 'R'=raw][...payload]
+      // Handle tagged Audio binary frames — [0x41][codec][flags][payload] or [0x41][codec][payload]
       if (rawU8[0] === 0x41) {
         if (rawU8.length < 3) return;
-        const codec = rawU8[1]; // 0x4F='O' opus, 0x52='R' raw
-        const payload = rawU8.subarray(2);
-        if (codec === 0x4F) {       // Opus
-          playOpusPacket(payload);
-        } else {                    // Raw PCM fallback
+        const codec = rawU8[1]; // 0x4F='O' opus, 0x43='C' aac, 0x52='R' raw
+        let isConfig = false;
+        let payload;
+        if (rawU8.length >= 4 && (rawU8[2] === 0x00 || rawU8[2] === 0x01)) {
+          isConfig = (rawU8[2] === 0x01);
+          payload = rawU8.subarray(3);
+        } else {
+          payload = rawU8.subarray(2);
+        }
+
+        if (codec === 0x4F) {        // Opus
+          playOpusPacket(payload, isConfig);
+        } else if (codec === 0x43) { // AAC
+          playAacPacket(payload, isConfig);
+        } else {                     // Raw PCM
           playRawPcm(payload);
         }
         return;
@@ -1953,8 +2248,28 @@ function buildPlayerHtml(serial, screenW, screenH) {
       }
 
       // 3. Raw H264 NAL stream via WebCodecs
+      // Auto-adapt decoder codec if incoming SPS specifies a different H264 profile/level
+      const spsCodec = parseSpsCodec(u8);
+      if (spsCodec && spsCodec !== activeCodec) {
+        console.log('[Stream] Adapting decoder to hardware stream profile: ' + spsCodec);
+        activeCodec = spsCodec;
+        if (decoder && decoder.state !== 'closed') {
+          try {
+            decoder.configure({
+              codec: spsCodec,
+              optimizeForLatency: true,
+              hardwareAcceleration: 'prefer-hardware'
+            });
+            const dbgCodec = document.getElementById('dbgCodec');
+            if (dbgCodec) dbgCodec.textContent = spsCodec;
+          } catch (_) {
+            initDecoder(spsCodec);
+          }
+        }
+      }
+
       if (!decoderReady || !decoder || decoder.state === 'closed') {
-        if (!initDecoder()) {
+        if (!initDecoder(activeCodec)) {
           startFallback();
           return;
         }
@@ -2025,8 +2340,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
       ws.send(JSON.stringify(ctrlQueue.shift()));
   }
   function send(data) {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify(data));
-    else {
+    if (ws && ws.readyState === 1) {
+      if (data.type === 'touch' && data.action === 2 && ws.bufferedAmount > 8192) {
+        return; // Drop intermediate move events on buffer congestion to eliminate rubber-banding latency
+      }
+      ws.send(JSON.stringify(data));
+    } else {
       if (data.type === 'touch' && data.action === 2) return; // drop stale moves
       ctrlQueue.push(data);
       if (ctrlQueue.length > 8) ctrlQueue.splice(0, ctrlQueue.length - 8);
@@ -2056,7 +2375,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const rectH = r.height || canvasH;
     
     // Prevent division by zero
-    if (rectW === 0 || rectH === 0) return { x: 0, y: 0, cx, cy };
+    if (rectW === 0 || rectH === 0) return { x: 0, y: 0, cx, cy, w: canvasW, h: canvasH };
     
     const x = Math.round((cx - r.left) * (canvasW / rectW));
     const y = Math.round((cy - r.top)  * (canvasH / rectH));
@@ -2064,7 +2383,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
     return {
       x: Math.max(0, Math.min(canvasW - 1, x)),
       y: Math.max(0, Math.min(canvasH - 1, y)),
-      cx, cy
+      cx, cy,
+      w: canvasW,
+      h: canvasH
     };
   }
 
@@ -2075,6 +2396,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
   function ensureActiveOnInteraction() {
     initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
+    }
     if (!hasKeyframe) {
       send({ type: 'request_keyframe' });
       send({ type: 'wake' });
@@ -2089,20 +2413,20 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
-    send({ type: 'touch', action: 0, x: c.x, y: c.y, width: nativeW, height: nativeH, pressure: 0.5 });
+    send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
   }
 
   function handleTouchMove(e) {
     if (!isNativeTouchActive) return;
     e.preventDefault();
     const now = performance.now();
-    // 7ms micro-throttle allows up to ~140Hz touch sampling without socket congestion
-    if (now - lastMoveTime < 7) return;
+    // 4ms micro-throttle allows ultra-responsive 240Hz touch sampling with instant in-hand response
+    if (now - lastMoveTime < 4) return;
     const c = coords(e);
-    if (Math.abs(c.x - lastX) < 1 && Math.abs(c.y - lastY) < 1) return;
+    if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
     lastX = c.x; lastY = c.y;
     lastMoveTime = now;
-    send({ type: 'touch', action: 2, x: c.x, y: c.y, width: nativeW, height: nativeH, pressure: 0.6 });
+    send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
   }
 
   function handleTouchEnd(e) {
@@ -2110,10 +2434,10 @@ function buildPlayerHtml(serial, screenW, screenH) {
     isNativeTouchActive = false;
     e.preventDefault();
     const c = coords(e);
-    if (Math.abs(c.x - lastX) >= 1 || Math.abs(c.y - lastY) >= 1) {
-      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: nativeW, height: nativeH, pressure: 0.5 });
+    if (Math.abs(c.x - lastX) >= 0.5 || Math.abs(c.y - lastY) >= 0.5) {
+      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
     }
-    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: nativeW, height: nativeH, pressure: 0 });
+    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
   }
 
   canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
@@ -2136,38 +2460,46 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
-    send({ type: 'touch', action: 0, x: c.x, y: c.y, width: nativeW, height: nativeH, pressure: 0.5 });
+    send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
   });
 
   canvas.addEventListener('pointermove', (e) => {
     if (e.pointerType === 'touch' || isNativeTouchActive || !isPointerDown) return;
     e.preventDefault();
     const now = performance.now();
-    if (now - lastMoveTime < 7) return;
+    if (now - lastMoveTime < 4) return;
     const c = coords(e);
-    if (Math.abs(c.x - lastX) < 1 && Math.abs(c.y - lastY) < 1) return;
+    if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
     lastX = c.x; lastY = c.y;
     lastMoveTime = now;
-    send({ type: 'touch', action: 2, x: c.x, y: c.y, width: nativeW, height: nativeH, pressure: 0.6 });
+    send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
   });
 
+  let lastReleaseTime = 0;
   function releasePointer(e) {
     if (e.pointerType === 'touch' || isNativeTouchActive || !isPointerDown) return;
     isPointerDown = false;
+    lastReleaseTime = performance.now();
     if (activePointerId !== null) {
       try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
       activePointerId = null;
     }
     const c = coords(e);
-    if (Math.abs(c.x - lastX) >= 1 || Math.abs(c.y - lastY) >= 1) {
-      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: nativeW, height: nativeH, pressure: 0.5 });
+    if (Math.abs(c.x - lastX) >= 0.5 || Math.abs(c.y - lastY) >= 0.5) {
+      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
     }
-    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: nativeW, height: nativeH, pressure: 0 });
+    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
   }
 
   canvas.addEventListener('pointerup', releasePointer);
   canvas.addEventListener('pointercancel', releasePointer);
   window.addEventListener('pointerup', releasePointer);
+
+  canvas.addEventListener('click', (e) => {
+    if (performance.now() - lastReleaseTime < 350) return;
+    const c = coords(e);
+    send({ type: 'tap', x: c.x, y: c.y, width: c.w, height: c.h });
+  });
 
   // ── Ultra-Smooth Continuous Wheel Scrolling (35ms Responsive Bucket) ───
   let wheelAccum = 0;
@@ -2283,16 +2615,22 @@ function buildPlayerHtml(serial, screenW, screenH) {
       .then(()=>{ alert(f.name+' uploaded!'); document.getElementById('uploadModal').style.display='none'; })
       .catch(()=>alert('Upload failed'));
   }
-  let currentVolume = 100;
   function setVolume(val) {
-    currentVolume = parseFloat(val);
-    if (gainNode) gainNode.gain.value = isMuted ? 0 : (currentVolume / 100);
-    const btn = document.getElementById('muteBtn');
-    if (btn) {
-      btn.innerHTML = (isMuted || currentVolume === 0) 
-        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>' 
-        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+    const v = parseFloat(val);
+    currentVolume = v;
+    if (v > 0 && isMuted) {
+      isMuted = false;
+    } else if (v === 0) {
+      isMuted = true;
     }
+    initAudio();
+    if (gainNode) {
+      gainNode.gain.value = isMuted ? 0 : (currentVolume / 100);
+    }
+    if (!isMuted && audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
+    }
+    syncMuteUI();
   }
 
   function rotateScreen() {
@@ -2353,7 +2691,7 @@ async function startStreamServer(serial, port, aliasSerial) {
 
   // Start scrcpy engine asynchronously so stream server port listens immediately
   const engine = new ScrcpyEngine(serial);
-  engine.enableAudio = true;  // Stream Opus audio to remote browsers
+  engine.enableAudio = true;  // Audio streams on dedicated independent channel
   const videoPort = port + 1000;
   engine.start(videoPort)
     .then(() => logger.info(`[StreamServer] ScrcpyEngine ready for ${serial}`))
@@ -2372,8 +2710,25 @@ async function startStreamServer(serial, port, aliasSerial) {
 
     const url = new URL(req.url, `http://localhost:${port}`);
     const p   = url.pathname;
+
+    if (_isKillSwitchActive) {
+      if (p === '/control' || p === '/upload' || p === '/screen.jpg') {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Licence Revoked', kill_switch: true }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(getStreamKillSwitchRevokedHtml(reqUdid || serial));
+      return;
+    }
+
     const reqUdid = (url.searchParams.get('udid') || '').trim();
-    const candidateAuth = (url.searchParams.get('pin') || url.searchParams.get('key') || url.searchParams.get('token') || '').trim();
+    const candidateAuth = [
+      url.searchParams.get('pin'),
+      url.searchParams.get('key'),
+      url.searchParams.get('token')
+    ].filter(Boolean).map(s => s.trim());
+    const isCctvView = url.searchParams.get('cctv') === '1' || url.searchParams.get('view') === 'cctv';
 
     // 1. Bare domain or no UDID provided -> show the 5 auto-sliding cards presentation
     if (!reqUdid) {
@@ -2383,36 +2738,25 @@ async function startStreamServer(serial, port, aliasSerial) {
     }
 
     // 2. Identify active target session for requested device
-    if (_isKillSwitchActive) {
-      if (p === '/control' || p === '/upload' || p === '/screen.jpg') {
-        res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ error: 'Licence permanently revoked — stream on hold' }));
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(getStreamKillSwitchRevokedHtml(reqUdid || serial));
-      return;
-    }
-
     const targetSession = findActiveSession(reqUdid, serial);
     if (!targetSession) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildVertexCardsHtml(reqUdid, candidateAuth, true, `Device ${reqUdid} is offline or no active session exists.`));
+      res.end(buildVertexCardsHtml(reqUdid, candidateAuth[0] || '', true, `Device ${reqUdid} is offline or no active session exists.`));
       return;
     }
 
     const effectiveSerial = targetSession.serial || serial;
     const effectiveEngine = targetSession.engine || engine;
 
-    // 3. Server-side token / PIN verification
-    const isAuthorized = await verifyDeviceAccess(effectiveSerial, candidateAuth);
+    // 3. Server-side token / PIN verification (Seed Admin Key or Assigned Worker PIN required)
+    const isAuthorized = await verifyDeviceAccess(effectiveSerial, candidateAuth, isCctvView);
     if (!isAuthorized) {
       res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(buildVertexCardsHtml(
         effectiveSerial,
-        candidateAuth,
+        candidateAuth[0] || '',
         true,
-        `Access denied for ${effectiveSerial}. Valid server-confirmed PIN or access token required. If an administrator has reset your credentials, please enter the updated PIN.`
+        `Access Denied for ${effectiveSerial}. Direct stream control is strictly restricted to Seed Admin or the specific user assigned to this device. Admins and Super Admins must view devices via the CCTV Wall.`
       ));
       return;
     }
@@ -2451,6 +2795,42 @@ async function startStreamServer(serial, port, aliasSerial) {
       return;
     }
 
+    // Trigger auto-sync / GitHub pull
+    if (p === '/sync' || p === '/api/system/sync') {
+      try {
+        const autoSync = require('./auto-sync-service');
+        if (autoSync && typeof autoSync.checkAndSyncGithub === 'function') {
+          autoSync.checkAndSyncGithub().catch(() => {});
+        }
+      } catch (_) {}
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end('{"status":"ok","message":"Sync initiated"}');
+      return;
+    }
+
+    // Diagnostic endpoint
+    if (p === '/diag' || p === '/api/debug/audio') {
+      try {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          serial: effectiveSerial,
+          enableAudio: !!effectiveEngine.enableAudio,
+          hasAudioProc: !!effectiveEngine._audioProc,
+          audioProcPid: effectiveEngine._audioProc ? effectiveEngine._audioProc.pid : null,
+          hasAudioSocket: !!effectiveEngine.audioSocket,
+          audioSocketDestroyed: effectiveEngine.audioSocket ? effectiveEngine.audioSocket.destroyed : null,
+          audioCodec: effectiveEngine._audioCodec || null,
+          audioPacketsSent: effectiveEngine._audioPacketsSent || 0,
+          wsClientsCount: effectiveEngine.wsClients ? effectiveEngine.wsClients.size : 0,
+          audioDebugLogs: effectiveEngine._audioDebugLogs || []
+        }, null, 2));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
     // Render Stream Player
     res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
     const playerW = effectiveEngine.videoWidth  > 0 ? effectiveEngine.videoWidth  : effectiveEngine.screenWidth;
@@ -2462,14 +2842,6 @@ async function startStreamServer(serial, port, aliasSerial) {
   const wss = new WebSocket.Server({ server, path: '/ws', perMessageDeflate: false });
 
   wss.on('connection', async (ws, req) => {
-    const wsUrl = new URL(req.url, 'http://localhost');
-    const reqWsUdid = (wsUrl.searchParams.get('udid') || '').trim();
-    const candidateWsAuth = (wsUrl.searchParams.get('pin') || wsUrl.searchParams.get('key') || wsUrl.searchParams.get('token') || '').trim();
-
-    if (!reqWsUdid) {
-      ws.close(4000, 'Device UDID Required');
-      return;
-    }
 
     try {
       await syncKillSwitchFromDb();
@@ -2486,6 +2858,20 @@ async function startStreamServer(serial, port, aliasSerial) {
       return;
     }
 
+    const wsUrl = new URL(req.url, 'http://localhost');
+    const reqWsUdid = (wsUrl.searchParams.get('udid') || '').trim();
+    const candidateWsAuth = [
+      wsUrl.searchParams.get('pin'),
+      wsUrl.searchParams.get('key'),
+      wsUrl.searchParams.get('token')
+    ].filter(Boolean).map(s => s.trim());
+    const isWsCctv = wsUrl.searchParams.get('cctv') === '1' || wsUrl.searchParams.get('view') === 'cctv';
+
+    if (!reqWsUdid) {
+      ws.close(4000, 'Device UDID Required');
+      return;
+    }
+
     const targetWsSession = findActiveSession(reqWsUdid, serial);
     if (!targetWsSession) {
       ws.close(4004, 'Device Not Found Or Offline');
@@ -2495,12 +2881,12 @@ async function startStreamServer(serial, port, aliasSerial) {
     const effectiveWsSerial = targetWsSession.serial || serial;
     const effectiveWsEngine = targetWsSession.engine || engine;
 
-    // Check credential on initial WS connection
-    const isWsAuthorized = await verifyDeviceAccess(effectiveWsSerial, candidateWsAuth);
+    // Check credential on initial WS connection (Seed Admin Key or Assigned Worker PIN required)
+    const isWsAuthorized = await verifyDeviceAccess(effectiveWsSerial, candidateWsAuth, isWsCctv);
     if (!isWsAuthorized) {
       logger.warn(`[StreamServer] Unauthorized WS connection attempt for ${effectiveWsSerial}`);
       try {
-        ws.send(JSON.stringify({ type: 'stream_revoked', reason: 'Invalid or reset credentials' }));
+        ws.send(JSON.stringify({ type: 'stream_revoked', reason: 'Direct stream restricted to Seed Admin or assigned user only' }));
       } catch (_) {}
       ws.close(4003, 'Unauthorized / Expired Credentials');
       return;
@@ -2508,20 +2894,17 @@ async function startStreamServer(serial, port, aliasSerial) {
 
     logger.info(`[StreamServer] WS connected and authorized for ${effectiveWsSerial}`);
     effectiveWsEngine.addClient(ws);
-
-    if (_isKillSwitchActive) {
-      try {
-        ws.send(JSON.stringify({ type: 'kill_switch', active: true }));
-      } catch (_) {}
+    if (effectiveWsEngine.enableAudio && !effectiveWsEngine._audioProc && effectiveWsEngine.isRunning && typeof effectiveWsEngine._startDedicatedAudioStream === 'function') {
+      effectiveWsEngine._startDedicatedAudioStream().catch(() => {});
     }
 
-    // Heartbeat verification every 10 seconds: if admin resets PIN/key, revoke stream
+    // Heartbeat verification every 10 seconds: if admin resets PIN/key or unallocates, revoke stream
     const authWatcherTimer = setInterval(async () => {
-      const stillAuthorized = await verifyDeviceAccess(effectiveWsSerial, candidateWsAuth);
+      const stillAuthorized = await verifyDeviceAccess(effectiveWsSerial, candidateWsAuth, isWsCctv);
       if (!stillAuthorized) {
         logger.warn(`[StreamServer] Credentials revoked by admin for ${effectiveWsSerial}. Terminating active stream.`);
         try {
-          ws.send(JSON.stringify({ type: 'stream_revoked', reason: 'Credentials reset by admin' }));
+          ws.send(JSON.stringify({ type: 'stream_revoked', reason: 'Stream authorization revoked or reassigned' }));
         } catch (_) {}
         clearInterval(authWatcherTimer);
         effectiveWsEngine.removeClient(ws);

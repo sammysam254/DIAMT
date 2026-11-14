@@ -415,7 +415,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                       style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }} 
                       title={d.serial} 
                       referrerPolicy="no-referrer"
-                      allow="autoplay; fullscreen"
+                      allow="autoplay *; fullscreen *; clipboard-write *"
                     />
                   ) : isFocused ? (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', fontSize: '12px', fontWeight: 700 }}>
@@ -602,7 +602,7 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
                   style={{ width: '100%', height: '100%', border: 'none' }} 
                   title="Focused Device Stream"
                   referrerPolicy="no-referrer"
-                  allow="autoplay; fullscreen"
+                  allow="autoplay *; fullscreen *; clipboard-write *"
                 />
               )}
             </div>
