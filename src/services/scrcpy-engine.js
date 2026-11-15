@@ -278,12 +278,15 @@ class ScrcpyEngine extends EventEmitter {
     // Immediately send complete self-contained cached keyframe so screen renders on frame 1 with ZERO black screen
     if (this._keyframeBuffer && ws.readyState === 1) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
-    } else if (this._configPacket && ws.readyState === 1) {
-      // Send SPS/PPS configuration packet if keyframe not yet available
-      try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
+    } else {
+      if (this._configPacket && ws.readyState === 1) {
+        try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
+      }
+      // Instantly capture and push live PNG frame so screen displays immediately with ZERO black screen
+      this.captureInstantFrame(ws);
     }
 
-    // Ensure device stays awake without sending disruptive menu keycodes
+    // Ensure device stays awake and compositor is poked
     try {
       this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
       this._adb(['shell', 'svc', 'power', 'stayon', 'true']).catch(() => {});
@@ -328,9 +331,14 @@ class ScrcpyEngine extends EventEmitter {
 
     if (this._keyframeBuffer) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
-    } else if (this._configPacket) {
-      try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
+    } else {
+      if (this._configPacket) {
+        try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
+      }
+      this.captureInstantFrame(ws);
     }
+    // Poke compositor to force a dirty rect update
+    this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
   }
 
   broadcastKeyframe() {
@@ -942,7 +950,9 @@ class ScrcpyEngine extends EventEmitter {
                 this.scrcpyVideoHeight = newH;
                 this.videoWidth  = newW;
                 this.videoHeight = newH;
-                this._keyframeBuffer = null; // Clear old orientation keyframe cache
+                if (prevW && prevH) {
+                  this._keyframeBuffer = null; // Only clear on genuine orientation flip during active streaming
+                }
                 logger.info(`[ScrcpyEngine ${this.serial}] Active video resolution updated: ${newW}x${newH} (prev: ${prevW}x${prevH})`);
 
                 // Broadcast resolution change to all connected WebSocket clients

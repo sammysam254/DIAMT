@@ -1444,7 +1444,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     }
   }
 
-  function initOpusDecoder(description) {
+  function initOpusDecoder() {
     if (typeof AudioDecoder === 'undefined') return false;
     try {
       if (opusDecoder && opusDecoder.state !== 'closed') {
@@ -1460,13 +1460,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
           if (buf) scheduleAudioBuffer(buf);
         },
         error: function(err) {
-          console.warn('[Audio] Opus decoder error:', err);
+          console.warn('[Audio] Opus decoder notice:', err);
           opusDecoderReady = false;
         }
       });
-      const cfg = { codec: 'opus', sampleRate: 48000, numberOfChannels: 2 };
-      if (description && description.byteLength > 0) cfg.description = description;
-      opusDecoder.configure(cfg);
+      // Raw Opus packets from scrcpy: omit description so WebCodecs decodes raw packets natively without RFC7845 header mismatch
+      opusDecoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 2 });
       opusDecoderReady = true;
       return true;
     } catch (err) {
@@ -1478,6 +1477,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
   function playOpusPacket(bytes, isConfig) {
     if (isMuted) return;
+    if (isConfig || !bytes || bytes.length < 2) return;
+    // Check and discard Opus identification header (OpusHead) - not audio frames
+    if (bytes.length >= 8 && bytes[0] === 0x4F && bytes[1] === 0x70 && bytes[2] === 0x75 && bytes[3] === 0x73 && bytes[4] === 0x48) {
+      return;
+    }
+
     if (!audioCtx) initAudio();
     if (!audioCtx) return;
     if (audioCtx.state === 'suspended') {
@@ -1485,16 +1490,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
       showAudioResumePrompt();
     }
 
-    // Check if packet is Opus identification header (OpusHead)
-    const isOpusHead = (bytes.length >= 8 && bytes[0] === 0x4F && bytes[1] === 0x70 && bytes[2] === 0x75 && bytes[3] === 0x73 && bytes[4] === 0x48);
-    if (isConfig || isOpusHead) {
-      opusConfig = bytes;
-      initOpusDecoder(opusConfig);
-      return;
-    }
-
     if (!opusDecoderReady || !opusDecoder || opusDecoder.state === 'closed') {
-      if (!initOpusDecoder(opusConfig)) return;
+      if (!initOpusDecoder()) return;
     }
 
     try {
@@ -1504,7 +1501,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
         data: bytes
       }));
     } catch (err) {
-      console.warn('[Audio] Opus decode error:', err);
+      console.warn('[Audio] Opus decode notice:', err);
       opusDecoderReady = false;
     }
   }
@@ -1955,21 +1952,37 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
       // 1. PNG Image Auto-detection (0x89 0x50 0x4E 0x47)
       if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4E && u8[3] === 0x47) {
-        if (!decoderReady || !decoder || decoder.state === 'closed') {
-          createImageBitmap(new Blob([u8], { type: 'image/png' }))
-            .then(function(bmp) { queueDraw(bmp); })
-            .catch(function(err) { console.warn('[Stream] PNG decode error:', err); });
-        }
+        createImageBitmap(new Blob([u8], { type: 'image/png' }))
+          .then(function(bmp) {
+            if (!hasKeyframe) {
+              const w = bmp.width; const h = bmp.height;
+              if (w && h && (Math.abs(canvas.width - w) > 8 || Math.abs(canvas.height - h) > 8)) {
+                canvas.width = w; canvas.height = h; nativeW = w; nativeH = h;
+                canvas.style.aspectRatio = w + ' / ' + h;
+              }
+              ctx.imageSmoothingEnabled = false;
+              ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+            }
+          })
+          .catch(function(err) { console.warn('[Stream] PNG decode notice:', err); });
         return;
       }
 
       // 2. JPEG Image Auto-detection (0xFF 0xD8)
       if (u8[0] === 0xFF && u8[1] === 0xD8) {
-        if (!decoderReady || !decoder || decoder.state === 'closed') {
-          createImageBitmap(new Blob([u8], { type: 'image/jpeg' }))
-            .then(function(bmp) { queueDraw(bmp); })
-            .catch(function(err) { console.warn('[Stream] JPEG decode error:', err); });
-        }
+        createImageBitmap(new Blob([u8], { type: 'image/jpeg' }))
+          .then(function(bmp) {
+            if (!hasKeyframe) {
+              const w = bmp.width; const h = bmp.height;
+              if (w && h && (Math.abs(canvas.width - w) > 8 || Math.abs(canvas.height - h) > 8)) {
+                canvas.width = w; canvas.height = h; nativeW = w; nativeH = h;
+                canvas.style.aspectRatio = w + ' / ' + h;
+              }
+              ctx.imageSmoothingEnabled = false;
+              ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+            }
+          })
+          .catch(function(err) { console.warn('[Stream] JPEG decode notice:', err); });
         return;
       }
 
