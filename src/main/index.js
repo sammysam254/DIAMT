@@ -324,8 +324,8 @@ app.whenReady().then(async () => {
 
   // Initialize Wake-on-LAN listener
   try {
-    const supabaseUrl = process.env.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co';
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+    const supabaseUrl = (config && config.supabaseUrl) || process.env.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+    const supabaseKey = (config && config.supabaseServiceRoleKey) || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
     if (supabaseUrl && supabaseKey) {
       wolService.startWolRemoteListener(supabaseUrl, supabaseKey);
     }

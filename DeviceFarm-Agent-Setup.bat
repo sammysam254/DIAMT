@@ -190,10 +190,10 @@ echo [OK] Node.js added to PATH: %NODE_DIR%
 :: Copy .env if present in current dir
 if exist "%CURRENT_DIR%\.env" copy /Y "%CURRENT_DIR%\.env" "%INSTALL_DIR%\.env" >nul 2>&1
 
-:: Patch config.json with correct binary paths and DIAMT cloud config
-echo [*] Patching config.json with local binary paths and DIAMT configuration...
-"%NODE%" -e "const fs=require('fs'),p='config.json',cfg=fs.existsSync(p)?JSON.parse(fs.readFileSync(p)):{}; cfg.adbPath=require('path').join(process.cwd(),'assets','bin','adb.exe'); cfg.cloudflaredPath=require('path').join(process.cwd(),'assets','bin','cloudflared.exe'); cfg.supabaseUrl='https://xbolsgcntkfzzpqnulsa.supabase.co'; cfg.supabaseAnonKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk'; cfg.supabaseServiceRoleKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTc5NTY1MCwiZXhwIjoyMTA1MzcxNjUwfQ.ok_mAqsFkfvP-NyZRiiPmF_eL2blTYI2shnsDAmkefw'; cfg.domain='agent.dennoh.site'; cfg.cloudflareToken='eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9'; cfg.machineBindingCode='94645645'; cfg.redisUrl='redis://default:gQAAAAAABF5yAAIgcDEzNmQ5OTcwZWY3Yjk0YmE2ODIxNmE3OGRhZTFiMjMwZA@composed-vulture-286322.upstash.io:6379'; fs.writeFileSync(p,JSON.stringify(cfg,null,2));"
-echo [OK] config.json updated.
+:: Patch config.json and .env with correct binary paths and DIAMT cloud config
+echo [*] Patching config.json and .env with local binary paths and DIAMT configuration (dennoh.site)...
+"%NODE%" -e "const fs=require('fs'),p='config.json',cfg=fs.existsSync(p)?JSON.parse(fs.readFileSync(p)):{}; cfg.adbPath=require('path').join(process.cwd(),'assets','bin','adb.exe'); cfg.cloudflaredPath=require('path').join(process.cwd(),'assets','bin','cloudflared.exe'); cfg.supabaseUrl='https://xbolsgcntkfzzpqnulsa.supabase.co'; cfg.supabaseAnonKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk'; cfg.supabaseServiceRoleKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTc5NTY1MCwiZXhwIjoyMTA1MzcxNjUwfQ.ok_mAqsFkfvP-NyZRiiPmF_eL2blTYI2shnsDAmkefw'; cfg.domain='agent.dennoh.site'; cfg.cloudflareToken='eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9'; cfg.machineBindingCode='94645645'; cfg.redisUrl='redis://default:gQAAAAAABF5yAAIgcDEzNmQ5OTcwZWY3Yjk0YmE2ODIxNmE3OGRhZTFiMjMwZA@composed-vulture-286322.upstash.io:6379'; fs.writeFileSync(p,JSON.stringify(cfg,null,2)); const envContent=['SUPABASE_URL=https://xbolsgcntkfzzpqnulsa.supabase.co','SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk','SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTc5NTY1MCwiZXhwIjoyMTA1MzcxNjUwfQ.ok_mAqsFkfvP-NyZRiiPmF_eL2blTYI2shnsDAmkefw','REDIS_URL=redis://default:gQAAAAAABF5yAAIgcDEzNmQ5OTcwZWY3Yjk0YmE2ODIxNmE3OGRhZTFiMjMwZA@composed-vulture-286322.upstash.io:6379','DOMAIN=agent.dennoh.site','CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9','ADMIN_EMAIL=sammyseth260@gmail.com','SEED_ADMIN_EMAIL=sammyseth260@gmail.com'].join('\n')+'\n'; fs.writeFileSync('.env',envContent);"
+echo [OK] config.json and .env updated.
 
 :: ════════════════════════════════════════════════════════════════════════════
 :: STEP 5 — npm install + Electron binary + scrcpy-server.jar
@@ -365,6 +365,21 @@ if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=%CURRENT_DIR%\assets\bin\c
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\cloudflared\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\Program Files\cloudflared\cloudflared.exe"
 if not exist "%CLOUDFLARED_EXE%" set "CLOUDFLARED_EXE=C:\Program Files (x86)\cloudflared\cloudflared.exe"
+if not exist "%CLOUDFLARED_EXE%" (
+    echo [*] Cloudflared not found locally. Downloading cloudflared-windows-amd64.exe...
+    if not exist "%INSTALL_DIR%\assets\bin" mkdir "%INSTALL_DIR%\assets\bin" >nul 2>nul
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '%INSTALL_DIR%\assets\bin\cloudflared.exe' -UseBasicParsing"
+    if exist "%INSTALL_DIR%\assets\bin\cloudflared.exe" set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
+)
+if exist "%CLOUDFLARED_EXE%" (
+    echo [*] Starting Cloudflare QUIC Edge Tunnel daemon for dennoh.site in background...
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
+        "Start-Process -FilePath '%CLOUDFLARED_EXE%' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9','--protocol','quic','--ha-connections','1','--no-autoupdate' -WindowStyle Hidden"
+    echo [OK] Cloudflare QUIC Edge Tunnel for dennoh.site started in background.
+) else (
+    echo [WARN] Cloudflare tunnel binary not found - tunnel will not be available.
+)
 
 :: Wait for Dashboard to become responsive
 echo [*] Waiting for Dashboard to start on http://localhost:7400...

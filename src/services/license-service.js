@@ -138,8 +138,8 @@ function getSupabaseClient() {
     ? security.getDecryptedSystemCredentials()
     : {};
   const cfg = loadConfig();
-  const url = process.env.SUPABASE_URL || cfg.supabaseUrl || creds.supabaseUrl;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || cfg.supabaseServiceRoleKey || cfg.supabaseAnonKey || creds.supabaseServiceRoleKey || creds.supabaseAnonKey;
+  const url = cfg.supabaseUrl || process.env.SUPABASE_URL || creds.supabaseUrl;
+  const key = cfg.supabaseServiceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || cfg.supabaseAnonKey || creds.supabaseServiceRoleKey || creds.supabaseAnonKey;
   
   if (!url || !key) return null;
   return axios.create({
