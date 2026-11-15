@@ -195,8 +195,8 @@ function handleControl(type, data, serial, engine) {
     const x = parseFloat(get(data, 'x')), y = parseFloat(get(data, 'y'));
     let ok = false;
     if (ctrlOk()) {
-      ok = engine.sendTouchEvent(0, x, y, W, H, 0.45);
-      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 65);
+      ok = engine.sendTouchEvent(0, x, y, W, H, 0.5);
+      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 15);
     }
     if (!ok) {
       const sx = Math.round((x / W) * realW);
@@ -2138,27 +2138,37 @@ function buildPlayerHtml(serial, screenW, screenH) {
     send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
   }
 
+  let pendingTouchMove = null;
+  let touchMoveRaf = null;
+
   function handleTouchMove(e) {
     if (!isNativeTouchActive) return;
     e.preventDefault();
-    const now = performance.now();
-    // 4ms micro-throttle allows ultra-responsive 240Hz touch sampling with instant in-hand response
-    if (now - lastMoveTime < 4) return;
     const c = coords(e);
     if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
     lastX = c.x; lastY = c.y;
-    lastMoveTime = now;
-    send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
+    pendingTouchMove = { type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 };
+    if (!touchMoveRaf) {
+      touchMoveRaf = requestAnimationFrame(function() {
+        touchMoveRaf = null;
+        if (pendingTouchMove) {
+          send(pendingTouchMove);
+          pendingTouchMove = null;
+        }
+      });
+    }
   }
 
   function handleTouchEnd(e) {
     if (!isNativeTouchActive) return;
     isNativeTouchActive = false;
     e.preventDefault();
-    const c = coords(e);
-    if (Math.abs(c.x - lastX) >= 0.5 || Math.abs(c.y - lastY) >= 0.5) {
-      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
+    if (touchMoveRaf) { cancelAnimationFrame(touchMoveRaf); touchMoveRaf = null; }
+    if (pendingTouchMove) {
+      send(pendingTouchMove);
+      pendingTouchMove = null;
     }
+    const c = coords(e);
     send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
   }
 
@@ -2170,6 +2180,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
   // Mouse / Pointer Listeners (Desktop browsers with mouse / stylus)
   let isPointerDown = false;
   let activePointerId = null;
+  let pendingPointerMove = null;
+  let pointerMoveRaf = null;
 
   canvas.addEventListener('pointerdown', (e) => {
     // If device is touch-driven, let touchstart handle it with 0ms latency
@@ -2179,6 +2191,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     activePointerId = e.pointerId;
     try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     ensureActiveOnInteraction();
+    if (pointerMoveRaf) { cancelAnimationFrame(pointerMoveRaf); pointerMoveRaf = null; pendingPointerMove = null; }
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
@@ -2188,13 +2201,19 @@ function buildPlayerHtml(serial, screenW, screenH) {
   canvas.addEventListener('pointermove', (e) => {
     if (e.pointerType === 'touch' || isNativeTouchActive || !isPointerDown) return;
     e.preventDefault();
-    const now = performance.now();
-    if (now - lastMoveTime < 4) return;
     const c = coords(e);
     if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
     lastX = c.x; lastY = c.y;
-    lastMoveTime = now;
-    send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
+    pendingPointerMove = { type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 };
+    if (!pointerMoveRaf) {
+      pointerMoveRaf = requestAnimationFrame(function() {
+        pointerMoveRaf = null;
+        if (pendingPointerMove) {
+          send(pendingPointerMove);
+          pendingPointerMove = null;
+        }
+      });
+    }
   });
 
   let lastReleaseTime = 0;
@@ -2206,10 +2225,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
       try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
       activePointerId = null;
     }
-    const c = coords(e);
-    if (Math.abs(c.x - lastX) >= 0.5 || Math.abs(c.y - lastY) >= 0.5) {
-      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
+    if (pointerMoveRaf) { cancelAnimationFrame(pointerMoveRaf); pointerMoveRaf = null; }
+    if (pendingPointerMove) {
+      send(pendingPointerMove);
+      pendingPointerMove = null;
     }
+    const c = coords(e);
     send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
   }
 

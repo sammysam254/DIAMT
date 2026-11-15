@@ -683,7 +683,10 @@ class DeviceWorker extends EventEmitter {
     const finalY = Math.max(0, Math.min(screenH - 1, Math.round(y)));
     const normPressure = action === 1 ? 0 : Math.min(0xffff, Math.max(1, Math.floor(pressure * 65535)));
 
-    const buf = Buffer.allocUnsafe(32);
+    if (!this._touchBuf) {
+      this._touchBuf = Buffer.alloc(32);
+    }
+    const buf = this._touchBuf;
     buf.writeUInt8(CONTROL_MSG_INJECT_TOUCH_EVENT, 0);
     buf.writeUInt8(action, 1);
     buf.writeBigInt64BE(-2n, 2); // Generic finger pointer ID
@@ -692,8 +695,8 @@ class DeviceWorker extends EventEmitter {
     buf.writeUInt16BE(screenW, 18);
     buf.writeUInt16BE(screenH, 20);
     buf.writeUInt16BE(normPressure, 22);
-    buf.writeInt32BE(action === 0 ? 1 : 0, 24); // action_button
-    buf.writeInt32BE(action === 1 ? 0 : 1, 28); // buttons
+    buf.writeInt32BE(0, 24); // action_button = 0 (native capacitive touch)
+    buf.writeInt32BE(0, 28); // buttons = 0 (direct touch, no mouse emulation delay)
 
     try {
       this.controlSocket.write(buf);
@@ -871,3 +874,4 @@ class DeviceWorker extends EventEmitter {
 }
 
 module.exports = DeviceWorker;
+

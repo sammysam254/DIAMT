@@ -7,24 +7,37 @@ const fs = require('fs');
 const EventEmitter = require('events');
 const logger = require('../utils/logger');
 
+const os = require('os');
+
 const ADB_BIN = (() => {
   const candidates = [
+    process.env.ADB_PATH,
+    path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'adb.exe'),
+    'C:\\scrcpy-win64-v3.3.4\\adb.exe',
     path.join(process.cwd(), 'assets', 'bin', 'adb.exe'),
+    path.join(__dirname, '..', '..', 'assets', 'bin', 'adb.exe'),
     'C:\\platform-tools\\adb.exe',
-  ];
+  ].filter(Boolean);
   for (const p of candidates) if (fs.existsSync(p)) return p;
   return 'adb';
 })();
 
 const SCRCPY_JAR_PATH = (() => {
   const candidates = [
+    process.env.SCRCPY_SERVER_PATH,
+    path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'scrcpy-server'),
+    path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'scrcpy-server.jar'),
+    'C:\\scrcpy-win64-v3.3.4\\scrcpy-server',
+    'C:\\scrcpy-win64-v3.3.4\\scrcpy-server.jar',
     path.join(__dirname, '..', '..', 'scrcpy-server.jar'),
+    path.join(__dirname, '..', '..', 'scrcpy-server'),
     path.join(process.cwd(), 'scrcpy-server.jar'),
-  ];
+    path.join(process.cwd(), 'scrcpy-server'),
+  ].filter(Boolean);
   for (const p of candidates) if (fs.existsSync(p)) return p;
   return path.join(process.cwd(), 'scrcpy-server.jar');
 })();
-const DEVICE_JAR_PATH = '/data/local/tmp/.sys_framework_res.jar';
+const DEVICE_JAR_PATH = '/data/local/tmp/scrcpy-server.jar';
 
 function getNalUnitTypes(buf) {
   const types = new Set();
@@ -466,20 +479,16 @@ class ScrcpyEngine extends EventEmitter {
 
     const args = [
       '-s', this.serial, 'shell',
-      `CLASSPATH=/data/local/tmp/scrcpy-server.jar:${DEVICE_JAR_PATH}`,
-      'app_process', '/', 'com.genymobile.scrcpy.Server', '2.4',
+      'CLASSPATH=/data/local/tmp/scrcpy-server.jar',
+      'app_process', '/', 'com.genymobile.scrcpy.Server', '3.3.4',
       'tunnel_forward=true',
       'audio=false',
       'control=true',
       'cleanup=false',
-      'send_dummy_byte=true',
-      'video_source=display',
-      'video_bit_rate=3000000',
-      `max_size=${maxSizeArg}`,
+      `max_size=${maxSizeArg || '1080'}`,
+      'video_bit_rate=4000000',
       'max_fps=60',
-      'send_frame_meta=true',
-      'show_touches=false',
-      'stay_awake=true',
+      'i_frame_interval=2',
     ];
 
     logger.info(`[ScrcpyEngine ${this.serial}] Spawning scrcpy server with args: ${args.slice(2).join(' ')}`);
@@ -1232,7 +1241,8 @@ class ScrcpyEngine extends EventEmitter {
 
     const normPressure = (action === 1) ? 0 : Math.min(0xffff, Math.max(1, Math.floor((pressure || 0.5) * 65535)));
 
-    const buf = Buffer.allocUnsafe(32);
+    if (!this._touchBuf) this._touchBuf = Buffer.alloc(32);
+    const buf = this._touchBuf;
     buf.writeUInt8(2, 0);                 // INJECT_TOUCH_EVENT
     buf.writeUInt8(action, 1);            // 0=DOWN, 1=UP, 2=MOVE
     buf.writeBigInt64BE(-2n, 2);          // SC_POINTER_ID_GENERIC_FINGER (-2n)
@@ -1241,8 +1251,8 @@ class ScrcpyEngine extends EventEmitter {
     buf.writeUInt16BE(targetW, 18);
     buf.writeUInt16BE(targetH, 20);
     buf.writeUInt16BE(normPressure, 22);
-    buf.writeInt32BE(0, 24);              // action_button = 0
-    buf.writeInt32BE(0, 28);              // buttons = 0 (clean touchscreen finger event)
+    buf.writeInt32BE(0, 24);              // action_button = 0 (clean capacitive finger)
+    buf.writeInt32BE(0, 28);              // buttons = 0 (no mouse emulation delay)
     try {
       this.controlSocket.write(buf);
       return true;
