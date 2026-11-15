@@ -29,8 +29,8 @@ exports.handler = async (event) => {
       };
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL || 'https://ipnjbzbsnmkfrjaaidoj.supabase.co';
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlwbmpiemJzbm1rZnJqYWFpZG9qIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTc2NjkyNiwiZXhwIjoyMTA3MzQyOTI2fQ.gk2YiqqhJqDiCRG6PhIL5SrVwbGj61cXQKIxdLOg6_A';
+    const supabaseUrl = process.env.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTc5NTY1MCwiZXhwIjoyMTA1MzcxNjUwfQ.ok_mAqsFkfvP-NyZRiiPmF_eL2blTYI2shnsDAmkefw';
 
     const client = axios.create({
       baseURL: `${supabaseUrl.replace(/\/$/, '')}/rest/v1`,

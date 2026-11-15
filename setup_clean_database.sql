@@ -1,6 +1,6 @@
 -- ══════════════════════════════════════════════════════════════════════════════
 -- COMPLETE CLEAN DATABASE SCHEMA INITIALIZATION
--- Project: https://ipnjbzbsnmkfrjaaidoj.supabase.co
+-- Project: https://xbolsgcntkfzzpqnulsa.supabase.co
 -- Run this in your Supabase Project -> SQL Editor
 -- (Fresh start: Zero migrated workers/devices. Users create accounts cleanly)
 -- ══════════════════════════════════════════════════════════════════════════════

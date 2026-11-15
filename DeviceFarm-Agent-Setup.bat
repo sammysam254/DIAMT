@@ -23,7 +23,7 @@ echo.
 
 :: ── Where to install the agent ─────────────────────────────────────────────
 set "INSTALL_DIR=C:\DeviceFarmAgent"
-set "REPO_URL=https://github.com/sammysam254/DIAMT2.git"
+set "REPO_URL=https://github.com/sammysam254/DIAMT.git"
 set "CURRENT_DIR=%~dp0"
 if "%CURRENT_DIR:~-1%"=="\" set "CURRENT_DIR=%CURRENT_DIR:~0,-1%"
 
@@ -192,7 +192,7 @@ if exist "%CURRENT_DIR%\.env" copy /Y "%CURRENT_DIR%\.env" "%INSTALL_DIR%\.env" 
 
 :: Patch config.json with correct binary paths and DIAMT cloud config
 echo [*] Patching config.json with local binary paths and DIAMT configuration...
-"%NODE%" -e "const fs=require('fs'),p='config.json',cfg=fs.existsSync(p)?JSON.parse(fs.readFileSync(p)):{}; cfg.adbPath=require('path').join(process.cwd(),'assets','bin','adb.exe'); cfg.cloudflaredPath=require('path').join(process.cwd(),'assets','bin','cloudflared.exe'); cfg.supabaseUrl='https://ipnjbzbsnmkfrjaaidoj.supabase.co'; cfg.supabaseAnonKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlwbmpiemJzbm1rZnJqYWFpZG9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3NjY5MjYsImV4cCI6MjEwNzM0MjkyNn0.KvJ3Q8gsgiRedOLL2R_Zrg2Cf5HVIlIofDWp8sM-Tsw'; cfg.supabaseServiceRoleKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlwbmpiemJzbm1rZnJqYWFpZG9qIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTc2NjkyNiwiZXhwIjoyMTA3MzQyOTI2fQ.gk2YiqqhJqDiCRG6PhIL5SrVwbGj61cXQKIxdLOg6_A'; cfg.redisUrl='redis://default:gQAAAAAAA2kSAAIgcDEwNDc0MmExMTVjNDg0YWZlOGQwZWJlNzQ5OWNiMDE2Mg@super-gannet-223506.upstash.io:6379'; fs.writeFileSync(p,JSON.stringify(cfg,null,2));"
+"%NODE%" -e "const fs=require('fs'),p='config.json',cfg=fs.existsSync(p)?JSON.parse(fs.readFileSync(p)):{}; cfg.adbPath=require('path').join(process.cwd(),'assets','bin','adb.exe'); cfg.cloudflaredPath=require('path').join(process.cwd(),'assets','bin','cloudflared.exe'); cfg.supabaseUrl='https://xbolsgcntkfzzpqnulsa.supabase.co'; cfg.supabaseAnonKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk'; cfg.supabaseServiceRoleKey='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTc5NTY1MCwiZXhwIjoyMTA1MzcxNjUwfQ.ok_mAqsFkfvP-NyZRiiPmF_eL2blTYI2shnsDAmkefw'; cfg.domain='agent.dennoh.site'; cfg.cloudflareToken='eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9'; cfg.machineBindingCode='94645645'; cfg.redisUrl='redis://default:gQAAAAAABF5yAAIgcDEzNmQ5OTcwZWY3Yjk0YmE2ODIxNmE3OGRhZTFiMjMwZA@composed-vulture-286322.upstash.io:6379'; fs.writeFileSync(p,JSON.stringify(cfg,null,2));"
 echo [OK] config.json updated.
 
 :: ════════════════════════════════════════════════════════════════════════════

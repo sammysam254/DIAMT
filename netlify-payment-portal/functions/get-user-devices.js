@@ -7,8 +7,8 @@ exports.handler = async (event) => {
   const rawUserId = event.queryStringParameters ? event.queryStringParameters.userId : null;
   const userId = rawUserId ? rawUserId.toLowerCase().trim() : null;
 
-  const supabaseUrl = process.env.SUPABASE_URL || 'https://ipnjbzbsnmkfrjaaidoj.supabase.co';
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlwbmpiemJzbm1rZnJqYWFpZG9qIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTc2NjkyNiwiZXhwIjoyMTA3MzQyOTI2fQ.gk2YiqqhJqDiCRG6PhIL5SrVwbGj61cXQKIxdLOg6_A';
+  const supabaseUrl = process.env.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co';
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTU2NTAsImV4cCI6MjEwNTM3MTY1MH0.u18WPrgklzJM2kCk4-OxGKoecSuUx4BuOitHrXQNUIk';
 
   try {
     const client = axios.create({
