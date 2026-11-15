@@ -97,6 +97,9 @@ class DeviceWorker extends EventEmitter {
       // 6. Connect local TCP sockets to ADB tunnel (Socket 1: Video, Socket 2: Control)
       await this._connectSockets();
 
+      // 7. Start dedicated audio stream for internal sound capture
+      this._startAudioStream().catch(() => {});
+
       this.status = 'running';
       this._isStarting = false;
       this.emit('started', { serial: this.serial, port: this.port, meta: this.deviceMeta });
@@ -443,6 +446,128 @@ class DeviceWorker extends EventEmitter {
   }
 
   /**
+   * Dedicated scrcpy v3.3.4 internal digital audio stream (Opus/AAC/Raw PCM)
+   */
+  async _startAudioStream(codec = 'opus') {
+    if (this._audioProc || this.status === 'stopped') return;
+    const audioPort = this.port + 50;
+    const scidNum = (this.port * 1000 + 161) & 0x7FFFFFFF;
+    const scidHex = scidNum.toString(16).padStart(8, '0');
+    this._audioScidHex = scidHex;
+
+    try {
+      await this._execAdb(['shell', 'pkill', '-9', '-f', `scid=${scidHex}`]).catch(() => {});
+      try { await this._execAdb(['forward', '--remove', `tcp:${audioPort}`]); } catch (_) {}
+      await this._execAdb(['forward', `tcp:${audioPort}`, `localabstract:scrcpy_${scidHex}`]);
+
+      const audioArgs = [
+        '-s', this.serial, 'shell',
+        'CLASSPATH=/data/local/tmp/scrcpy-server.jar',
+        'app_process', '/', 'com.genymobile.scrcpy.Server',
+        this.config.scrcpyVersion || '3.3.4',
+        'tunnel_forward=true',
+        `scid=${scidHex}`,
+        'video=false',
+        'audio=true',
+        'control=false',
+        `audio_codec=${codec}`,
+        'audio_bit_rate=64000',
+        'cleanup=false',
+      ];
+
+      console.log(`[DeviceWorker ${this.serial}] Spawning scrcpy v3.3.4 internal audio on port ${audioPort}...`);
+      const proc = spawn(this.adbBin, audioArgs, { windowsHide: true });
+      this._audioProc = proc;
+
+      proc.on('close', () => {
+        this._audioProc = null;
+        if (this.audioSocket) {
+          try { this.audioSocket.destroy(); } catch (_) {}
+          this.audioSocket = null;
+        }
+      });
+
+      // Small pause to allow abstract socket creation
+      await new Promise(r => setTimeout(r, 600));
+      if (this.status === 'stopped' || !this._audioProc) return;
+
+      this.audioSocket = await this._connectTcpWithRetry(audioPort, 20, 150);
+      this.audioSocket.setNoDelay(true);
+      this._pipeAudioToClients(this.audioSocket, codec);
+      console.log(`[DeviceWorker ${this.serial}] Audio pipeline active on port ${audioPort}`);
+    } catch (err) {
+      console.warn(`[DeviceWorker ${this.serial}] Audio capture notice: ${err.message} (Video and control unaffected)`);
+    }
+  }
+
+  _pipeAudioToClients(socket, codec) {
+    let buf = Buffer.alloc(0);
+    let headerDone = false;
+    let detectedCodec = codec;
+
+    socket.on('data', (chunk) => {
+      buf = buf.length === 0 ? chunk : Buffer.concat([buf, chunk]);
+
+      if (!headerDone) {
+        let offset = 0;
+        if (buf.length > 0 && buf[0] === 0x00) offset = 1;
+        if (buf.length < offset + 4) return;
+        const rawCodec = buf.toString('latin1', offset, offset + 4).toLowerCase().replace(/\0/g, '').trim();
+        if (rawCodec.includes('opus')) detectedCodec = 'opus';
+        else if (rawCodec.includes('aac')) detectedCodec = 'aac';
+        else if (rawCodec.includes('raw')) detectedCodec = 'raw';
+        buf = buf.subarray(offset + 4);
+        headerDone = true;
+      }
+
+      const META = 12; // 8-byte PTS + 4-byte size
+      while (buf.length >= META) {
+        const pktSize = buf.readUInt32BE(8);
+        if (pktSize === 0) {
+          buf = buf.subarray(META);
+          continue;
+        }
+        if (pktSize > 512 * 1024) {
+          buf = buf.subarray(1);
+          continue;
+        }
+        if (buf.length < META + pktSize) break;
+
+        const isConfig = (buf[0] & 0x80) !== 0;
+        const payload = buf.subarray(META, META + pktSize);
+        buf = buf.subarray(META + pktSize);
+
+        this._broadcastAudio(payload, detectedCodec, isConfig);
+      }
+    });
+
+    socket.on('close', () => {
+      this.audioSocket = null;
+    });
+    socket.on('error', () => {
+      this.audioSocket = null;
+    });
+  }
+
+  _broadcastAudio(payload, codec, isConfig) {
+    let codecByte = 0x4F; // 'O' = opus
+    if (codec === 'aac') codecByte = 0x43; // 'C' = aac
+    else if (codec === 'raw') codecByte = 0x52; // 'R' = raw PCM
+
+    const frame = Buffer.allocUnsafe(3 + payload.length);
+    frame[0] = 0x41; // 'A' (audio tag)
+    frame[1] = codecByte;
+    frame[2] = isConfig ? 0x01 : 0x00;
+    payload.copy(frame, 3);
+
+    for (const ws of this.wsClients) {
+      if (ws.readyState === 1 && ws.bufferedAmount < 64 * 1024) {
+        try { ws.send(frame, { binary: true }); } catch (_) {}
+      }
+    }
+  }
+
+  /**
    * Helper to check if an H.264 payload already contains an SPS NAL unit (type 7)
    */
   _payloadHasSps(buf) {
@@ -676,6 +801,12 @@ class DeviceWorker extends EventEmitter {
   sendTouchEvent(action, x, y, width, height, pressure = 1.0) {
     if (!this.controlSocket || this.controlSocket.destroyed) return false;
 
+    // Active touch interaction invalidates older keyframe to prevent flashing previous screen
+    if (action === 0) {
+      this.cachedKeyframe = null;
+      this.cachedKeyframeTime = 0;
+    }
+
     const screenW = width || this.deviceMeta.width || 1080;
     const screenH = height || this.deviceMeta.height || 1920;
 
@@ -830,6 +961,17 @@ class DeviceWorker extends EventEmitter {
   }
 
   _cleanupSockets() {
+    if (this._audioProc) {
+      try { this._audioProc.kill('SIGTERM'); } catch (_) {}
+      this._audioProc = null;
+    }
+    if (this._audioScidHex) {
+      this._execAdb(['shell', 'pkill', '-9', '-f', `scid=${this._audioScidHex}`]).catch(() => {});
+    }
+    if (this.audioSocket) {
+      try { this.audioSocket.destroy(); } catch (_) {}
+      this.audioSocket = null;
+    }
     if (this.videoSocket) {
       try { this.videoSocket.destroy(); } catch (_) {}
       this.videoSocket = null;

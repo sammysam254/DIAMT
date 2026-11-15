@@ -98,9 +98,14 @@ class ScrcpyDashboardClient {
         return;
       }
 
-      // Raw H.264 NAL Unit payload (ArrayBuffer)
+      // Binary payload: Audio (0x41 tag) or Video (H.264 NAL units)
       if (event.data instanceof ArrayBuffer) {
-        this._handleVideoPacket(new Uint8Array(event.data));
+        const u8 = new Uint8Array(event.data);
+        if (u8.length >= 3 && u8[0] === 0x41) {
+          this._handleAudioPacket(u8);
+          return;
+        }
+        this._handleVideoPacket(u8);
       }
     };
 
@@ -149,6 +154,69 @@ class ScrcpyDashboardClient {
       );
     } catch (err) {
       console.warn('[ScrcpyClient] Decode error:', err.message);
+    }
+  }
+
+  /**
+   * Handle incoming audio packets (tagged with 0x41)
+   */
+  _handleAudioPacket(u8) {
+    if (!this.audioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        this.audioCtx = new AudioContextClass({ sampleRate: 48000 });
+      }
+    }
+    if (!this.audioCtx) return;
+    if (this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume().catch(() => {});
+    }
+
+    const codec = u8[1]; // 0x4F = Opus, 0x43 = AAC, 0x52 = Raw PCM
+    const isConfig = u8[2] === 0x01;
+    const payload = u8.subarray(3);
+
+    // Initialize WebCodecs AudioDecoder for Opus
+    if (codec === 0x4F && !this.audioDecoder && typeof AudioDecoder !== 'undefined') {
+      try {
+        this.audioDecoder = new AudioDecoder({
+          output: (audioData) => {
+            if (!this.audioCtx) return;
+            const buffer = this.audioCtx.createBuffer(
+              audioData.numberOfChannels,
+              audioData.numberOfFrames,
+              audioData.sampleRate
+            );
+            for (let i = 0; i < audioData.numberOfChannels; i++) {
+              audioData.copyTo(buffer.getChannelData(i), { planeIndex: i });
+            }
+            const source = this.audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.audioCtx.destination);
+            const now = this.audioCtx.currentTime;
+            this.audioPlayTime = Math.max(now, this.audioPlayTime || now);
+            source.start(this.audioPlayTime);
+            this.audioPlayTime += buffer.duration;
+            audioData.close();
+          },
+          error: (err) => console.warn('[Audio] AudioDecoder error:', err)
+        });
+        this.audioDecoder.configure({
+          codec: 'opus',
+          numberOfChannels: 2,
+          sampleRate: 48000
+        });
+      } catch (_) {}
+    }
+
+    if (this.audioDecoder && this.audioDecoder.state === 'configured' && !isConfig) {
+      try {
+        this.audioDecoder.decode(new EncodedAudioChunk({
+          type: 'key',
+          timestamp: performance.now() * 1000,
+          data: payload
+        }));
+      } catch (_) {}
     }
   }
 

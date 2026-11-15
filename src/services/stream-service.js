@@ -1955,17 +1955,21 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
       // 1. PNG Image Auto-detection (0x89 0x50 0x4E 0x47)
       if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4E && u8[3] === 0x47) {
-        createImageBitmap(new Blob([u8], { type: 'image/png' }))
-          .then(function(bmp) { queueDraw(bmp); })
-          .catch(function(err) { console.warn('[Stream] PNG decode error:', err); });
+        if (!decoderReady || !decoder || decoder.state === 'closed') {
+          createImageBitmap(new Blob([u8], { type: 'image/png' }))
+            .then(function(bmp) { queueDraw(bmp); })
+            .catch(function(err) { console.warn('[Stream] PNG decode error:', err); });
+        }
         return;
       }
 
       // 2. JPEG Image Auto-detection (0xFF 0xD8)
       if (u8[0] === 0xFF && u8[1] === 0xD8) {
-        createImageBitmap(new Blob([u8], { type: 'image/jpeg' }))
-          .then(function(bmp) { queueDraw(bmp); })
-          .catch(function(err) { console.warn('[Stream] JPEG decode error:', err); });
+        if (!decoderReady || !decoder || decoder.state === 'closed') {
+          createImageBitmap(new Blob([u8], { type: 'image/jpeg' }))
+            .then(function(bmp) { queueDraw(bmp); })
+            .catch(function(err) { console.warn('[Stream] JPEG decode error:', err); });
+        }
         return;
       }
 

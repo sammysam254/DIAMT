@@ -280,13 +280,9 @@ class ScrcpyEngine extends EventEmitter {
 
     if (isFresh && ws.readyState === 1) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
-    } else {
-      // Send SPS/PPS configuration packet so WebCodecs knows profile & dimensions
-      if (this._configPacket && ws.readyState === 1) {
-        try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
-      }
-      // Capture live instant screen snapshot of the CURRENT display
-      this.captureInstantFrame(ws);
+    } else if (this._configPacket && ws.readyState === 1) {
+      // Send SPS/PPS configuration packet so WebCodecs initializes cleanly
+      try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
     }
 
     // Ensure device stays awake without sending disruptive menu keycodes
@@ -337,11 +333,7 @@ class ScrcpyEngine extends EventEmitter {
     if (isFresh) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
     } else if (this._configPacket) {
-      // Send SPS/PPS config so decoder initializes cleanly without showing old previous screen
       try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
-      this.captureInstantFrame(ws);
-    } else {
-      this.captureInstantFrame(ws);
     }
   }
 
@@ -708,16 +700,14 @@ class ScrcpyEngine extends EventEmitter {
 
       const audioArgs = [
         '-s', this.serial, 'shell',
-        `CLASSPATH=/data/local/tmp/scrcpy-server.jar:${DEVICE_JAR_PATH}`,
-        'app_process', '/', 'com.genymobile.scrcpy.Server', '2.4',
+        'CLASSPATH=/data/local/tmp/scrcpy-server.jar',
+        'app_process', '/', 'com.genymobile.scrcpy.Server', '3.3.4',
         'tunnel_forward=true',
         `scid=${scidHex}`,
         'video=false',
         'audio=true',
         'control=false',
         `audio_codec=${codec}`,
-        'send_device_meta=false',
-        'send_dummy_byte=false',
         'cleanup=false'
       ];
       if (codec !== 'raw') {
@@ -848,11 +838,6 @@ class ScrcpyEngine extends EventEmitter {
     const META = 12; // 8-byte PTS + 4-byte size
 
     const watchdog = setInterval(() => {
-      // Only capture instant screencap if video socket is NOT connected or active,
-      // avoiding injecting disruptive PNG frames and waking screen while H.264 pipeline is alive.
-      if ((!this.videoSocket || this.videoSocket.destroyed) && this.isRunning && this.wsClients.size > 0) {
-        this.captureInstantFrame();
-      }
       // Only trigger fallback if video socket is destroyed or disconnected
       if ((!this.videoSocket || this.videoSocket.destroyed) && !this._fallbackActive && this.isRunning) {
         logger.warn(`[ScrcpyEngine ${this.serial}] Video socket disconnected — starting screenrecord fallback`);
