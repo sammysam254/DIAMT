@@ -25,8 +25,36 @@ lockServer.listen(7402, '127.0.0.1');
 
 const rootDir = path.resolve(__dirname, '..', '..');
 let activeChild = null;
+let bridgeChild = null;
 let restartCount = 0;
 let isStopping = false;
+
+function startBridge() {
+  if (isStopping || bridgeChild) return;
+  const bridgeScript = path.join(rootDir, 'server.js');
+  if (!fs.existsSync(bridgeScript)) return;
+
+  try {
+    bridgeChild = spawn(process.execPath, [bridgeScript], {
+      cwd: rootDir,
+      windowsHide: true,
+      stdio: 'ignore',
+      detached: false,
+    });
+
+    bridgeChild.on('error', () => {
+      bridgeChild = null;
+      if (!isStopping) setTimeout(startBridge, 3000);
+    });
+
+    bridgeChild.on('exit', () => {
+      bridgeChild = null;
+      if (!isStopping) setTimeout(startBridge, 3000);
+    });
+  } catch (_) {
+    bridgeChild = null;
+  }
+}
 
 function preLaunchCleanup() {
   try {
@@ -57,6 +85,7 @@ function startAgent() {
   if (isStopping) return;
 
   preLaunchCleanup();
+  startBridge();
 
   const electronExe = getElectronPath();
   const mainScript = path.join(rootDir, 'src', 'main', 'index.js');
@@ -104,6 +133,9 @@ process.on('SIGINT', () => {
   if (activeChild) {
     try { activeChild.kill(); } catch (_) {}
   }
+  if (bridgeChild) {
+    try { bridgeChild.kill(); } catch (_) {}
+  }
   process.exit(0);
 });
 
@@ -111,6 +143,9 @@ process.on('SIGTERM', () => {
   isStopping = true;
   if (activeChild) {
     try { activeChild.kill(); } catch (_) {}
+  }
+  if (bridgeChild) {
+    try { bridgeChild.kill(); } catch (_) {}
   }
   process.exit(0);
 });
