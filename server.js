@@ -501,7 +501,7 @@ server.on('upgrade', (request, socket, head) => {
       worker.addClient(ws);
 
       ws.on('message', (data, isBinary) => {
-        worker.handleClientControl(isBinary ? data : data.toString());
+        worker.handleClientControl(isBinary ? data : data.toString(), ws);
       });
 
       ws.on('close', () => {
@@ -540,7 +540,7 @@ server.on('upgrade', (request, socket, head) => {
     worker.addClient(ws);
 
     ws.on('message', (data, isBinary) => {
-      worker.handleClientControl(isBinary ? data : data.toString());
+      worker.handleClientControl(isBinary ? data : data.toString(), ws);
     });
 
     ws.on('close', () => {

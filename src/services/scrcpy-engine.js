@@ -275,13 +275,11 @@ class ScrcpyEngine extends EventEmitter {
     ws._needsKeyframe = false;
     this.wsClients.add(ws);
 
-    // Only send cached keyframe if it is fresh (< 1200ms old) to never flash an old previous screen
-    const isFresh = this._keyframeBuffer && this._keyframeTime && (Date.now() - this._keyframeTime < 1200);
-
-    if (isFresh && ws.readyState === 1) {
+    // Immediately send complete self-contained cached keyframe so screen renders on frame 1 with ZERO black screen
+    if (this._keyframeBuffer && ws.readyState === 1) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
     } else if (this._configPacket && ws.readyState === 1) {
-      // Send SPS/PPS configuration packet so WebCodecs initializes cleanly
+      // Send SPS/PPS configuration packet if keyframe not yet available
       try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
     }
 
@@ -328,9 +326,7 @@ class ScrcpyEngine extends EventEmitter {
     if (!ws || ws.readyState !== 1) return;
     ws._needsKeyframe = false;
 
-    const isFresh = this._keyframeBuffer && this._keyframeTime && (Date.now() - this._keyframeTime < 1200);
-
-    if (isFresh) {
+    if (this._keyframeBuffer) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
     } else if (this._configPacket) {
       try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
@@ -338,8 +334,7 @@ class ScrcpyEngine extends EventEmitter {
   }
 
   broadcastKeyframe() {
-    // Only broadcast SPS/PPS config parameters to avoid flashing previous screen state
-    const pkt = this._configPacket;
+    const pkt = this._keyframeBuffer || this._configPacket;
     if (!pkt) return;
     for (const ws of this.wsClients) {
       if (ws.readyState === 1) {
@@ -1197,7 +1192,6 @@ class ScrcpyEngine extends EventEmitter {
    *   [28-31] buttons i32BE (1 on DOWN/MOVE, 0 on UP)
    */
   sendTouchEvent(action, x, y, width, height, pressure = 1.0) {
-    this._keyframeBuffer = null; // Active interaction invalidates any older keyframe
     let targetW = this.scrcpyVideoWidth || this.videoWidth;
     let targetH = this.scrcpyVideoHeight || this.videoHeight;
     if (!targetW || !targetH) {

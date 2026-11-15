@@ -650,20 +650,21 @@ class DeviceWorker extends EventEmitter {
       }));
     } catch (_) {}
 
-    // 2. Immediately flush cached SPS/PPS configuration packet
-    if (this.cachedSpsPps && ws.readyState === 1) {
-      try {
-        ws.send(this.cachedSpsPps, { binary: true });
-      } catch (_) {}
-    }
-
-    // 3. Immediately flush cached IDR Keyframe so canvas renders instantly
+    // 2. Immediately flush complete cached IDR keyframe (or SPS/PPS) so canvas renders on frame 1 without delay
     if (this.cachedKeyframe && ws.readyState === 1) {
       try {
         ws.send(this.cachedKeyframe, { binary: true });
         console.log(`[DeviceWorker ${this.serial}] Flushed cached keyframe (${this.cachedKeyframe.length} bytes) to new client.`);
       } catch (_) {}
+    } else if (this.cachedSpsPps && ws.readyState === 1) {
+      try {
+        ws.send(this.cachedSpsPps, { binary: true });
+      } catch (_) {}
     }
+
+    // 3. Immediately wake up device screen & poke compositor
+    this.sendKeycode(224, 0); // KEYCODE_WAKEUP DOWN
+    this.sendKeycode(224, 1); // KEYCODE_WAKEUP UP
   }
 
   /**
@@ -694,7 +695,7 @@ class DeviceWorker extends EventEmitter {
    * Handles incoming WebSocket messages from the browser dashboard:
    * Accepts both raw binary scrcpy packets and structured JSON commands.
    */
-  handleClientControl(message) {
+  handleClientControl(message, ws = null) {
     if (!this.controlSocket || this.controlSocket.destroyed) {
       return false;
     }
@@ -713,7 +714,7 @@ class DeviceWorker extends EventEmitter {
     // Parse JSON command string
     try {
       const data = typeof message === 'string' ? JSON.parse(message) : message;
-      return this._handleJsonControlCommand(data);
+      return this._handleJsonControlCommand(data, ws);
     } catch (err) {
       console.warn(`[DeviceWorker ${this.serial}] Invalid control message: ${err.message}`);
       return false;
@@ -723,8 +724,26 @@ class DeviceWorker extends EventEmitter {
   /**
    * Routes JSON control actions into binary scrcpy v3.3.4 packets
    */
-  _handleJsonControlCommand(data) {
+  _handleJsonControlCommand(data, ws = null) {
     switch (data.type) {
+      case 'request_keyframe':
+      case 'keyframe':
+        if (ws && ws.readyState === 1) {
+          if (this.cachedKeyframe) {
+            try { ws.send(this.cachedKeyframe, { binary: true }); } catch (_) {}
+          } else if (this.cachedSpsPps) {
+            try { ws.send(this.cachedSpsPps, { binary: true }); } catch (_) {}
+          }
+        }
+        this.sendKeycode(224, 0); // KEYCODE_WAKEUP DOWN
+        this.sendKeycode(224, 1); // KEYCODE_WAKEUP UP
+        return true;
+
+      case 'wake':
+      case 'refresh':
+        this.sendKeycode(224, 0); // KEYCODE_WAKEUP DOWN
+        this.sendKeycode(224, 1); // KEYCODE_WAKEUP UP
+        return true;
       case 'touch':
         return this.sendTouchEvent(
           data.action, // 0=DOWN, 1=UP, 2=MOVE
@@ -800,12 +819,6 @@ class DeviceWorker extends EventEmitter {
    */
   sendTouchEvent(action, x, y, width, height, pressure = 1.0) {
     if (!this.controlSocket || this.controlSocket.destroyed) return false;
-
-    // Active touch interaction invalidates older keyframe to prevent flashing previous screen
-    if (action === 0) {
-      this.cachedKeyframe = null;
-      this.cachedKeyframeTime = 0;
-    }
 
     const screenW = width || this.deviceMeta.width || 1080;
     const screenH = height || this.deviceMeta.height || 1920;
