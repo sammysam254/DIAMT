@@ -190,7 +190,8 @@ async function handleDeviceAdd(device) {
 
     try {
       const activeCfg = loadConfig();
-      const rawCustomDomain = activeCfg.domain || activeCfg.customDomain || '';
+      const useQuickTunnel = activeCfg.useQuickTunnel !== false;
+      const rawCustomDomain = useQuickTunnel ? '' : (activeCfg.domain || activeCfg.customDomain || '');
       const hasCustomDomain = Boolean(rawCustomDomain && !rawCustomDomain.includes('localhost') && !rawCustomDomain.includes('127.0.0.1'));
       const cleanCustomDomain = hasCustomDomain ? rawCustomDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
 

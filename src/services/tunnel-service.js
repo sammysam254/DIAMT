@@ -135,8 +135,9 @@ function createCloudflaredTunnel(port) {
     logger.info(`[+] Establishing Cloudflare network tunnel for localhost:${port} via ${path.basename(binPath)}`);
 
     const currentCfg = loadConfig();
-    const token = currentCfg.cloudflareToken || currentCfg.cloudflaredToken || currentCfg.token || process.env.CLOUDFLARE_TUNNEL_TOKEN || '';
-    const rawDomain = currentCfg.customDomain || currentCfg.domain || process.env.DEVICE_DOMAIN || '';
+    const useQuickTunnel = currentCfg.useQuickTunnel !== false;
+    const token = useQuickTunnel ? '' : (currentCfg.cloudflareToken || currentCfg.cloudflaredToken || currentCfg.token || process.env.CLOUDFLARE_TUNNEL_TOKEN || '');
+    const rawDomain = useQuickTunnel ? '' : (currentCfg.customDomain || currentCfg.domain || process.env.DEVICE_DOMAIN || '');
     const domain = rawDomain ? rawDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
 
     if (token) {
@@ -311,13 +312,6 @@ function killTunnel(tunnelProcess) {
     logger.info('[TunnelService] Preserving shared Cloudflare Zero Trust tunnel for other devices');
     return;
   }
-  // NEVER terminate cloudflared when cleaning up a device
-  try {
-    if (tunnelProcess.spawnfile && path.basename(tunnelProcess.spawnfile).toLowerCase().includes('cloudflared')) {
-      logger.info('[TunnelService] Preserving cloudflared process from termination');
-      return;
-    }
-  } catch (_) {}
   if (typeof tunnelProcess.close === 'function') {
     try { tunnelProcess.close(); } catch (_) { }
   }
