@@ -12,10 +12,12 @@ const os = require('os');
 const ADB_BIN = (() => {
   const candidates = [
     process.env.ADB_PATH,
-    path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'adb.exe'),
-    'C:\\scrcpy-win64-v3.3.4\\adb.exe',
+    path.join(__dirname, '..', '..', 'assets', 'scrcpy', 'scrcpy-win64-v3.3.4', 'adb.exe'),
+    path.join(process.cwd(), 'assets', 'scrcpy', 'scrcpy-win64-v3.3.4', 'adb.exe'),
     path.join(process.cwd(), 'assets', 'bin', 'adb.exe'),
     path.join(__dirname, '..', '..', 'assets', 'bin', 'adb.exe'),
+    path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'adb.exe'),
+    'C:\\scrcpy-win64-v3.3.4\\adb.exe',
     'C:\\platform-tools\\adb.exe',
   ].filter(Boolean);
   for (const p of candidates) if (fs.existsSync(p)) return p;
@@ -25,14 +27,16 @@ const ADB_BIN = (() => {
 const SCRCPY_JAR_PATH = (() => {
   const candidates = [
     process.env.SCRCPY_SERVER_PATH,
+    path.join(__dirname, '..', '..', 'assets', 'scrcpy', 'scrcpy-win64-v3.3.4', 'scrcpy-server'),
+    path.join(process.cwd(), 'assets', 'scrcpy', 'scrcpy-win64-v3.3.4', 'scrcpy-server'),
+    path.join(__dirname, '..', '..', 'scrcpy-server'),
+    path.join(process.cwd(), 'scrcpy-server'),
+    path.join(__dirname, '..', '..', 'scrcpy-server.jar'),
+    path.join(process.cwd(), 'scrcpy-server.jar'),
     path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'scrcpy-server'),
     path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'scrcpy-server.jar'),
     'C:\\scrcpy-win64-v3.3.4\\scrcpy-server',
     'C:\\scrcpy-win64-v3.3.4\\scrcpy-server.jar',
-    path.join(__dirname, '..', '..', 'scrcpy-server.jar'),
-    path.join(__dirname, '..', '..', 'scrcpy-server'),
-    path.join(process.cwd(), 'scrcpy-server.jar'),
-    path.join(process.cwd(), 'scrcpy-server'),
   ].filter(Boolean);
   for (const p of candidates) if (fs.existsSync(p)) return p;
   return path.join(process.cwd(), 'scrcpy-server.jar');

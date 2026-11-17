@@ -72,6 +72,8 @@ function resolveScrcpyDir() {
 
   const candidates = [
     process.env.SCRCPY_DIR,
+    path.join(__dirname, 'assets', 'scrcpy', targetFolderName),
+    path.join(process.cwd(), 'assets', 'scrcpy', targetFolderName),
     path.join(downloadsDir, targetFolderName),
     path.join(downloadsDir, 'scrcpy'),
     cTargetDir,
@@ -102,10 +104,12 @@ const SCRCPY_DIR = resolveScrcpyDir();
 function resolveAdbPath() {
   const candidates = [
     process.env.ADB_PATH,
+    path.join(__dirname, 'assets', 'scrcpy', 'scrcpy-win64-v3.3.4', 'adb.exe'),
+    path.join(process.cwd(), 'assets', 'scrcpy', 'scrcpy-win64-v3.3.4', 'adb.exe'),
     path.join(SCRCPY_DIR, 'adb.exe'),
+    path.join(process.cwd(), 'assets', 'bin', 'adb.exe'),
     path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'adb.exe'),
     path.join('C:\\scrcpy-win64-v3.3.4', 'adb.exe'),
-    path.join(process.cwd(), 'assets', 'bin', 'adb.exe'),
     path.join(__dirname, 'DIAMT', 'assets', 'bin', 'adb.exe'),
     'C:\\platform-tools\\adb.exe',
     'C:\\DeviceFarmAgent\\assets\\bin\\adb.exe',
@@ -126,15 +130,18 @@ function resolveAdbPath() {
 function resolveScrcpyServerPath() {
   const candidates = [
     process.env.SCRCPY_SERVER_PATH,
+    path.join(__dirname, 'assets', 'scrcpy', 'scrcpy-win64-v3.3.4', 'scrcpy-server'),
+    path.join(process.cwd(), 'assets', 'scrcpy', 'scrcpy-win64-v3.3.4', 'scrcpy-server'),
     path.join(SCRCPY_DIR, 'scrcpy-server'),
     path.join(SCRCPY_DIR, 'scrcpy-server.jar'),
+    path.join(__dirname, 'scrcpy-server'),
+    path.join(process.cwd(), 'scrcpy-server'),
+    path.join(__dirname, 'scrcpy-server.jar'),
+    path.join(process.cwd(), 'scrcpy-server.jar'),
     path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'scrcpy-server'),
     path.join(os.homedir(), 'Downloads', 'scrcpy-win64-v3.3.4', 'scrcpy-server.jar'),
     path.join('C:\\scrcpy-win64-v3.3.4', 'scrcpy-server'),
     path.join('C:\\scrcpy-win64-v3.3.4', 'scrcpy-server.jar'),
-    path.join(process.cwd(), 'scrcpy-server.jar'),
-    path.join(process.cwd(), 'scrcpy-server'),
-    path.join(__dirname, 'scrcpy-server.jar'),
     path.join(__dirname, 'DIAMT', 'scrcpy-server.jar'),
   ].filter(Boolean);
 

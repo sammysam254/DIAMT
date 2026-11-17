@@ -241,8 +241,8 @@ function handleControl(type, data, serial, engine) {
         engine.sendTouchEvent(action, currX, currY, W, H, pVal);
       }, Math.round(i * dt));
     }
-  } else if (type === 'code' || type === 'key') {
-    const code = parseInt(get(data, 'code'), 10);
+  } else if (type === 'code' || type === 'key' || type === 'rotate') {
+    const code = type === 'rotate' ? 275 : parseInt(get(data, 'code'), 10);
     let sent = false;
     if (ctrlOk()) {
       sent = engine.sendKeycode(0, code);
@@ -251,6 +251,11 @@ function handleControl(type, data, serial, engine) {
     if (!sent) {
       adbInput(serial, `input keyevent ${code}`);
       nudgeScreen();
+    }
+    if (code === 275) {
+      // Hardware rotation toggle fallback for devices with locked accelerometer
+      adbInput(serial, 'content insert --uri content://settings/system --bind name:s:accelerometer_rotation --bind value:i:0');
+      adbInput(serial, 'settings put system user_rotation $(($(settings get system user_rotation 2>/dev/null || echo 0) + 1 % 4))');
     }
   } else if (type === 'text') {
     const text = get(data, 'text') || '';
@@ -1360,10 +1365,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
   let currentVolume = 100;
 
   function initAudio() {
-    if (audioCtx) {
-      if (audioCtx.state === 'suspended') audioCtx.resume().then(hideAudioResumePrompt).catch(function() {});
-      return;
-    }
+    if (audioCtx) return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
@@ -1371,10 +1373,24 @@ function buildPlayerHtml(serial, screenW, screenH) {
       gainNode = audioCtx.createGain();
       gainNode.gain.value = isMuted ? 0 : (currentVolume / 100);
       gainNode.connect(audioCtx.destination);
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume().then(hideAudioResumePrompt).catch(function() {});
-      }
     } catch (_) {}
+  }
+
+  function resumeAudioContext() {
+    initAudio();
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().then(function() {
+        if (audioCtx.state === 'running') {
+          audioNextPlayTime = audioCtx.currentTime + JITTER_BUFFER;
+          hideAudioResumePrompt();
+          syncMuteUI();
+        }
+      }).catch(function() {});
+    } else if (audioCtx.state === 'running') {
+      hideAudioResumePrompt();
+      syncMuteUI();
+    }
   }
 
   // Jitter buffer lead time for smooth, gap-free, stutter-free continuous streaming
@@ -1383,17 +1399,18 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
   function scheduleAudioBuffer(audioBuf) {
     if (!audioCtx || !gainNode || isMuted) return;
+    if (audioCtx.state !== 'running') {
+      showAudioResumePrompt();
+      return;
+    }
     try {
       const src = audioCtx.createBufferSource();
       src.buffer = audioBuf;
       src.connect(gainNode);
 
       const now = audioCtx.currentTime;
-      if (audioNextPlayTime < now + 0.01) {
-        // Queue underrun or starting fresh: prime lead time
-        audioNextPlayTime = now + JITTER_BUFFER;
-      } else if (audioNextPlayTime > now + MAX_DRIFT) {
-        // Excessive latency drift: gently catch up to lead time
+      if (audioNextPlayTime < now + 0.01 || audioNextPlayTime > now + MAX_DRIFT) {
+        // Queue underrun, excessive latency drift or starting fresh: prime lead time
         audioNextPlayTime = now + JITTER_BUFFER;
       }
 
@@ -1485,8 +1502,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
     if (!audioCtx) initAudio();
     if (!audioCtx) return;
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(function() {});
+    if (audioCtx.state !== 'running') {
       showAudioResumePrompt();
     }
 
@@ -1542,8 +1558,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (isMuted) return;
     if (!audioCtx) initAudio();
     if (!audioCtx) return;
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(function() {});
+    if (audioCtx.state !== 'running') {
       showAudioResumePrompt();
     }
 
@@ -1573,8 +1588,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (isMuted) return;
     if (!audioCtx) initAudio();
     if (!audioCtx || !gainNode) return;
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(function() {});
+    if (audioCtx.state !== 'running') {
       showAudioResumePrompt();
     }
     try {
@@ -1602,15 +1616,21 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
   function showAudioResumePrompt() {
     if (isMuted) return;
+    if (audioCtx && audioCtx.state === 'running') {
+      hideAudioResumePrompt();
+      return;
+    }
     let el = document.getElementById('audioResumeBanner');
     if (!el) {
       el = document.createElement('div');
       el.id = 'audioResumeBanner';
-      el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.92);border:1px solid rgba(59,130,246,0.6);backdrop-filter:blur(8px);color:#93c5fd;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px;cursor:pointer;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.5);transition:opacity 0.2s ease;';
-      el.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Click to enable sound</span>';
-      el.onclick = function() {
-        initAudio();
-        if (audioCtx) audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
+      el.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.96);border:1px solid #38bdf8;backdrop-filter:blur(10px);color:#38bdf8;padding:8px 18px;border-radius:24px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px;cursor:pointer;z-index:999999;box-shadow:0 4px 20px rgba(0,0,0,0.6);letter-spacing:0.3px;user-select:none;-webkit-user-select:none;transition:transform 0.15s ease, opacity 0.2s ease;';
+      el.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg><span>🔊 Click anywhere to enable sound</span>';
+      el.onmouseenter = function() { el.style.transform = 'translateX(-50%) scale(1.04)'; };
+      el.onmouseleave = function() { el.style.transform = 'translateX(-50%) scale(1)'; };
+      el.onclick = function(e) {
+        e.stopPropagation();
+        resumeAudioContext();
       };
       document.body.appendChild(el);
     }
@@ -1657,8 +1677,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (gainNode) {
       gainNode.gain.value = isMuted ? 0 : (currentVolume / 100);
     }
-    if (!isMuted && audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
+    if (!isMuted) {
+      resumeAudioContext();
     }
     if (isMuted) {
       if (opusDecoder && opusDecoder.state !== 'closed') {
@@ -1674,14 +1694,10 @@ function buildPlayerHtml(serial, screenW, screenH) {
   // Sync mute UI on initial load
   setTimeout(syncMuteUI, 50);
 
-  // Resume AudioContext on first user gesture
-  ['click', 'mousedown', 'pointerdown', 'touchstart', 'keydown'].forEach(function(evt) {
-    window.addEventListener(evt, function() {
-      initAudio();
-      if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
-      }
-    }, { passive: true });
+  // Resume AudioContext on any user gesture across window and document
+  ['click', 'mousedown', 'pointerdown', 'touchstart', 'touchend', 'keydown'].forEach(function(evt) {
+    window.addEventListener(evt, resumeAudioContext, { passive: true, capture: true });
+    document.addEventListener(evt, resumeAudioContext, { passive: true, capture: true });
   });
 
   // ── WebCodecs H264 Decoder (Auto-adapts to phones, tablets, and any hardware profile) ──
@@ -2134,10 +2150,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
   let lastX = -1, lastY = -1;
 
   function ensureActiveOnInteraction() {
-    initAudio();
-    if (audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
-    }
+    resumeAudioContext();
     if (!hasKeyframe) {
       send({ type: 'request_keyframe' });
       send({ type: 'wake' });
@@ -2387,8 +2400,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (gainNode) {
       gainNode.gain.value = isMuted ? 0 : (currentVolume / 100);
     }
-    if (!isMuted && audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume().then(hideAudioResumePrompt).catch(function(){});
+    if (!isMuted && currentVolume > 0) {
+      resumeAudioContext();
     }
     syncMuteUI();
   }

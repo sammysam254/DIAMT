@@ -213,36 +213,48 @@ if exist "node_modules\winston\package.json" (
     echo [OK] npm packages installed.
 )
 
-:: ── Step 5: Setup official scrcpy-win64-v3.3.4 from host Downloads ───────────
-echo [*] Setting up scrcpy-server v3.3.4 from host installation...
+:: ── Step 5: Setup official scrcpy-win64-v3.3.4 from bundled suite or host Downloads ───────────
+echo [*] Setting up scrcpy-server v3.3.4 from official suite...
+set "BUNDLED_SCRCPY_DIR=%INSTALL_DIR%\assets\scrcpy\scrcpy-win64-v3.3.4"
 set "SCRCPY_DOWNLOAD_DIR=%USERPROFILE%\Downloads\scrcpy-win64-v3.3.4"
 set "SCRCPY_DOWNLOAD_ZIP=%USERPROFILE%\Downloads\scrcpy-win64-v3.3.4.zip"
 
-:: Auto-extract scrcpy-win64-v3.3.4.zip from Downloads if present
-if not exist "%SCRCPY_DOWNLOAD_DIR%" if exist "%SCRCPY_DOWNLOAD_ZIP%" (
-    echo [*] Found %SCRCPY_DOWNLOAD_ZIP% — extracting to Downloads...
-    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%SCRCPY_DOWNLOAD_ZIP%' -DestinationPath '%USERPROFILE%\Downloads' -Force"
-)
-
-:: Copy official scrcpy-server binary
-if exist "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server" (
-    copy /Y "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server" "%INSTALL_DIR%\scrcpy-server.jar" >nul 2>&1
-    copy /Y "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server" "%INSTALL_DIR%\scrcpy-server" >nul 2>&1
-    echo [OK] Official scrcpy-server v3.3.4 imported successfully.
-) else if exist "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server.jar" (
-    copy /Y "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server.jar" "%INSTALL_DIR%\scrcpy-server.jar" >nul 2>&1
-    echo [OK] Official scrcpy-server.jar v3.3.4 imported successfully.
-) else if not exist "%INSTALL_DIR%\scrcpy-server.jar" (
-    echo [WARN] scrcpy-server v3.3.4 not found in Downloads. Checking fallback...
-)
-
-:: Copy ADB binaries from scrcpy folder if available
-if exist "%SCRCPY_DOWNLOAD_DIR%\adb.exe" (
+:: Check bundled scrcpy suite first
+if exist "%BUNDLED_SCRCPY_DIR%\scrcpy-server" (
+    copy /Y "%BUNDLED_SCRCPY_DIR%\scrcpy-server" "%INSTALL_DIR%\scrcpy-server.jar" >nul 2>&1
+    copy /Y "%BUNDLED_SCRCPY_DIR%\scrcpy-server" "%INSTALL_DIR%\scrcpy-server" >nul 2>&1
     if not exist "%INSTALL_DIR%\assets\bin" mkdir "%INSTALL_DIR%\assets\bin" >nul 2>&1
-    copy /Y "%SCRCPY_DOWNLOAD_DIR%\adb.exe" "%INSTALL_DIR%\assets\bin\adb.exe" >nul 2>&1
-    if exist "%SCRCPY_DOWNLOAD_DIR%\AdbWinApi.dll" copy /Y "%SCRCPY_DOWNLOAD_DIR%\AdbWinApi.dll" "%INSTALL_DIR%\assets\bin\AdbWinApi.dll" >nul 2>&1
-    if exist "%SCRCPY_DOWNLOAD_DIR%\AdbWinUsbApi.dll" copy /Y "%SCRCPY_DOWNLOAD_DIR%\AdbWinUsbApi.dll" "%INSTALL_DIR%\assets\bin\AdbWinUsbApi.dll" >nul 2>&1
-    echo [OK] Official ADB tools imported from scrcpy-win64-v3.3.4.
+    if exist "%BUNDLED_SCRCPY_DIR%\adb.exe" copy /Y "%BUNDLED_SCRCPY_DIR%\adb.exe" "%INSTALL_DIR%\assets\bin\adb.exe" >nul 2>&1
+    if exist "%BUNDLED_SCRCPY_DIR%\AdbWinApi.dll" copy /Y "%BUNDLED_SCRCPY_DIR%\AdbWinApi.dll" "%INSTALL_DIR%\assets\bin\AdbWinApi.dll" >nul 2>&1
+    if exist "%BUNDLED_SCRCPY_DIR%\AdbWinUsbApi.dll" copy /Y "%BUNDLED_SCRCPY_DIR%\AdbWinUsbApi.dll" "%INSTALL_DIR%\assets\bin\AdbWinUsbApi.dll" >nul 2>&1
+    echo [OK] Official bundled scrcpy-win64-v3.3.4 suite imported successfully.
+) else (
+    :: Auto-extract scrcpy-win64-v3.3.4.zip from Downloads if present
+    if not exist "%SCRCPY_DOWNLOAD_DIR%" if exist "%SCRCPY_DOWNLOAD_ZIP%" (
+        echo [*] Found %SCRCPY_DOWNLOAD_ZIP% — extracting to Downloads...
+        "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%SCRCPY_DOWNLOAD_ZIP%' -DestinationPath '%USERPROFILE%\Downloads' -Force"
+    )
+
+    :: Copy official scrcpy-server binary
+    if exist "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server" (
+        copy /Y "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server" "%INSTALL_DIR%\scrcpy-server.jar" >nul 2>&1
+        copy /Y "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server" "%INSTALL_DIR%\scrcpy-server" >nul 2>&1
+        echo [OK] Official scrcpy-server v3.3.4 imported successfully.
+    ) else if exist "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server.jar" (
+        copy /Y "%SCRCPY_DOWNLOAD_DIR%\scrcpy-server.jar" "%INSTALL_DIR%\scrcpy-server.jar" >nul 2>&1
+        echo [OK] Official scrcpy-server.jar v3.3.4 imported successfully.
+    ) else if not exist "%INSTALL_DIR%\scrcpy-server.jar" (
+        echo [WARN] scrcpy-server v3.3.4 not found in Downloads. Checking fallback...
+    )
+
+    :: Copy ADB binaries from scrcpy folder if available
+    if exist "%SCRCPY_DOWNLOAD_DIR%\adb.exe" (
+        if not exist "%INSTALL_DIR%\assets\bin" mkdir "%INSTALL_DIR%\assets\bin" >nul 2>&1
+        copy /Y "%SCRCPY_DOWNLOAD_DIR%\adb.exe" "%INSTALL_DIR%\assets\bin\adb.exe" >nul 2>&1
+        if exist "%SCRCPY_DOWNLOAD_DIR%\AdbWinApi.dll" copy /Y "%SCRCPY_DOWNLOAD_DIR%\AdbWinApi.dll" "%INSTALL_DIR%\assets\bin\AdbWinApi.dll" >nul 2>&1
+        if exist "%SCRCPY_DOWNLOAD_DIR%\AdbWinUsbApi.dll" copy /Y "%SCRCPY_DOWNLOAD_DIR%\AdbWinUsbApi.dll" "%INSTALL_DIR%\assets\bin\AdbWinUsbApi.dll" >nul 2>&1
+        echo [OK] Official ADB tools imported from scrcpy-win64-v3.3.4.
+    )
 )
 
 :: Download Electron binary if missing
