@@ -106,10 +106,10 @@ function checkAndSyncGithub() {
               };
 
               if (pullErr) {
-                // Fallback to reset --hard origin/main if untracked changes exist
-                execFile(gitBin, ['reset', '--hard', 'origin/main'], { cwd: process.cwd() }, (resetErr) => {
-                  if (resetErr) {
-                    logger.warn(`[AutoSync] git reset notice: ${resetErr.message}`);
+                // Safely update source code files without touching locked binaries in assets/bin
+                execFile(gitBin, ['checkout', '-f', 'origin/main', '--', 'src', 'website', 'config.js', 'package.json', 'DeviceFarm-Agent-Setup.bat'], { cwd: process.cwd() }, (checkoutErr) => {
+                  if (checkoutErr) {
+                    logger.warn(`[AutoSync] git source update notice: ${checkoutErr.message}`);
                   } else {
                     onUpdateSuccess();
                   }

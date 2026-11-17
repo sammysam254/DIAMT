@@ -150,10 +150,18 @@ echo [4/6] Setting up agent files...
 
 if exist "%INSTALL_DIR%\.git" (
     echo [*] Agent directory exists — syncing cleanly to DIAMT repository...
+    "%GIT%" -C "%INSTALL_DIR%" config core.protectNTFS false >nul 2>&1
+    "%GIT%" -C "%INSTALL_DIR%" update-index --assume-unchanged assets/bin/AdbWinApi.dll >nul 2>&1
+    "%GIT%" -C "%INSTALL_DIR%" update-index --assume-unchanged assets/bin/AdbWinUsbApi.dll >nul 2>&1
+    "%GIT%" -C "%INSTALL_DIR%" update-index --assume-unchanged assets/bin/adb.exe >nul 2>&1
+    "%GIT%" -C "%INSTALL_DIR%" update-index --assume-unchanged assets/bin/cloudflared.exe >nul 2>&1
     "%GIT%" -C "%INSTALL_DIR%" remote set-url origin "%REPO_URL%" >nul 2>&1
     "%GIT%" -C "%INSTALL_DIR%" fetch origin main
-    "%GIT%" -C "%INSTALL_DIR%" reset --hard origin/main
-    "%GIT%" -C "%INSTALL_DIR%" clean -fd
+    echo n | "%GIT%" -C "%INSTALL_DIR%" merge --ff-only origin/main >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [*] Fast-forward notice: applying clean source update...
+        echo n | "%GIT%" -C "%INSTALL_DIR%" checkout -f origin/main -- src website config.js package.json DeviceFarm-Agent-Setup.bat >nul 2>&1
+    )
     if exist "%INSTALL_DIR%\wifi-devices-cache.json" del /F /Q "%INSTALL_DIR%\wifi-devices-cache.json" >nul 2>&1
     echo [OK] Agent updated to latest version from GitHub.
 ) else (
