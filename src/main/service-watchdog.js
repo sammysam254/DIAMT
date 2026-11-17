@@ -25,51 +25,16 @@ lockServer.listen(7402, '127.0.0.1');
 
 const rootDir = path.resolve(__dirname, '..', '..');
 let activeChild = null;
-let bridgeChild = null;
 let restartCount = 0;
 let isStopping = false;
 
-function startBridge() {
-  if (isStopping || bridgeChild) return;
-  const bridgeScript = path.join(rootDir, 'server.js');
-  if (!fs.existsSync(bridgeScript)) return;
-
-  try {
-    bridgeChild = spawn(process.execPath, [bridgeScript], {
-      cwd: rootDir,
-      windowsHide: true,
-      stdio: 'ignore',
-      detached: false,
-    });
-
-    bridgeChild.on('error', () => {
-      bridgeChild = null;
-      if (!isStopping) setTimeout(startBridge, 3000);
-    });
-
-    bridgeChild.on('exit', () => {
-      bridgeChild = null;
-      if (!isStopping) setTimeout(startBridge, 3000);
-    });
-  } catch (_) {
-    bridgeChild = null;
-  }
-}
-
 function preLaunchCleanup() {
   try {
-    // 1. Permanently remove any legacy cache file if created
+    // Permanently remove any legacy cache file if created
     const wifiCache = path.join(rootDir, 'wifi-devices-cache.json');
     if (fs.existsSync(wifiCache)) {
       try { fs.unlinkSync(wifiCache); } catch (_) {}
     }
-
-    // 2. Terminate any zombie scrcpy servers on connected Android devices
-    try {
-      const adbBin = fs.existsSync('C:\\platform-tools\\adb.exe') ? 'C:\\platform-tools\\adb.exe' : (fs.existsSync(path.join(rootDir, 'assets', 'bin', 'adb.exe')) ? path.join(rootDir, 'assets', 'bin', 'adb.exe') : 'adb');
-      execSync(`"${adbBin}" shell pkill -9 -f com.genymobile.scrcpy >nul 2>&1`, { timeout: 3000, stdio: 'ignore' });
-      execSync(`"${adbBin}" disconnect >nul 2>&1`, { timeout: 3000, stdio: 'ignore' });
-    } catch (_) {}
   } catch (_) {}
 }
 
@@ -85,7 +50,6 @@ function startAgent() {
   if (isStopping) return;
 
   preLaunchCleanup();
-  startBridge();
 
   const electronExe = getElectronPath();
   const mainScript = path.join(rootDir, 'src', 'main', 'index.js');
@@ -133,9 +97,6 @@ process.on('SIGINT', () => {
   if (activeChild) {
     try { activeChild.kill(); } catch (_) {}
   }
-  if (bridgeChild) {
-    try { bridgeChild.kill(); } catch (_) {}
-  }
   process.exit(0);
 });
 
@@ -143,9 +104,6 @@ process.on('SIGTERM', () => {
   isStopping = true;
   if (activeChild) {
     try { activeChild.kill(); } catch (_) {}
-  }
-  if (bridgeChild) {
-    try { bridgeChild.kill(); } catch (_) {}
   }
   process.exit(0);
 });

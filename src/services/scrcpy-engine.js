@@ -265,6 +265,7 @@ class ScrcpyEngine extends EventEmitter {
     this.audioSocket = null;
     this._audioProc = null;
     this._audioScidInt = null;
+    this._videoScidHex = null;
   }
 
   get isReady() {
@@ -379,12 +380,16 @@ class ScrcpyEngine extends EventEmitter {
     this.videoPort = videoPort;
     this.isRunning = true;
 
+    const scidVideoNum = (this.videoPort * 1000 + 1) & 0x7FFFFFFF;
+    this._videoScidHex = scidVideoNum.toString(16).padStart(8, '0');
+
     try {
-      // 0. Force-kill any lingering scrcpy/app_process on device to release localabstract:scrcpy
+      // 0. Clean up only this device's scrcpy processes without disturbing any other phones
       try {
-        await this._adb(['shell', 'pkill', '-9', '-f', 'app_process']).catch(() => {});
-        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
-        await new Promise(r => setTimeout(r, 200));
+        if (this._videoScidHex) {
+          await this._adb(['shell', 'pkill', '-9', '-f', `scid=${this._videoScidHex}`]).catch(() => {});
+        }
+        await new Promise(r => setTimeout(r, 150));
       } catch (_) {}
 
       // Wake display and unlock using standard human device settings
@@ -393,7 +398,7 @@ class ScrcpyEngine extends EventEmitter {
         await this._adb(['shell', 'settings', 'put', 'system', 'screen_off_timeout', '2147483647']).catch(() => {});
         await this._adb(['shell', 'settings', 'put', 'global', 'stay_on_while_plugged_in', '3']).catch(() => {});
         await this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {}); // KEYCODE_WAKEUP
-        await this._adb(['shell', 'input', 'keyevent', '82']).catch(() => {});  // KEYCODE_MENU (unlocks screen)
+        await this._adb(['shell', 'wm', 'dismiss-keyguard']).catch(() => {});
       } catch (_) {}
 
       // 1. Fetch real screen dimensions & orientation (tablets & phones of all aspect ratios)
@@ -426,9 +431,9 @@ class ScrcpyEngine extends EventEmitter {
       // 2. Push scrcpy-server.jar to device
       await this._pushServerJar();
 
-      // 3. Setup ADB port forwarding for scrcpy
+      // 3. Setup ADB port forwarding for this device's unique scid abstract socket
       try { await this._adb(['forward', '--remove', `tcp:${this.videoPort}`]); } catch (_) {}
-      await this._adb(['forward', `tcp:${this.videoPort}`, 'localabstract:scrcpy']);
+      await this._adb(['forward', `tcp:${this.videoPort}`, `localabstract:scrcpy_${this._videoScidHex}`]);
 
       // 4. Spawn scrcpy-server process on device
       this._spawnServer();
@@ -442,10 +447,7 @@ class ScrcpyEngine extends EventEmitter {
       this._startDedicatedAudioStream().catch(() => {});
 
     } catch (err) {
-      logger.warn(`[ScrcpyEngine ${this.serial}] Scrcpy start failed: ${err.message} — freeing phone socket and scheduling auto-recovery`);
-      try {
-        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
-      } catch (_) {}
+      logger.warn(`[ScrcpyEngine ${this.serial}] Scrcpy start failed: ${err.message} — scheduling auto-recovery for this device`);
       if (this.isRunning) {
         setTimeout(() => this._restart(), 2000);
       }
@@ -476,10 +478,12 @@ class ScrcpyEngine extends EventEmitter {
       }
     }
 
+    const scidArg = this._videoScidHex ? [`scid=${this._videoScidHex}`] : [];
     const args = [
       '-s', this.serial, 'shell',
       'CLASSPATH=/data/local/tmp/scrcpy-server.jar',
       'app_process', '/', 'com.genymobile.scrcpy.Server', '3.3.4',
+      ...scidArg,
       'tunnel_forward=true',
       'audio=false',
       'control=true',
@@ -649,6 +653,9 @@ class ScrcpyEngine extends EventEmitter {
     if (this.serverProc) {
       try { this.serverProc.kill(); } catch (_) {}
       this.serverProc = null;
+    }
+    if (this._videoScidHex) {
+      this._adb(['shell', 'pkill', '-9', '-f', `scid=${this._videoScidHex}`]).catch(() => {});
     }
   }
 
@@ -1002,17 +1009,28 @@ class ScrcpyEngine extends EventEmitter {
 
     socket.on('close', () => {
       clearInterval(watchdog);
-      logger.warn(`[ScrcpyEngine ${this.serial}] Video socket closed`);
+      logger.warn(`[ScrcpyEngine ${this.serial}] Video socket closed — self-healing device stream`);
       this.videoSocket = null;
-      if (this.isRunning && !this._fallbackActive) {
-        this._startScreenrecordFallback();
+      if (this.isRunning && !this._restartPending) {
+        this._restartPending = true;
+        setTimeout(() => {
+          this._restartPending = false;
+          if (this.isRunning) this._restart();
+        }, 1500);
       }
     });
 
     socket.on('error', (e) => {
       clearInterval(watchdog);
-      logger.warn(`[ScrcpyEngine ${this.serial}] Video socket error: ${e.message}`);
+      logger.warn(`[ScrcpyEngine ${this.serial}] Video socket error: ${e.message} — self-healing device stream`);
       this.videoSocket = null;
+      if (this.isRunning && !this._restartPending) {
+        this._restartPending = true;
+        setTimeout(() => {
+          this._restartPending = false;
+          if (this.isRunning) this._restart();
+        }, 1500);
+      }
     });
   }
 
@@ -1353,7 +1371,7 @@ class ScrcpyEngine extends EventEmitter {
 
   async _restart() {
     if (!this.isRunning) return;
-    logger.info(`[ScrcpyEngine ${this.serial}] Restarting...`);
+    logger.info(`[ScrcpyEngine ${this.serial}] Self-healing device stream...`);
     // Clear stale keyframe cache so fresh SPS/PPS+IDR are sent after restart
     this._configPacket   = null;
     this._keyframeBuffer = null;
@@ -1364,19 +1382,29 @@ class ScrcpyEngine extends EventEmitter {
       if (ws.readyState === 1) try { ws.send(resetMsg); } catch (_) {}
     }
     try {
-      // Force-kill any lingering scrcpy/app_process on device to release localabstract:scrcpy
+      this._cleanup();
+      await new Promise(r => setTimeout(r, 600));
+
+      // Wake device display in case screen locked
       try {
-        await this._adb(['shell', 'pkill', '-9', '-f', 'com.genymobile.scrcpy']).catch(() => {});
-        await new Promise(r => setTimeout(r, 200));
+        await this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
+        await this._adb(['shell', 'wm', 'dismiss-keyguard']).catch(() => {});
       } catch (_) {}
 
+      const scidVideoNum = (this.videoPort * 1000 + 1) & 0x7FFFFFFF;
+      this._videoScidHex = scidVideoNum.toString(16).padStart(8, '0');
+
       try { await this._adb(['forward', '--remove', `tcp:${this.videoPort}`]); } catch (_) {}
-      await this._adb(['forward', `tcp:${this.videoPort}`, 'localabstract:scrcpy']);
+      await this._adb(['forward', `tcp:${this.videoPort}`, `localabstract:scrcpy_${this._videoScidHex}`]);
       this._spawnServer();
       await this._connectSockets();
-      logger.info(`[ScrcpyEngine ${this.serial}] Restarted successfully`);
+      logger.info(`[ScrcpyEngine ${this.serial}] Stream self-healed successfully`);
+
+      if (this.enableAudio && (!this._audioProc || !this.audioSocket)) {
+        this._startDedicatedAudioStream().catch(() => {});
+      }
     } catch (err) {
-      logger.warn(`[ScrcpyEngine ${this.serial}] Restart failed: ${err.message} — retry in 3s`);
+      logger.warn(`[ScrcpyEngine ${this.serial}] Self-healing attempt failed: ${err.message} — retry in 3s`);
       if (this.isRunning) setTimeout(() => this._restart(), 3000);
     }
   }

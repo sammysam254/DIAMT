@@ -279,7 +279,12 @@ function startDashboardServer(port = 7400) {
             timeout: 15000,
           }, (proxyRes) => {
             if (!res.headersSent) {
-              res.writeHead(proxyRes.statusCode, proxyRes.headers);
+              const headers = { ...proxyRes.headers };
+              delete headers['x-frame-options'];
+              delete headers['X-Frame-Options'];
+              headers['access-control-allow-origin'] = '*';
+              headers['content-security-policy'] = "default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: *; frame-ancestors *;";
+              res.writeHead(proxyRes.statusCode, headers);
             }
             proxyRes.pipe(res);
             proxyRes.on('error', () => { try { res.destroy(); } catch (_) {} });
