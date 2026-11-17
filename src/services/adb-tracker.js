@@ -194,13 +194,15 @@ async function handleDeviceAdd(device) {
       const hasCustomDomain = Boolean(rawCustomDomain && !rawCustomDomain.includes('localhost') && !rawCustomDomain.includes('127.0.0.1'));
       const cleanCustomDomain = hasCustomDomain ? rawCustomDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
 
-      const tunnel = await createTunnel(port);
-      if (tunnel && tunnel.publicUrl) {
-        tunnelProcess = tunnel.tunnelProcess;
-        publicUrl = cleanCustomDomain ? `https://${cleanCustomDomain}` : tunnel.publicUrl;
-        logger.info(`[+] Fast Cloudflare tunnel active for ${serial}: ${publicUrl}`);
-      } else if (cleanCustomDomain) {
+      if (cleanCustomDomain) {
         publicUrl = `https://${cleanCustomDomain}`;
+        tunnelProcess = null; // Do NOT attach global tunnel process to individual device sessions
+      } else {
+        const tunnel = await createTunnel(port);
+        if (tunnel && tunnel.publicUrl) {
+          tunnelProcess = tunnel.tunnelProcess;
+          publicUrl = tunnel.publicUrl;
+        }
       }
     } catch (tErr) {
       logger.warn(`Tunnel notice for ${serial} (using local endpoint): ${tErr.message}`);

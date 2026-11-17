@@ -294,6 +294,11 @@ async function createTunnelWithRetry(port) {
 
 function killTunnel(tunnelProcess) {
   if (!tunnelProcess) return;
+  // NEVER kill the global shared Cloudflare Zero Trust token tunnel!
+  if (tunnelProcess === activeTokenTunnelProcess) {
+    logger.info('[TunnelService] Preserving shared Cloudflare Zero Trust tunnel for other devices');
+    return;
+  }
   if (typeof tunnelProcess.close === 'function') {
     try { tunnelProcess.close(); } catch (_) { }
   }
