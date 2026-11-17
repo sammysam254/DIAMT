@@ -139,10 +139,22 @@ function createCloudflaredTunnel(port) {
     const rawDomain = currentCfg.customDomain || currentCfg.domain || process.env.DEVICE_DOMAIN || '';
     const domain = rawDomain ? rawDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
 
-    if (token && activeTokenTunnelProcess && activeTokenTunnelProcess.exitCode === null) {
-      const publicUrl = `https://${domain}`;
-      logger.info(`[OK] Reusing active Cloudflare Zero Trust token tunnel: ${publicUrl}`);
-      return resolve({ publicUrl, tunnelProcess: activeTokenTunnelProcess });
+    if (token) {
+      if (activeTokenTunnelProcess && activeTokenTunnelProcess.exitCode === null) {
+        const publicUrl = `https://${domain}`;
+        logger.info(`[OK] Reusing active Cloudflare Zero Trust token tunnel: ${publicUrl}`);
+        return resolve({ publicUrl, tunnelProcess: null });
+      }
+
+      // Check if cloudflared daemon is already running on Windows host
+      try {
+        const isRunning = execSync('powershell -NoProfile -Command "(Get-Process cloudflared -ErrorAction SilentlyContinue) -ne $null"', { windowsHide: true, timeout: 3000 }).toString().trim().toLowerCase() === 'true';
+        if (isRunning) {
+          const publicUrl = `https://${domain}`;
+          logger.info(`[OK] Cloudflare tunnel daemon already running on host: ${publicUrl}`);
+          return resolve({ publicUrl, tunnelProcess: null });
+        }
+      } catch (_) {}
     }
 
     const args = token
@@ -299,6 +311,13 @@ function killTunnel(tunnelProcess) {
     logger.info('[TunnelService] Preserving shared Cloudflare Zero Trust tunnel for other devices');
     return;
   }
+  // NEVER terminate cloudflared when cleaning up a device
+  try {
+    if (tunnelProcess.spawnfile && path.basename(tunnelProcess.spawnfile).toLowerCase().includes('cloudflared')) {
+      logger.info('[TunnelService] Preserving cloudflared process from termination');
+      return;
+    }
+  } catch (_) {}
   if (typeof tunnelProcess.close === 'function') {
     try { tunnelProcess.close(); } catch (_) { }
   }

@@ -63,11 +63,6 @@ function findActiveSession(reqUdid, fallbackSerial) {
     return activeServers.get(fallbackSerial);
   }
 
-  // 6. Graceful single-device fallback: if only 1 device is active, stream it rather than showing offline
-  if (activeServers.size === 1) {
-    return activeServers.values().next().value;
-  }
-
   return null;
 }
 
@@ -2473,12 +2468,18 @@ async function startStreamServer(serial, port, aliasSerial) {
 
   // ── HTTP handler ──────────────────────────────────────────────────────────
   const server = http.createServer(async (req, res) => {
+    try {
+      res.removeHeader('x-frame-options');
+      res.removeHeader('X-Frame-Options');
+    } catch (_) {}
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=()');
-    res.setHeader('Content-Security-Policy', "default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: *; frame-ancestors *;");
+    res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; connect-src * ws: wss:; frame-ancestors *;");
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     const url = new URL(req.url, `http://localhost:${port}`);

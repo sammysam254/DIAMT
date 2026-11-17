@@ -112,6 +112,30 @@ function findTargetDevice(rawSerial, actionParam) {
   return null;
 }
 
+function sendResponse(res, statusCode, contentType, body, extraHeaders = {}) {
+  if (res.headersSent) return;
+  const headers = {
+    'Content-Type': contentType,
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': '*',
+    'Content-Security-Policy': "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; connect-src * ws: wss:; frame-ancestors *;",
+    ...extraHeaders,
+  };
+  delete headers['x-frame-options'];
+  delete headers['X-Frame-Options'];
+  try {
+    res.removeHeader('x-frame-options');
+    res.removeHeader('X-Frame-Options');
+  } catch (_) {}
+  res.writeHead(statusCode, headers);
+  if (body) {
+    res.end(body);
+  } else {
+    res.end();
+  }
+}
+
 /**
  * Start the local Dashboard HTTP Server.
  * @param {number} [port=7400]
@@ -131,16 +155,20 @@ function startDashboardServer(port = 7400) {
       try {
         // Enable CORS & Security headers (permitting frame embedding on diamt.cloud)
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', '*');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('X-XSS-Protection', '1; mode=block');
       res.setHeader('Referrer-Policy', 'no-referrer');
       res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=()');
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors *;");
+      res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; connect-src * ws: wss:; frame-ancestors *;");
+      try {
+        res.removeHeader('x-frame-options');
+        res.removeHeader('X-Frame-Options');
+      } catch (_) {}
 
       if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
+        sendResponse(res, 204, 'text/plain');
         return;
       }
 
@@ -283,7 +311,11 @@ function startDashboardServer(port = 7400) {
               delete headers['x-frame-options'];
               delete headers['X-Frame-Options'];
               headers['access-control-allow-origin'] = '*';
-              headers['content-security-policy'] = "default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: *; frame-ancestors *;";
+              headers['content-security-policy'] = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; connect-src * ws: wss:; frame-ancestors *;";
+              try {
+                res.removeHeader('x-frame-options');
+                res.removeHeader('X-Frame-Options');
+              } catch (_) {}
               res.writeHead(proxyRes.statusCode, headers);
             }
             proxyRes.pipe(res);
@@ -292,19 +324,11 @@ function startDashboardServer(port = 7400) {
 
           proxyReq.on('timeout', () => {
             proxyReq.destroy();
-            if (!res.headersSent) {
-              res.writeHead(504, { 'Content-Type': 'text/plain' });
-              res.end('Gateway Timeout — device stream response timed out');
-            }
+            sendResponse(res, 504, 'text/plain', 'Gateway Timeout — device stream response timed out');
           });
 
           proxyReq.on('error', () => {
-            if (!res.headersSent) {
-              res.writeHead(502, { 'Content-Type': 'text/plain' });
-              res.end('Bad Gateway — device stream unavailable');
-            } else {
-              try { res.destroy(); } catch (_) {}
-            }
+            sendResponse(res, 502, 'text/plain', 'Bad Gateway — device stream unavailable');
           });
 
           req.on('error', () => { try { proxyReq.destroy(); } catch (_) {} });
@@ -312,40 +336,32 @@ function startDashboardServer(port = 7400) {
           return;
         }
 
-        // If a specific device UDID was requested but not found on this machine:
+        // If a specific device UDID was requested but not found or offline on this machine:
         if (udidParam || remoteParam) {
           const requestedSerial = rawSerial || 'Unknown';
-          const currentBinding = bindingService.getOrGenerateBindingCode();
-          res.writeHead(404, { 'Content-Type': 'text/html' });
-          res.end(`
+          sendResponse(res, 200, 'text/html; charset=utf-8', `
             <!DOCTYPE html>
             <html lang="en">
             <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Device Not Found — ${requestedSerial}</title>
+              <title>Connecting Stream — ${requestedSerial}</title>
+              <meta http-equiv="refresh" content="3">
               <style>
-                body { background: #07090e; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-                .card { max-width: 500px; width: 100%; background: #0f172a; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 20px; padding: 36px 28px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.6); }
-                .icon { font-size: 48px; margin-bottom: 12px; }
-                h2 { color: #f87171; margin: 0 0 10px; font-size: 22px; font-weight: 800; }
-                p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 20px; }
-                code { background: rgba(255,255,255,0.08); color: #38bdf8; padding: 3px 8px; border-radius: 6px; font-family: monospace; font-size: 14px; }
-                .box { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; font-size: 13px; color: #cbd5e1; text-align: left; margin-bottom: 24px; line-height: 1.6; }
-                .btn { display: inline-block; padding: 12px 24px; background: #38bdf8; color: #0f172a; border-radius: 10px; font-weight: 700; text-decoration: none; font-size: 14px; }
+                body { background: #07090e; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; box-sizing: border-box; }
+                .card { max-width: 320px; width: 100%; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 16px; padding: 24px 16px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+                .spinner { width: 32px; height: 32px; border: 3px solid rgba(56, 189, 248, 0.2); border-top-color: #38bdf8; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px; }
+                @keyframes spin { to { transform: rotate(360deg); } }
+                h3 { color: #38bdf8; margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+                p { color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0; }
+                code { background: rgba(255,255,255,0.08); color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 11px; }
               </style>
             </head>
             <body>
               <div class="card">
-                <div class="icon">📱</div>
-                <h2>Device Not Connected Here</h2>
-                <p>Device <code>${requestedSerial}</code> is not plugged into this machine (Binding Code: <strong>${currentBinding}</strong>).</p>
-                <div class="box">
-                  <strong>Why am I seeing this?</strong><br>
-                  • This device is plugged into a different computer (e.g. your remote USA host).<br>
-                  • To stream this remote device, open it via your DIAMT cloud dashboard once that host is running.
-                </div>
-                <a href="/" class="btn">View Local Dashboard</a>
+                <div class="spinner"></div>
+                <h3>Connecting Live Feed</h3>
+                <p>Device <code>${requestedSerial}</code> is initializing or recovering...<br>Live stream auto-reconnects in seconds.</p>
               </div>
             </body>
             </html>
@@ -354,25 +370,18 @@ function startDashboardServer(port = 7400) {
         }
       }
 
-        // ── Serve Index HTML Page ───────────────────────────────────────────
-        fs.readFile(htmlPath, (err, data) => {
-          if (err) {
-            res.writeHead(500, { 'Content-Type': 'text/plain' });
-            res.end('Error loading dashboard page');
-            return;
-          }
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(data);
-        });
-      } catch (handlerErr) {
-        logger.error(`[DashboardServer] Request error: ${handlerErr.message}`);
-        if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'text/plain' });
-          res.end('Internal Server Error');
-        } else {
-          try { res.destroy(); } catch (_) {}
+      // ── Serve Index HTML Page ───────────────────────────────────────────
+      fs.readFile(htmlPath, (err, data) => {
+        if (err) {
+          sendResponse(res, 500, 'text/plain', 'Error loading dashboard page');
+          return;
         }
-      }
+        sendResponse(res, 200, 'text/html; charset=utf-8', data);
+      });
+    } catch (handlerErr) {
+      logger.error(`[DashboardServer] Request error: ${handlerErr.message}`);
+      sendResponse(res, 500, 'text/plain', 'Internal Server Error');
+    }
     });
 
     server.on('clientError', (err, socket) => {

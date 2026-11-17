@@ -330,6 +330,9 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
             if (d.serial && !streamUrl.includes('udid=')) {
               streamUrl += (streamUrl.includes('?') ? '&' : '?') + `udid=${encodeURIComponent(d.serial)}`;
             }
+            if (!streamUrl.includes('cctv=')) {
+              streamUrl += (streamUrl.includes('?') ? '&' : '?') + 'cctv=1';
+            }
             if (!streamUrl.includes('muted=')) {
               streamUrl += (streamUrl.includes('?') ? '&' : '?') + 'muted=1';
             }

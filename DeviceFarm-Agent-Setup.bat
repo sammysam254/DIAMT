@@ -35,18 +35,10 @@ echo [*] Install directory : %INSTALL_DIR%
 echo [*] Source repository : %REPO_URL%
 echo.
 
-:: ── Auto-close target developer processes before running ─────────────────
-echo [*] Stopping previous developer processes...
-"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ancestorPids = @($PID); $curr = $PID; while ($true) { try { $p = (Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $curr) -ErrorAction SilentlyContinue).ParentProcessId; if ($p -and $p -gt 0 -and $p -notin $ancestorPids) { $ancestorPids += $p; $curr = $p } else { break } } catch { break } }; " ^
-  "$processesToKill = @('electron', 'adb', 'node', 'git', 'cmd', 'powershell', 'pwsh'); " ^
-  "foreach ($procName in $processesToKill) { " ^
-  "    Get-Process -Name $procName -ErrorAction SilentlyContinue | Where-Object { $_.Id -notin $ancestorPids } | Stop-Process -Force -ErrorAction SilentlyContinue " ^
-  "}; " ^
-  "Write-Host '[+] Target developer processes stopped successfully!' -ForegroundColor Green"
-taskkill /F /IM cloudflared.exe /T >nul 2>&1
-taskkill /F /IM scrcpy.exe /T >nul 2>&1
-timeout /t 2 /nobreak >nul
+:: ── Graceful process check (do not kill active ADB devices or live tunnels) ──
+echo [*] Checking running services...
+:: Only stop orphaned node background watchdogs if needed, but preserve adb.exe, scrcpy.exe, and cloudflared.exe!
+echo [OK] Preserving active device streams, ADB connections, and Cloudflare tunnel.
 
 
 
@@ -158,9 +150,6 @@ echo [4/6] Setting up agent files...
 
 if exist "%INSTALL_DIR%\.git" (
     echo [*] Agent directory exists — syncing cleanly to DIAMT repository...
-    taskkill /F /IM adb.exe /T >nul 2>&1
-    taskkill /F /IM electron.exe /T >nul 2>&1
-    taskkill /F /IM cloudflared.exe /T >nul 2>&1
     "%GIT%" -C "%INSTALL_DIR%" remote set-url origin "%REPO_URL%" >nul 2>&1
     "%GIT%" -C "%INSTALL_DIR%" fetch origin main
     "%GIT%" -C "%INSTALL_DIR%" reset --hard origin/main
@@ -362,14 +351,10 @@ schtasks /create /tn "%TASK_LOGON%" /tr "wscript.exe \"%VBS_LAUNCHER%\"" /sc ONL
 
 echo [OK] Windows 24/7 background service registered.
 
-:: Stop any existing cloudflared tunnel processes
-taskkill /F /IM cloudflared.exe /T >nul 2>&1
-ping 127.0.0.1 -n 2 >nul 2>nul
-
-:: Start agent directly via watchdog in background
-echo [*] Starting DeviceFarm Agent service in the background...
+:: Start agent directly via watchdog in background if not already active
+echo [*] Checking DeviceFarm Agent background service...
 "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-    "Start-Process -FilePath '%NODE%' -ArgumentList 'src\main\service-watchdog.js' -WorkingDirectory '%INSTALL_DIR%' -WindowStyle Hidden"
+    "$client = New-Object System.Net.Sockets.TcpClient; try { $client.Connect('127.0.0.1', 7402); $client.Close(); Write-Host '[OK] DeviceFarm Agent watchdog is already active.' } catch { Start-Process -FilePath '%NODE%' -ArgumentList 'src\main\service-watchdog.js' -WorkingDirectory '%INSTALL_DIR%' -WindowStyle Hidden; Write-Host '[OK] DeviceFarm Agent watchdog started in background.' }"
 
 :: Cloudflare Tunnel Daemon (if configured in config.json)
 set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
@@ -385,10 +370,9 @@ if not exist "%CLOUDFLARED_EXE%" (
     if exist "%INSTALL_DIR%\assets\bin\cloudflared.exe" set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
 )
 if exist "%CLOUDFLARED_EXE%" (
-    echo [*] Starting Cloudflare QUIC Edge Tunnel daemon for dennoh.site in background...
+    echo [*] Checking Cloudflare QUIC Edge Tunnel for dennoh.site...
     "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-        "Start-Process -FilePath '%CLOUDFLARED_EXE%' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9','--protocol','quic','--ha-connections','1','--no-autoupdate' -WindowStyle Hidden"
-    echo [OK] Cloudflare QUIC Edge Tunnel for dennoh.site started in background.
+        "$cf = Get-Process cloudflared -ErrorAction SilentlyContinue; if (-not $cf) { Start-Process -FilePath '%CLOUDFLARED_EXE%' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiMDVkMzUyZjgtZGU5Yi00MzBiLWIxYzUtNDUyNzNlZWQzOTExIiwicyI6Ik1qWmlaak13WVdZdE1UTmpPUzAwTm1NeExUZ3hNR0V0TlRWalpURTFNV1ZsTURNMSJ9','--protocol','quic','--ha-connections','1','--no-autoupdate' -WindowStyle Hidden; Write-Host '[OK] Cloudflare QUIC Edge Tunnel started in background.' } else { Write-Host '[OK] Cloudflare QUIC Edge Tunnel is already running smoothly.' }"
 ) else (
     echo [WARN] Cloudflare tunnel binary not found - tunnel will not be available.
 )

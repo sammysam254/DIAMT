@@ -112,27 +112,16 @@ async function runRecoveryCheck(force = false) {
   const adbBin = resolveAdb();
   const rawSerials = await listAdbDevices(adbBin);
 
-  // Strict USB only: disconnect and filter out any WiFi IP endpoints
-  const adbSerials = [];
-  for (const s of rawSerials) {
-    if (s.includes(':')) {
-      logger.info(`[EnrollmentGuard] Disconnecting wireless ADB endpoint ${s} — strict USB debugging only`);
-      try {
-        exec(`"${adbBin}" disconnect ${s}`, { timeout: 3000 }, () => {});
-      } catch (_) {}
-    } else {
-      adbSerials.push(s);
-    }
-  }
-
+  const adbSerials = rawSerials;
   const activeSerials = new Set(processManager.getActiveSerials());
 
-  // ── 1. Re-enroll physical USB devices seen by ADB but not actively streaming ──
+  // ── 1. Re-enroll devices seen by ADB but not actively streaming ─────────────
   for (const serial of adbSerials) {
-    if (activeSerials.has(serial) || processManager.getDevice(serial)) continue;      // Already streaming or tracked ✓
+    const dev = processManager.getDevice(serial);
+    if (dev && dev.port) continue;      // Already streaming or tracked ✓
     if (_inProgress.has(serial)) continue;         // Already being provisioned ✓
 
-    logger.info(`[EnrollmentGuard] Re-enrolling USB device: ${serial}`);
+    logger.info(`[EnrollmentGuard] Re-enrolling device: ${serial}`);
     _inProgress.add(serial);
 
     try {
@@ -144,25 +133,17 @@ async function runRecoveryCheck(force = false) {
     }
   }
 
-  // ── 2. Clean up stale processManager entries for vanished or legacy WiFi devices ─
+  // ── 2. Clean up stale processManager entries only if physical ADB device is truly gone
   for (const serial of activeSerials) {
-    if (serial.includes(':')) {
-      logger.info(`[EnrollmentGuard] Purging legacy/stale WiFi session: ${serial}`);
-      try {
-        if (_removeDeviceCallback) {
-          await _removeDeviceCallback({ id: serial });
-        } else {
-          processManager.killDeviceProcesses(serial);
-        }
-      } catch (err) {
-        logger.warn(`[EnrollmentGuard] Cleanup error for ${serial}: ${err.message}`);
-      }
-      continue;
+    const dev = processManager.getDevice(serial);
+    const underlyingSerial = dev ? (dev.adbSerial || dev.serial || serial) : serial;
+
+    // If either this key or the underlying ADB serial is still connected to ADB, KEEP IT ALIVE!
+    if (adbSerials.includes(serial) || (underlyingSerial && adbSerials.includes(underlyingSerial))) {
+      continue; // Still active in ADB ✓
     }
 
-    if (adbSerials.includes(serial)) continue;    // Still directly in ADB USB ✓
-
-    logger.info(`[EnrollmentGuard] Stale session detected for ${serial} — cleaning up`);
+    logger.info(`[EnrollmentGuard] Stale session detected for ${serial} (underlying: ${underlyingSerial}) — cleaning up`);
     try {
       if (_removeDeviceCallback) {
         await _removeDeviceCallback({ id: serial });
