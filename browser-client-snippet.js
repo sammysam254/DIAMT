@@ -325,18 +325,27 @@ class ScrcpyDashboardClient {
    * Navigation Helper Methods (Injects DOWN + UP sequence)
    */
   sendBack() {
+    const now = Date.now();
+    if (this._lastNavKey && now - this._lastNavKey < 600) return;
+    this._lastNavKey = now;
     this.sendKeycode(4, 0); // Android AKEYCODE_BACK DOWN
-    setTimeout(() => this.sendKeycode(4, 1), 50); // UP
+    setTimeout(() => this.sendKeycode(4, 1), 60); // UP
   }
 
   sendHome() {
+    const now = Date.now();
+    if (this._lastNavKey && now - this._lastNavKey < 600) return;
+    this._lastNavKey = now;
     this.sendKeycode(3, 0); // Android AKEYCODE_HOME DOWN
-    setTimeout(() => this.sendKeycode(3, 1), 50); // UP
+    setTimeout(() => this.sendKeycode(3, 1), 60); // UP
   }
 
   sendAppSwitch() {
+    const now = Date.now();
+    if (this._lastNavKey && now - this._lastNavKey < 600) return;
+    this._lastNavKey = now;
     this.sendKeycode(187, 0); // Android AKEYCODE_APP_SWITCH DOWN
-    setTimeout(() => this.sendKeycode(187, 1), 50); // UP
+    setTimeout(() => this.sendKeycode(187, 1), 60); // UP
   }
 
   sendPower() {

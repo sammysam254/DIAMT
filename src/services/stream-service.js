@@ -278,12 +278,10 @@ function handleControl(type, data, serial, engine) {
         }
       }
       if (type === 'wake' || type === 'refresh') {
-        if (engine && engine.controlSocket && !engine.controlSocket.destroyed) {
-          engine.sendKeycode(0, 224); // KEYCODE_WAKEUP DOWN
-          engine.sendKeycode(1, 224); // KEYCODE_WAKEUP UP
-        } else {
+        // Only wake screen via keyevent if engine is not actively streaming
+        // (prevents wm dismiss-keyguard or wakeup from dismissing the Android Recents / App Switcher)
+        if (!engine || !engine.isRunning) {
           adbInput(serial, 'input keyevent 224');
-          adbInput(serial, 'wm dismiss-keyguard');
         }
       }
     } catch (_) {}
@@ -2162,7 +2160,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
     resumeAudioContext();
     if (!hasKeyframe) {
       send({ type: 'request_keyframe' });
-      send({ type: 'wake' });
     }
   }
 
@@ -2344,7 +2341,19 @@ function buildPlayerHtml(serial, screenW, screenH) {
     }
   });
 
-  function key(code) { send({ type:'code', code }); }
+  let lastNavKeyTime = 0;
+  function key(code) {
+    const now = Date.now();
+    // Debounce rapid duplicate button clicks on nav keys (Recents=187, Home=3, Back=4)
+    // Prevents double-tap on Recents which Android interprets as 'switch to previous app / return to home'
+    if (code === 187 || code === 3 || code === 4) {
+      if (now - lastNavKeyTime < 600) {
+        return;
+      }
+      lastNavKeyTime = now;
+    }
+    send({ type:'code', code });
+  }
   function expandNotifications() { send({ type:'expand_notifications' }); }
 
   function screenshot() {
