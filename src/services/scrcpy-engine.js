@@ -1102,8 +1102,9 @@ class ScrcpyEngine extends EventEmitter {
    *   [28-31] buttons i32BE (0 for finger)
    */
   sendTouchEvent(action, x, y, width, height, pressure = 1.0) {
-    let targetW = this.serverVideoWidth || this.scrcpyVideoWidth || this.videoWidth;
-    let targetH = this.serverVideoHeight || this.scrcpyVideoHeight || this.videoHeight;
+    // Ground truth: scrcpyVideoWidth/Height parsed from SPS is the exact size scrcpy-server validates against
+    let targetW = this.scrcpyVideoWidth || this.serverVideoWidth || this.videoWidth;
+    let targetH = this.scrcpyVideoHeight || this.serverVideoHeight || this.videoHeight;
     if (!targetW || !targetH) {
       targetW = (width > 10) ? Math.round(width) : (this.screenWidth || 1080);
       targetH = (height > 10) ? Math.round(height) : (this.screenHeight || 2340);
@@ -1131,17 +1132,31 @@ class ScrcpyEngine extends EventEmitter {
 
     const normPressure = (action === 1) ? 0 : Math.min(0xffff, Math.max(1, Math.floor((pressure || 0.5) * 65535)));
 
+    // Official scrcpy v3.3.4 INJECT_TOUCH_EVENT format (32 bytes):
+    // [0] type = 2
+    // [1] action: 0=DOWN, 1=UP, 2=MOVE
+    // [2..9] pointer_id: i64BE (-1n POINTER_ID_MOUSE)
+    // [10..13] x: i32BE
+    // [14..17] y: i32BE
+    // [18..19] width: u16BE (MUST match scrcpy-server videoSize to avoid "Ignore touch event" discard)
+    // [20..21] height: u16BE
+    // [22..23] pressure: u16BE (0..0xFFFF)
+    // [24..27] action_button: i32BE (1 on DOWN/UP, 0 on MOVE)
+    // [28..31] buttons: i32BE (1 on DOWN/MOVE, 0 on UP)
+    const actionBtn = (action === 2) ? 0 : 1;
+    const buttonsState = (action === 1) ? 0 : 1;
+
     const buf = Buffer.allocUnsafe(32);
     buf.writeUInt8(2, 0);                 // INJECT_TOUCH_EVENT
     buf.writeUInt8(action, 1);            // 0=DOWN, 1=UP, 2=MOVE
-    buf.writeBigInt64BE(-2n, 2);          // SC_POINTER_ID_GENERIC_FINGER (-2n)
+    buf.writeBigInt64BE(-1n, 2);          // POINTER_ID_MOUSE (-1n)
     buf.writeInt32BE(finalX, 10);
     buf.writeInt32BE(finalY, 14);
     buf.writeUInt16BE(targetW, 18);
     buf.writeUInt16BE(targetH, 20);
     buf.writeUInt16BE(normPressure, 22);
-    buf.writeInt32BE(0, 24);              // action_button = 0 (clean capacitive finger)
-    buf.writeInt32BE(0, 28);              // buttons = 0 (no mouse emulation delay)
+    buf.writeInt32BE(actionBtn, 24);      // Official scrcpy action_button
+    buf.writeInt32BE(buttonsState, 28);   // Official scrcpy buttons state
     try {
       this.controlSocket.write(buf);
       return true;

@@ -1732,7 +1732,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     decoderReady = false;
   }
 
-  function initDecoder(codecOverride) {
+  function initDecoder(codecOverride, accelMode = 'prefer-hardware') {
     resetDecoder();
     if (typeof VideoDecoder === 'undefined') {
       console.warn('[Stream] WebCodecs VideoDecoder not available in this browser');
@@ -1759,22 +1759,26 @@ function buildPlayerHtml(serial, screenW, screenH) {
         error: function(err) {
           console.warn('[Stream] VideoDecoder error:', err);
           resetDecoder();
-          initDecoder(activeCodec);
+          // Fallback to software decoding without hardware acceleration to resolve High Profile black screens
+          initDecoder(activeCodec, 'no-preference');
           send({ type: 'request_keyframe' });
-          send({ type: 'wake' });
         }
       });
       decoder.configure({
         codec: targetCodec,
         optimizeForLatency: true,
-        hardwareAcceleration: 'prefer-hardware'
+        hardwareAcceleration: accelMode
       });
       decoderReady = true;
       activeCodec = targetCodec;
       const dbgCodec = document.getElementById('dbgCodec');
-      if (dbgCodec) dbgCodec.textContent = targetCodec;
+      if (dbgCodec) dbgCodec.textContent = targetCodec + (accelMode === 'no-preference' ? ' (SW)' : '');
       return true;
     } catch (err) {
+      if (accelMode !== 'no-preference') {
+        console.warn('[Stream] Hardware decode config failed, falling back to software:', err);
+        return initDecoder(codecOverride, 'no-preference');
+      }
       console.error('[Stream] Failed to init VideoDecoder with codec ' + (codecOverride || activeCodec) + ':', err);
       return false;
     }
@@ -2025,10 +2029,10 @@ function buildPlayerHtml(serial, screenW, screenH) {
         } catch (err) {
           hasKeyframe = false;
           console.warn('[Stream] H264 keyframe chunk decode error:', err);
+          initDecoder(activeCodec, 'no-preference');
           if (Date.now() - lastKeyframeReqTime > 1000) {
             lastKeyframeReqTime = Date.now();
             send({ type: 'request_keyframe' });
-            send({ type: 'wake' });
           }
         }
         return;
@@ -2058,7 +2062,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
         if (Date.now() - lastKeyframeReqTime > 1000) {
           lastKeyframeReqTime = Date.now();
           send({ type: 'request_keyframe' });
-          send({ type: 'wake' });
         }
       }
     };
@@ -2070,7 +2073,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
       if (!hasKeyframe && (now - lastKeyframeReqTime > 2000)) {
         lastKeyframeReqTime = now;
         send({ type: 'request_keyframe' });
-        send({ type: 'wake' });
       }
       if (lastFrameReceivedTime > 0 && (now - lastFrameReceivedTime > 30000)) {
         send({ type: 'wake' });
@@ -2163,6 +2165,29 @@ function buildPlayerHtml(serial, screenW, screenH) {
     }
   }
 
+  // Raw official scrcpy binary touch packet dispatch (32 bytes, <0.05ms transmission)
+  function sendTouch(action, x, y, width, height, pressure) {
+    if (ws && ws.readyState === 1) {
+      if (action === 2 && ws.bufferedAmount > 8192) return;
+      const buf = new ArrayBuffer(32);
+      const view = new DataView(buf);
+      view.setUint8(0, 2);                     // INJECT_TOUCH_EVENT = 2
+      view.setUint8(1, action);                // 0=DOWN, 1=UP, 2=MOVE
+      view.setBigInt64(2, -1n, false);         // POINTER_ID_MOUSE (-1n)
+      view.setInt32(10, Math.round(x), false); // X
+      view.setInt32(14, Math.round(y), false); // Y
+      view.setUint16(18, Math.round(width), false);  // width
+      view.setUint16(20, Math.round(height), false); // height
+      const normPressure = (action === 1) ? 0 : Math.min(0xffff, Math.max(1, Math.floor((pressure || 0.5) * 65535)));
+      view.setUint16(22, normPressure, false);
+      view.setInt32(24, (action === 2) ? 0 : 1, false); // action_button (1 on DOWN/UP, 0 on MOVE)
+      view.setInt32(28, (action === 1) ? 0 : 1, false); // buttons (1 on DOWN/MOVE, 0 on UP)
+      ws.send(buf);
+    } else {
+      send({ type: 'touch', action, x, y, width, height, pressure });
+    }
+  }
+
   // Native Touch Listeners (Mobile / Tablet browsers with raw 0ms latency)
   function handleTouchStart(e) {
     isNativeTouchActive = true;
@@ -2171,7 +2196,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
-    send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
+    sendTouch(0, c.x, c.y, c.w, c.h, 0.5);
   }
 
   function handleTouchMove(e) {
@@ -2186,7 +2211,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (now - lastMoveTime >= 10 || Math.hypot(dx, dy) >= 6) {
       lastMoveTime = now;
       lastX = c.x; lastY = c.y;
-      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
+      sendTouch(2, c.x, c.y, c.w, c.h, 0.6);
     }
   }
 
@@ -2195,7 +2220,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     isNativeTouchActive = false;
     e.preventDefault();
     const c = coords(e);
-    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
+    sendTouch(1, c.x, c.y, c.w, c.h, 0);
   }
 
   canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
@@ -2220,7 +2245,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
-    send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
+    sendTouch(0, c.x, c.y, c.w, c.h, 0.5);
   });
 
   canvas.addEventListener('pointermove', (e) => {
@@ -2235,7 +2260,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (now - lastMoveTime >= 10 || Math.hypot(dx, dy) >= 6) {
       lastMoveTime = now;
       lastX = c.x; lastY = c.y;
-      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
+      sendTouch(2, c.x, c.y, c.w, c.h, 0.6);
     }
   });
 
@@ -2249,7 +2274,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
       activePointerId = null;
     }
     const c = coords(e);
-    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
+    sendTouch(1, c.x, c.y, c.w, c.h, 0);
   }
 
   canvas.addEventListener('pointerup', releasePointer);
@@ -2352,7 +2377,31 @@ function buildPlayerHtml(serial, screenW, screenH) {
       }
       lastNavKeyTime = now;
     }
-    send({ type:'code', code });
+    if (ws && ws.readyState === 1) {
+      // Direct 14-byte scrcpy binary INJECT_KEYCODE (DOWN then UP)
+      const bD = new ArrayBuffer(14);
+      const vD = new DataView(bD);
+      vD.setUint8(0, 0); // INJECT_KEYCODE
+      vD.setUint8(1, 0); // ACTION_DOWN
+      vD.setInt32(2, code, false);
+      vD.setInt32(6, 0, false);
+      vD.setInt32(10, 0, false);
+      ws.send(bD);
+      setTimeout(() => {
+        if (ws && ws.readyState === 1) {
+          const bU = new ArrayBuffer(14);
+          const vU = new DataView(bU);
+          vU.setUint8(0, 0); // INJECT_KEYCODE
+          vU.setUint8(1, 1); // ACTION_UP
+          vU.setInt32(2, code, false);
+          vU.setInt32(6, 0, false);
+          vU.setInt32(10, 0, false);
+          ws.send(bU);
+        }
+      }, 50);
+    } else {
+      send({ type:'code', code });
+    }
   }
   function expandNotifications() { send({ type:'expand_notifications' }); }
 
@@ -2670,6 +2719,30 @@ async function startStreamServer(serial, port, aliasSerial) {
 
     ws.on('message', (msg) => {
       try {
+        // Fast-path: Raw official scrcpy binary control packets (0ms serialization overhead)
+        if (Buffer.isBuffer(msg) || (msg instanceof Uint8Array)) {
+          const buf = Buffer.isBuffer(msg) ? msg : Buffer.from(msg);
+          if (buf.length === 32 && buf[0] === 2) {
+            // Official scrcpy INJECT_TOUCH_EVENT (32 bytes)
+            if (effectiveWsEngine && effectiveWsEngine.controlSocket && !effectiveWsEngine.controlSocket.destroyed) {
+              const targetW = effectiveWsEngine.scrcpyVideoWidth || effectiveWsEngine.serverVideoWidth || effectiveWsEngine.videoWidth;
+              const targetH = effectiveWsEngine.scrcpyVideoHeight || effectiveWsEngine.serverVideoHeight || effectiveWsEngine.videoHeight;
+              if (targetW > 0 && targetH > 0) {
+                buf.writeUInt16BE(targetW, 18);
+                buf.writeUInt16BE(targetH, 20);
+              }
+              effectiveWsEngine.controlSocket.write(buf);
+              return;
+            }
+          } else if (buf.length === 14 && buf[0] === 0) {
+            // Official scrcpy INJECT_KEYCODE (14 bytes)
+            if (effectiveWsEngine && effectiveWsEngine.controlSocket && !effectiveWsEngine.controlSocket.destroyed) {
+              effectiveWsEngine.controlSocket.write(buf);
+              return;
+            }
+          }
+        }
+
         const data = JSON.parse(msg.toString());
         if (data.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong', time: Date.now() }));
