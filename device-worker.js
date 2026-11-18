@@ -198,10 +198,9 @@ class DeviceWorker extends EventEmitter {
         `audio=${v.audio === true}`,
         `control=${v.control !== false}`,
         `cleanup=${v.cleanup === true}`,
+        'downsize_on_error=true',
         `max_size=${v.maxSize || 1080}`,
         `video_bit_rate=${v.videoBitRate || 4000000}`,
-        `max_fps=${v.maxFps || 60}`,
-        `i_frame_interval=${v.iFrameInterval || 2}`,
       ];
 
       console.log(`[DeviceWorker ${this.serial}] Executing: ${this.adbBin} ${args.join(' ')}`);

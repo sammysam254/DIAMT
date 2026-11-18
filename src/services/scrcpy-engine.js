@@ -434,6 +434,12 @@ class ScrcpyEngine extends EventEmitter {
       }
     }
 
+    // Adaptive safe fallback if device MediaCodec failed or restarted rapidly
+    if ((this._fastCrashCount || 0) >= 2) {
+      maxSizeArg = '720';
+    }
+    const bitRate = ((this._fastCrashCount || 0) >= 2) ? '2000000' : '4000000';
+
     const scidArg = this._videoScidHex ? [`scid=${this._videoScidHex}`] : [];
     const args = [
       '-s', this.serial, 'shell',
@@ -444,10 +450,9 @@ class ScrcpyEngine extends EventEmitter {
       'audio=false',
       'control=true',
       'cleanup=false',
+      'downsize_on_error=true',
       `max_size=${maxSizeArg || '1080'}`,
-      'video_bit_rate=4000000',
-      'max_fps=60',
-      'i_frame_interval=2',
+      `video_bit_rate=${bitRate}`,
     ];
 
     logger.info(`[ScrcpyEngine ${this.serial}] Spawning scrcpy server with args: ${args.slice(2).join(' ')}`);
@@ -473,6 +478,8 @@ class ScrcpyEngine extends EventEmitter {
           const sw = parseInt(dimMatch[1], 10);
           const sh = parseInt(dimMatch[2], 10);
           if (sw > 0 && sh > 0) {
+            this.serverVideoWidth = sw;
+            this.serverVideoHeight = sh;
             this.scrcpyVideoWidth = sw;
             this.scrcpyVideoHeight = sh;
             this.videoWidth  = sw;
@@ -512,11 +519,17 @@ class ScrcpyEngine extends EventEmitter {
       const uptime = Date.now() - this._procStartTime;
       logger.warn(`[ScrcpyEngine ${this.serial}] proc exited (code=${code}, uptime=${uptime}ms)`);
 
+      if (uptime < 4000) {
+        this._fastCrashCount = (this._fastCrashCount || 0) + 1;
+      } else {
+        this._fastCrashCount = 0;
+      }
+
       this._cleanup();
 
       this._restartPending = true;
-      const delay = uptime < 3000 ? 4000 : 1500;
-      logger.info(`[ScrcpyEngine ${this.serial}] Restarting in ${delay}ms...`);
+      const delay = (this._fastCrashCount >= 3) ? 5000 : (uptime < 3000 ? 3000 : 1500);
+      logger.info(`[ScrcpyEngine ${this.serial}] Restarting in ${delay}ms (crashCount: ${this._fastCrashCount || 0})...`);
       setTimeout(() => {
         this._restartPending = false;
         if (this.isRunning) this._restart();
@@ -778,6 +791,8 @@ class ScrcpyEngine extends EventEmitter {
             const w = buf.readUInt32BE(hIdx + 4);
             const h = buf.readUInt32BE(hIdx + 8);
             if (w > 0 && h > 0 && w < 10000 && h < 10000) {
+              this.serverVideoWidth = w;
+              this.serverVideoHeight = h;
               this.scrcpyVideoWidth = w;
               this.scrcpyVideoHeight = h;
               this.videoWidth = w;
@@ -791,6 +806,8 @@ class ScrcpyEngine extends EventEmitter {
             const w = buf.readUInt32BE(69);
             const h = buf.readUInt32BE(73);
             if (w > 0 && h > 0 && w < 10000 && h < 10000) {
+              this.serverVideoWidth = w;
+              this.serverVideoHeight = h;
               this.scrcpyVideoWidth = w;
               this.scrcpyVideoHeight = h;
               this.videoWidth = w;
@@ -1031,19 +1048,20 @@ class ScrcpyEngine extends EventEmitter {
   _broadcastVideo(payload, isKeyframe = false) {
     for (const ws of this.wsClients) {
       if (ws.readyState === 1) {
-        // Backpressure protection: only throttle if socket buffer exceeds 384KB
-        if (ws.bufferedAmount > 384 * 1024) {
+        // Backpressure protection: only throttle if socket buffer exceeds 1.5MB (generous for high-bitrate scenes)
+        if (ws.bufferedAmount > 1536 * 1024) {
           ws._needsKeyframe = true;
+          if (!isKeyframe) continue;
+        }
+        if (ws._needsKeyframe && !isKeyframe) {
+          // As soon as socket buffer drains below 128KB, immediately flush the self-contained keyframe
+          if (ws.bufferedAmount < 128 * 1024 && this._keyframeBuffer) {
+            ws._needsKeyframe = false;
+            try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
+          }
           continue;
         }
-        if (ws._needsKeyframe) {
-          // If buffered amount drained, wait for a FRESH real keyframe from the encoder
-          // Never inject stale cached frames from earlier screens!
-          if (!isKeyframe) {
-            continue;
-          }
-          ws._needsKeyframe = false;
-        }
+        ws._needsKeyframe = false;
         try { ws.send(payload, { binary: true }); } catch (_) { this.wsClients.delete(ws); }
       } else {
         this.wsClients.delete(ws);
@@ -1054,21 +1072,21 @@ class ScrcpyEngine extends EventEmitter {
   // ── Control protocol ──────────────────────────────────────────────────────
 
   /**
-   * INJECT_TOUCH_EVENT (32 bytes, scrcpy 2.x)
+   * INJECT_TOUCH_EVENT (32 bytes, scrcpy 2.x / 3.x)
    *   [0]     msg type = 2
    *   [1]     action: 0=DOWN 1=UP 2=MOVE
-   *   [2-9]   pointer id i64BE (-1 = virtual)
+   *   [2-9]   pointer id i64BE (-2n = SC_POINTER_ID_GENERIC_FINGER)
    *   [10-13] x i32BE
    *   [14-17] y i32BE
-   *   [18-19] screen width u16BE
+   *   [18-19] screen width u16BE (MUST match scrcpy-server videoSize to avoid "Ignore touch event" discard)
    *   [20-21] screen height u16BE
    *   [22-23] pressure u16BE (0xFFFF = 1.0)
-   *   [24-27] action_button i32BE (1=PRIMARY on DOWN)
-   *   [28-31] buttons i32BE (1 on DOWN/MOVE, 0 on UP)
+   *   [24-27] action_button i32BE (0 for finger)
+   *   [28-31] buttons i32BE (0 for finger)
    */
   sendTouchEvent(action, x, y, width, height, pressure = 1.0) {
-    let targetW = this.scrcpyVideoWidth || this.videoWidth;
-    let targetH = this.scrcpyVideoHeight || this.videoHeight;
+    let targetW = this.serverVideoWidth || this.scrcpyVideoWidth || this.videoWidth;
+    let targetH = this.serverVideoHeight || this.scrcpyVideoHeight || this.videoHeight;
     if (!targetW || !targetH) {
       targetW = (width > 10) ? Math.round(width) : (this.screenWidth || 1080);
       targetH = (height > 10) ? Math.round(height) : (this.screenHeight || 2340);
@@ -1085,6 +1103,12 @@ class ScrcpyEngine extends EventEmitter {
     const finalY = Math.max(0, Math.min(targetH - 1, scaledY));
 
     if (!this.controlSocket || this.controlSocket.destroyed) {
+      // Direct ADB fallback so taps are never lost if control socket is reconnecting
+      if (action === 0) {
+        const realX = this.screenWidth ? Math.round((x / srcW) * this.screenWidth) : finalX;
+        const realY = this.screenHeight ? Math.round((y / srcH) * this.screenHeight) : finalY;
+        this._adb(['shell', 'input', 'tap', String(realX), String(realY)]).catch(() => {});
+      }
       return false;
     }
 
@@ -1204,15 +1228,18 @@ class ScrcpyEngine extends EventEmitter {
   async _restart() {
     if (!this.isRunning) return;
     logger.info(`[ScrcpyEngine ${this.serial}] Self-healing device stream...`);
+    this._restartPending = false;
+    // Tell connected browsers to reset their decoders ONLY if active video had started
+    if (this._lastVideoPayload) {
+      const resetMsg = Buffer.from(JSON.stringify({ type: 'stream_reset' }));
+      for (const ws of this.wsClients) {
+        if (ws.readyState === 1) try { ws.send(resetMsg); } catch (_) {}
+      }
+    }
     // Clear stale keyframe cache so fresh SPS/PPS+IDR are sent after restart
     this._configPacket   = null;
     this._keyframeBuffer = null;
-    this._restartPending = false;
-    // Tell connected browsers to reset their decoders before new stream data arrives
-    const resetMsg = Buffer.from(JSON.stringify({ type: 'stream_reset' }));
-    for (const ws of this.wsClients) {
-      if (ws.readyState === 1) try { ws.send(resetMsg); } catch (_) {}
-    }
+    this._lastVideoPayload = null;
     try {
       this._cleanup();
       await new Promise(r => setTimeout(r, 600));
