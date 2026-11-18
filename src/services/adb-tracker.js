@@ -93,8 +93,8 @@ async function handleDeviceAdd(device) {
         const cfgPath = path.join(process.cwd(), 'config.json');
         if (fs.existsSync(cfgPath)) cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
       } catch (_) {}
-      const supabaseUrl = cfg.supabaseUrl || process.env.SUPABASE_URL || 'https://xbolsgcntkfzzpqnulsa.supabase.co';
-      const supabaseKey = cfg.supabaseServiceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhib2xzZ2NudGtmenpwcW51bHNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTc5NTY1MCwiZXhwIjoyMTA1MzcxNjUwfQ.ok_mAqsFkfvP-NyZRiiPmF_eL2blTYI2shnsDAmkefw';
+      const supabaseUrl = cfg.supabaseUrl || process.env.SUPABASE_URL;
+      const supabaseKey = cfg.supabaseServiceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY;
       if (supabaseUrl && supabaseKey) {
         const res = await axios.get(`${supabaseUrl}/rest/v1/device_rentals?serial_number=eq.${encodeURIComponent(serial)}&select=stealth_root_enabled`, {
           headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
@@ -269,6 +269,19 @@ async function handleDeviceAdd(device) {
 
 async function handleDeviceRemove(device) {
   const serial = device.id;
+
+  // Double-check physical presence to guard against transient ADB USB glitches
+  try {
+    if (client) {
+      const currentDevices = await client.listDevices();
+      const stillPresent = (currentDevices || []).some(d => d.id === serial && d.type === 'device');
+      if (stillPresent) {
+        logger.info(`[ADBTracker] Device ${serial} reported transient disconnect but is still active — preserving stream`);
+        return;
+      }
+    }
+  } catch (_) {}
+
   logger.info(`Device disconnected: ${serial}`);
   recentRemovals.set(serial, Date.now());
 

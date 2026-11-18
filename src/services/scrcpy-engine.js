@@ -683,8 +683,14 @@ class ScrcpyEngine extends EventEmitter {
         if (!this.isRunning || !this.enableAudio) return;
 
         // Adaptive fallback ladder for pure internal digital audio:
-        // 1. opus (output) -> 2. aac (output) -> 3. raw (output)
-        // (Never fall back to room mic, preventing static/ambient noise and cross-talk between phones)
+        // 1. opus (output) -> 2. aac (output) -> 3. raw (output) -> disable
+        this._audioAttempts = (this._audioAttempts || 0) + 1;
+        if (this._audioAttempts >= 3) {
+          logger.info(`[ScrcpyAudio ${this.serial}] Audio forwarding unsupported or unavailable on this device — disabling audio capture to protect video stream stability`);
+          this.enableAudio = false;
+          return;
+        }
+
         if (codec === 'opus') {
           logger.info(`[ScrcpyAudio ${this.serial}] Falling back from opus to aac audio encoder...`);
           setTimeout(() => this._startDedicatedAudioStream('aac', 'output'), 1000);
@@ -692,12 +698,8 @@ class ScrcpyEngine extends EventEmitter {
           logger.info(`[ScrcpyAudio ${this.serial}] Falling back from aac to raw PCM audio...`);
           setTimeout(() => this._startDedicatedAudioStream('raw', 'output'), 1000);
         } else {
-          // Cooldown and retry opus internal output
-          setTimeout(() => {
-            if (this.isRunning && !this._audioProc) {
-              this._startDedicatedAudioStream('opus', 'output');
-            }
-          }, 8000);
+          logger.info(`[ScrcpyAudio ${this.serial}] Dedicated audio capture completed attempts — disabling audio to preserve video performance`);
+          this.enableAudio = false;
         }
       });
 
@@ -717,10 +719,15 @@ class ScrcpyEngine extends EventEmitter {
         try { this._audioProc.kill(); } catch (_) {}
         this._audioProc = null;
       }
-      if (codec === 'opus' && this.isRunning) {
-        setTimeout(() => this._startDedicatedAudioStream('aac', 'playback'), 1500);
-      } else if (codec === 'aac' && this.isRunning) {
-        setTimeout(() => this._startDedicatedAudioStream('raw', 'playback'), 1500);
+      this._audioAttempts = (this._audioAttempts || 0) + 1;
+      if (this._audioAttempts < 3 && this.isRunning) {
+        if (codec === 'opus') {
+          setTimeout(() => this._startDedicatedAudioStream('aac', 'output'), 1500);
+        } else if (codec === 'aac') {
+          setTimeout(() => this._startDedicatedAudioStream('raw', 'output'), 1500);
+        }
+      } else {
+        this.enableAudio = false;
       }
     }
   }
@@ -1202,13 +1209,22 @@ class ScrcpyEngine extends EventEmitter {
       cs.setNoDelay(true);
       cs.setKeepAlive(true, 1000);
       this.controlSocket = cs;
+      this._controlRetries = 0;
       cs.on('close', () => {
         this.controlSocket = null;
-        if (this.isRunning) setTimeout(() => this._reconnectControl(), 300);
+        if (this.isRunning) {
+          this._controlRetries = (this._controlRetries || 0) + 1;
+          const delay = Math.min(1000 * Math.pow(1.5, Math.min(this._controlRetries, 4)), 10000);
+          setTimeout(() => this._reconnectControl(), delay);
+        }
       });
       cs.on('error', () => { this.controlSocket = null; });
     } catch (_) {
-      if (this.isRunning) setTimeout(() => this._reconnectControl(), 1000);
+      if (this.isRunning) {
+        this._controlRetries = (this._controlRetries || 0) + 1;
+        const delay = Math.min(1000 * Math.pow(1.5, Math.min(this._controlRetries, 4)), 10000);
+        setTimeout(() => this._reconnectControl(), delay);
+      }
     }
   }
 
@@ -1227,6 +1243,21 @@ class ScrcpyEngine extends EventEmitter {
 
   async _restart() {
     if (!this.isRunning) return;
+
+    this._restartAttempts = (this._restartAttempts || 0) + 1;
+    const now = Date.now();
+    if (this._lastRestartTime && (now - this._lastRestartTime < 15000) && this._restartAttempts > 3) {
+      logger.warn(`[ScrcpyEngine ${this.serial}] Rate limiting stream restarts (cooling down for 20s)`);
+      if (this.isRunning) {
+        setTimeout(() => {
+          this._restartAttempts = 0;
+          this._restart();
+        }, 20000);
+      }
+      return;
+    }
+    this._lastRestartTime = now;
+
     logger.info(`[ScrcpyEngine ${this.serial}] Self-healing device stream...`);
     this._restartPending = false;
     // Tell connected browsers to reset their decoders ONLY if active video had started
@@ -1257,14 +1288,16 @@ class ScrcpyEngine extends EventEmitter {
       await this._adb(['forward', `tcp:${this.videoPort}`, `localabstract:scrcpy_${this._videoScidHex}`]);
       this._spawnServer();
       await this._connectSockets();
+      this._restartAttempts = 0;
       logger.info(`[ScrcpyEngine ${this.serial}] Stream self-healed successfully`);
 
       if (this.enableAudio && (!this._audioProc || !this.audioSocket)) {
         this._startDedicatedAudioStream().catch(() => {});
       }
     } catch (err) {
-      logger.warn(`[ScrcpyEngine ${this.serial}] Self-healing attempt failed: ${err.message} — retry in 3s`);
-      if (this.isRunning) setTimeout(() => this._restart(), 3000);
+      const backoff = Math.min(3000 * Math.pow(1.5, Math.min(this._restartAttempts || 1, 4)), 20000);
+      logger.warn(`[ScrcpyEngine ${this.serial}] Self-healing attempt failed: ${err.message} — retry in ${Math.round(backoff/1000)}s`);
+      if (this.isRunning) setTimeout(() => this._restart(), backoff);
     }
   }
 
