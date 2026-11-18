@@ -133,18 +133,7 @@ function handleControl(type, data, serial, engine) {
 
   const ctrlOk = () => engine.controlSocket && !engine.controlSocket.destroyed;
 
-  const nudgeScreen = () => {
-    // Only capture instant screencap if video socket is NOT connected or active,
-    // otherwise scrcpy video pipeline is already streaming at 60fps and screencap -p
-    // will stall the tablet encoder and ADB pipeline.
-    if (engine && (!engine.videoSocket || engine.videoSocket.destroyed) && typeof engine.captureInstantFrame === 'function') {
-      setTimeout(() => {
-        if (!engine.videoSocket || engine.videoSocket.destroyed) {
-          engine.captureInstantFrame();
-        }
-      }, 70);
-    }
-  };
+  const nudgeScreen = () => {};
 
   if (type === 'touch') {
     const action = parseInt(get(data, 'action'), 10);
@@ -191,13 +180,12 @@ function handleControl(type, data, serial, engine) {
     let ok = false;
     if (ctrlOk()) {
       ok = engine.sendTouchEvent(0, x, y, W, H, 0.5);
-      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 15);
+      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 40);
     }
     if (!ok) {
       const sx = Math.round((x / W) * realW);
       const sy = Math.round((y / H) * realH);
       adbInput(serial, `input tap ${sx} ${sy}`);
-      nudgeScreen();
     }
   } else if (type === 'swipe') {
     const x1 = parseFloat(get(data, 'x1')), y1 = parseFloat(get(data, 'y1'));
@@ -1961,43 +1949,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
       const u8 = (rawU8[0] === 0x56) ? rawU8.subarray(1) : rawU8;
 
-      // 1. PNG Image Auto-detection (0x89 0x50 0x4E 0x47)
-      if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4E && u8[3] === 0x47) {
-        createImageBitmap(new Blob([u8], { type: 'image/png' }))
-          .then(function(bmp) {
-            if (!hasKeyframe) {
-              const w = bmp.width; const h = bmp.height;
-              if (w && h && (Math.abs(canvas.width - w) > 8 || Math.abs(canvas.height - h) > 8)) {
-                canvas.width = w; canvas.height = h; nativeW = w; nativeH = h;
-                canvas.style.aspectRatio = w + ' / ' + h;
-              }
-              ctx.imageSmoothingEnabled = false;
-              ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-            }
-          })
-          .catch(function(err) { console.warn('[Stream] PNG decode notice:', err); });
-        return;
-      }
-
-      // 2. JPEG Image Auto-detection (0xFF 0xD8)
-      if (u8[0] === 0xFF && u8[1] === 0xD8) {
-        createImageBitmap(new Blob([u8], { type: 'image/jpeg' }))
-          .then(function(bmp) {
-            if (!hasKeyframe) {
-              const w = bmp.width; const h = bmp.height;
-              if (w && h && (Math.abs(canvas.width - w) > 8 || Math.abs(canvas.height - h) > 8)) {
-                canvas.width = w; canvas.height = h; nativeW = w; nativeH = h;
-                canvas.style.aspectRatio = w + ' / ' + h;
-              }
-              ctx.imageSmoothingEnabled = false;
-              ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-            }
-          })
-          .catch(function(err) { console.warn('[Stream] JPEG decode notice:', err); });
-        return;
-      }
-
-      // 3. Raw H264 NAL stream via WebCodecs
+      // Raw H264 NAL stream via WebCodecs
       // Auto-adapt decoder codec if incoming SPS specifies a different H264 profile/level
       const spsCodec = parseSpsCodec(u8);
       if (spsCodec && spsCodec !== activeCodec) {
@@ -2163,24 +2115,19 @@ function buildPlayerHtml(serial, screenW, screenH) {
     send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
   }
 
-  let pendingTouchMove = null;
-  let touchMoveRaf = null;
-
   function handleTouchMove(e) {
     if (!isNativeTouchActive) return;
     e.preventDefault();
     const c = coords(e);
-    if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
-    lastX = c.x; lastY = c.y;
-    pendingTouchMove = { type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 };
-    if (!touchMoveRaf) {
-      touchMoveRaf = requestAnimationFrame(function() {
-        touchMoveRaf = null;
-        if (pendingTouchMove) {
-          send(pendingTouchMove);
-          pendingTouchMove = null;
-        }
-      });
+    const dx = c.x - lastX;
+    const dy = c.y - lastY;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    const now = performance.now();
+    // Instant dispatch at high precision (throttled to 10ms / ~100Hz max to avoid buffer bloat)
+    if (now - lastMoveTime >= 10 || Math.hypot(dx, dy) >= 6) {
+      lastMoveTime = now;
+      lastX = c.x; lastY = c.y;
+      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
     }
   }
 
@@ -2188,11 +2135,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (!isNativeTouchActive) return;
     isNativeTouchActive = false;
     e.preventDefault();
-    if (touchMoveRaf) { cancelAnimationFrame(touchMoveRaf); touchMoveRaf = null; }
-    if (pendingTouchMove) {
-      send(pendingTouchMove);
-      pendingTouchMove = null;
-    }
     const c = coords(e);
     send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
   }
@@ -2205,18 +2147,17 @@ function buildPlayerHtml(serial, screenW, screenH) {
   // Mouse / Pointer Listeners (Desktop browsers with mouse / stylus)
   let isPointerDown = false;
   let activePointerId = null;
-  let pendingPointerMove = null;
-  let pointerMoveRaf = null;
+  let pointerDownTime = 0;
 
   canvas.addEventListener('pointerdown', (e) => {
     // If device is touch-driven, let touchstart handle it with 0ms latency
     if (e.pointerType === 'touch' || isNativeTouchActive) return;
     e.preventDefault();
     isPointerDown = true;
+    pointerDownTime = performance.now();
     activePointerId = e.pointerId;
     try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     ensureActiveOnInteraction();
-    if (pointerMoveRaf) { cancelAnimationFrame(pointerMoveRaf); pointerMoveRaf = null; pendingPointerMove = null; }
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
@@ -2227,17 +2168,15 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (e.pointerType === 'touch' || isNativeTouchActive || !isPointerDown) return;
     e.preventDefault();
     const c = coords(e);
-    if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
-    lastX = c.x; lastY = c.y;
-    pendingPointerMove = { type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 };
-    if (!pointerMoveRaf) {
-      pointerMoveRaf = requestAnimationFrame(function() {
-        pointerMoveRaf = null;
-        if (pendingPointerMove) {
-          send(pendingPointerMove);
-          pendingPointerMove = null;
-        }
-      });
+    const dx = c.x - lastX;
+    const dy = c.y - lastY;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    const now = performance.now();
+    // Instant dispatch without requestAnimationFrame latency penalty
+    if (now - lastMoveTime >= 10 || Math.hypot(dx, dy) >= 6) {
+      lastMoveTime = now;
+      lastX = c.x; lastY = c.y;
+      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
     }
   });
 
@@ -2250,13 +2189,16 @@ function buildPlayerHtml(serial, screenW, screenH) {
       try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
       activePointerId = null;
     }
-    if (pointerMoveRaf) { cancelAnimationFrame(pointerMoveRaf); pointerMoveRaf = null; }
-    if (pendingPointerMove) {
-      send(pendingPointerMove);
-      pendingPointerMove = null;
-    }
     const c = coords(e);
-    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
+    const holdDuration = lastReleaseTime - pointerDownTime;
+    // For rapid mouse clicks (< 35ms hold), hold UP event for 35ms to ensure Android Views detect onClick
+    if (holdDuration < 35) {
+      setTimeout(() => {
+        send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
+      }, 35 - holdDuration);
+    } else {
+      send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
+    }
   }
 
   canvas.addEventListener('pointerup', releasePointer);
@@ -2264,7 +2206,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
   window.addEventListener('pointerup', releasePointer);
 
   canvas.addEventListener('click', (e) => {
-    if (performance.now() - lastReleaseTime < 350) return;
+    if (performance.now() - lastReleaseTime < 80) return;
     const c = coords(e);
     send({ type: 'tap', x: c.x, y: c.y, width: c.w, height: c.h });
   });

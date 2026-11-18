@@ -260,7 +260,6 @@ class ScrcpyEngine extends EventEmitter {
     this.scrcpyVideoWidth = 0;
     this.scrcpyVideoHeight = 0;
     this._jarPushed = false;
-    this._screencapActive = false;
     this.enableAudio = true;
     this.audioSocket = null;
     this._audioProc = null;
@@ -274,7 +273,7 @@ class ScrcpyEngine extends EventEmitter {
 
   /**
    * Register a WS client. We immediately send cached SPS/PPS + IDR keyframe
-   * and capture an instant live snapshot so the screen displays immediately with ZERO black screen.
+   * so the screen displays immediately with ZERO black screen.
    */
   async addClient(ws) {
     ws._needsKeyframe = false;
@@ -283,51 +282,13 @@ class ScrcpyEngine extends EventEmitter {
     // Immediately send complete self-contained cached keyframe so screen renders on frame 1 with ZERO black screen
     if (this._keyframeBuffer && ws.readyState === 1) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
-    } else {
-      if (this._configPacket && ws.readyState === 1) {
-        try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
-      }
-      // Instantly capture and push live PNG frame so screen displays immediately with ZERO black screen
-      this.captureInstantFrame(ws);
+    } else if (this._configPacket && ws.readyState === 1) {
+      try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
     }
-
-    // Ensure device stays awake and compositor is poked
-    try {
-      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
-      this._adb(['shell', 'svc', 'power', 'stayon', 'true']).catch(() => {});
-    } catch (_) {}
   }
 
   removeClient(ws) {
     this.wsClients.delete(ws);
-  }
-
-  async captureInstantFrame(targetWs = null) {
-    try {
-      const proc = spawn(ADB_BIN, ['-s', this.serial, 'exec-out', 'screencap', '-p'], {
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      const chunks = [];
-      proc.stdout.on('data', c => chunks.push(c));
-      await new Promise(r => { proc.on('close', r); proc.on('error', r); });
-      if (chunks.length > 0) {
-        const png = Buffer.concat(chunks);
-        if (png.length > 100 && png[0] === 0x89 && png[1] === 0x50) {
-          if (targetWs && targetWs.readyState === 1) {
-            try { targetWs.send(png, { binary: true }); } catch (_) {}
-          } else {
-            for (const ws of this.wsClients) {
-              if (ws.readyState === 1) {
-                try { ws.send(png, { binary: true }); } catch (_) {}
-              }
-            }
-          }
-          return true;
-        }
-      }
-    } catch (_) {}
-    return false;
   }
 
   sendKeyframeToClient(ws) {
@@ -336,14 +297,9 @@ class ScrcpyEngine extends EventEmitter {
 
     if (this._keyframeBuffer) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
-    } else {
-      if (this._configPacket) {
-        try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
-      }
-      this.captureInstantFrame(ws);
+    } else if (this._configPacket) {
+      try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
     }
-    // Poke compositor to force a dirty rect update
-    this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
   }
 
   broadcastKeyframe() {
@@ -558,73 +514,18 @@ class ScrcpyEngine extends EventEmitter {
 
       this._cleanup();
 
-      // Only restart if we weren't already in fallback mode
-      if (!this._fallbackActive) {
-        this._restartPending = true;
-        // Back off longer if it died quickly (likely a startup error)
-        const delay = uptime < 3000 ? 4000 : 1500;
-        logger.info(`[ScrcpyEngine ${this.serial}] Restarting in ${delay}ms...`);
-        setTimeout(() => {
-          this._restartPending = false;
-          if (this.isRunning && !this._fallbackActive) this._restart();
-        }, delay);
-      }
-    });
-  }
-
-  _startScreenrecordFallback() {
-    if (this._fallbackActive) return;
-    this._fallbackActive = true;
-    logger.info(`[ScrcpyEngine ${this.serial}] Starting hardware screenrecord fallback...`);
-
-    const isLandscape = (this.scrcpyVideoWidth && this.scrcpyVideoHeight)
-      ? (this.scrcpyVideoWidth > this.scrcpyVideoHeight)
-      : (this.screenWidth > this.screenHeight);
-    const fallbackSize = isLandscape ? '1280x720' : '720x1280';
-
-    const args = [
-      '-s', this.serial, 'exec-out',
-      'screenrecord',
-      '--output-format=h264',
-      '--size', fallbackSize,
-      '--bit-rate', '2500000',
-      '-'
-    ];
-
-    const proc = spawn(ADB_BIN, args, {
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-
-    this._fallbackProc = proc;
-
-    proc.stdout.on('data', (chunk) => {
-      this._broadcastVideo(chunk, false);
-    });
-
-    proc.on('close', () => {
-      this._fallbackProc = null;
-      if (this.isRunning && this._fallbackActive) {
-        setTimeout(() => {
-          this._fallbackActive = false;
-          if (this.isRunning) this._startScreenrecordFallback();
-        }, 1000);
-      }
-    });
-
-    proc.on('error', (err) => {
-      logger.warn(`[ScrcpyEngine ${this.serial}] Screenrecord process error: ${err.message}`);
+      this._restartPending = true;
+      const delay = uptime < 3000 ? 4000 : 1500;
+      logger.info(`[ScrcpyEngine ${this.serial}] Restarting in ${delay}ms...`);
+      setTimeout(() => {
+        this._restartPending = false;
+        if (this.isRunning) this._restart();
+      }, delay);
     });
   }
 
   stop() {
     this.isRunning = false;
-    this._screencapActive = false;
-    this._fallbackActive = false;
-    if (this._fallbackProc) {
-      try { this._fallbackProc.kill(); } catch (_) {}
-      this._fallbackProc = null;
-    }
     this._cleanup();
     this.wsClients.clear();
     this.emit('stopped');
@@ -683,6 +584,9 @@ class ScrcpyEngine extends EventEmitter {
     this.controlSocket = await this._connectOne(this.videoPort);
     this.controlSocket.setNoDelay(true);
     this.controlSocket.setKeepAlive(true, 1000);
+    this.controlSocket.on('data', () => {
+      // Drain server-to-client control messages (clipboard, rotation) so socket buffer never stalls
+    });
 
     this.controlSocket.on('close', () => {
       logger.warn(`[ScrcpyEngine ${this.serial}] Control socket closed`);
@@ -852,12 +756,13 @@ class ScrcpyEngine extends EventEmitter {
     const META = 12; // 8-byte PTS + 4-byte size
 
     const watchdog = setInterval(() => {
-      // Only trigger fallback if video socket is destroyed or disconnected
-      if ((!this.videoSocket || this.videoSocket.destroyed) && !this._fallbackActive && this.isRunning) {
-        logger.warn(`[ScrcpyEngine ${this.serial}] Video socket disconnected — starting screenrecord fallback`);
-        this._startScreenrecordFallback();
+      // If video socket died unexpectedly, close and restart scrcpy pipeline
+      if ((!this.videoSocket || this.videoSocket.destroyed) && this.isRunning && !this._restartPending) {
+        logger.warn(`[ScrcpyEngine ${this.serial}] Video socket disconnected — triggering restart`);
+        clearInterval(watchdog);
+        this._restart();
       }
-    }, 2000);
+    }, 2500);
 
     socket.on('data', (chunk) => {
       this.lastDataTime = Date.now();
@@ -1146,68 +1051,6 @@ class ScrcpyEngine extends EventEmitter {
     }
   }
 
-  /**
-   * Simple, reliable screencap streaming.
-   * Captures PNG screenshots continuously and sends as base64 to clients.
-   * ~10-15 fps, works on all devices, no codec issues.
-   */
-  _startScreencapStream() {
-    if (this._screencapActive) return;
-    this._screencapActive = true;
-
-    const captureLoop = async () => {
-      while (this._screencapActive && this.isRunning) {
-        try {
-          const startTime = Date.now();
-          
-          // Capture screenshot
-          const proc = spawn(ADB_BIN, ['-s', this.serial, 'exec-out', 'screencap -p'], {
-            windowsHide: true,
-            stdio: ['ignore', 'pipe', 'ignore']
-          });
-
-          const chunks = [];
-          proc.stdout.on('data', c => chunks.push(c));
-          
-          await new Promise((resolve) => {
-            proc.on('close', () => resolve());
-            proc.on('error', () => resolve());
-          });
-
-          if (chunks.length > 0) {
-            // exec-out via spawn stdio:pipe delivers clean binary — no CRLF stripping needed
-            const pngData = Buffer.concat(chunks);
-            
-            // Send to all connected clients
-            for (const ws of this.wsClients) {
-              if (ws.readyState === 1) {
-                try {
-                  ws.send(pngData, { binary: true });
-                } catch (_) {
-                  this.wsClients.delete(ws);
-                }
-              } else {
-                this.wsClients.delete(ws);
-              }
-            }
-          }
-
-          // Maintain ~15 fps (67ms per frame)
-          const elapsed = Date.now() - startTime;
-          const delay = Math.max(1, 67 - elapsed);
-          await new Promise(r => setTimeout(r, delay));
-
-        } catch (err) {
-          logger.warn(`[ScrcpyEngine ${this.serial}] Screencap error: ${err.message}`);
-          await new Promise(r => setTimeout(r, 100));
-        }
-      }
-    };
-
-    captureLoop();
-    logger.info(`[ScrcpyEngine ${this.serial}] Screencap streaming started`);
-  }
-
   // ── Control protocol ──────────────────────────────────────────────────────
 
   /**
@@ -1252,8 +1095,7 @@ class ScrcpyEngine extends EventEmitter {
 
     const normPressure = (action === 1) ? 0 : Math.min(0xffff, Math.max(1, Math.floor((pressure || 0.5) * 65535)));
 
-    if (!this._touchBuf) this._touchBuf = Buffer.alloc(32);
-    const buf = this._touchBuf;
+    const buf = Buffer.allocUnsafe(32);
     buf.writeUInt8(2, 0);                 // INJECT_TOUCH_EVENT
     buf.writeUInt8(action, 1);            // 0=DOWN, 1=UP, 2=MOVE
     buf.writeBigInt64BE(-2n, 2);          // SC_POINTER_ID_GENERIC_FINGER (-2n)
