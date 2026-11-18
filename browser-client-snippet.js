@@ -124,9 +124,9 @@ class ScrcpyDashboardClient {
   _handleVideoPacket(data) {
     if (!this.decoder || this.decoder.state === 'closed') return;
 
-    let isSps = false;
-    let isIdr = false;
-    for (let i = 0; i < Math.min(data.length - 4, 1024); i++) {
+    // Detect if chunk contains an IDR Keyframe (NAL type 5) or SPS (NAL type 7)
+    let isKeyframe = false;
+    for (let i = 0; i < Math.min(data.length - 4, 128); i++) {
       if (data[i] === 0 && data[i + 1] === 0) {
         let nalByte = -1;
         if (data[i + 2] === 1) {
@@ -136,56 +136,24 @@ class ScrcpyDashboardClient {
         }
         if (nalByte !== -1) {
           const nalType = nalByte & 0x1f;
-          if (nalType === 7) isSps = true;
-          if (nalType === 5) isIdr = true;
+          if (nalType === 5 || nalType === 7) {
+            isKeyframe = true;
+            break;
+          }
         }
       }
     }
 
-    if (isSps) {
-      this.cachedConfig = data.slice();
-      // If packet contains only SPS/PPS without IDR picture, do not pass to decode()
-      if (!isIdr) return;
-    }
-
-    let frameData = data;
-    if (isIdr) {
-      if (!isSps && this.cachedConfig) {
-        const merged = new Uint8Array(this.cachedConfig.length + data.length);
-        merged.set(this.cachedConfig, 0);
-        merged.set(data, this.cachedConfig.length);
-        frameData = merged;
-      }
-      try {
-        this.decoder.decode(
-          new EncodedVideoChunk({
-            type: 'key',
-            timestamp: (this.frameIndex++) * (1000000 / 60),
-            data: frameData,
-          })
-        );
-        this.hasKeyframe = true;
-      } catch (err) {
-        this.hasKeyframe = false;
-        console.warn('[ScrcpyClient] Keyframe decode error:', err.message);
-      }
-      return;
-    }
-
-    // Delta frame
-    if (!this.hasKeyframe) return; // Drop delta chunks before first keyframe to prevent DataError
-
     try {
       this.decoder.decode(
         new EncodedVideoChunk({
-          type: 'delta',
-          timestamp: (this.frameIndex++) * (1000000 / 60),
-          data: frameData,
+          type: isKeyframe ? 'key' : 'delta',
+          timestamp: (this.frameIndex++) * (1000000 / 60), // Microsecond timestamp
+          data: data,
         })
       );
     } catch (err) {
-      this.hasKeyframe = false;
-      console.warn('[ScrcpyClient] Delta decode error:', err.message);
+      console.warn('[ScrcpyClient] Decode error:', err.message);
     }
   }
 
@@ -325,27 +293,18 @@ class ScrcpyDashboardClient {
    * Navigation Helper Methods (Injects DOWN + UP sequence)
    */
   sendBack() {
-    const now = Date.now();
-    if (this._lastNavKey && now - this._lastNavKey < 600) return;
-    this._lastNavKey = now;
     this.sendKeycode(4, 0); // Android AKEYCODE_BACK DOWN
-    setTimeout(() => this.sendKeycode(4, 1), 60); // UP
+    setTimeout(() => this.sendKeycode(4, 1), 50); // UP
   }
 
   sendHome() {
-    const now = Date.now();
-    if (this._lastNavKey && now - this._lastNavKey < 600) return;
-    this._lastNavKey = now;
     this.sendKeycode(3, 0); // Android AKEYCODE_HOME DOWN
-    setTimeout(() => this.sendKeycode(3, 1), 60); // UP
+    setTimeout(() => this.sendKeycode(3, 1), 50); // UP
   }
 
   sendAppSwitch() {
-    const now = Date.now();
-    if (this._lastNavKey && now - this._lastNavKey < 600) return;
-    this._lastNavKey = now;
     this.sendKeycode(187, 0); // Android AKEYCODE_APP_SWITCH DOWN
-    setTimeout(() => this.sendKeycode(187, 1), 60); // UP
+    setTimeout(() => this.sendKeycode(187, 1), 50); // UP
   }
 
   sendPower() {

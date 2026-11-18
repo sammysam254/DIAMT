@@ -133,7 +133,18 @@ function handleControl(type, data, serial, engine) {
 
   const ctrlOk = () => engine.controlSocket && !engine.controlSocket.destroyed;
 
-  const nudgeScreen = () => {};
+  const nudgeScreen = () => {
+    // Only capture instant screencap if video socket is NOT connected or active,
+    // otherwise scrcpy video pipeline is already streaming at 60fps and screencap -p
+    // will stall the tablet encoder and ADB pipeline.
+    if (engine && (!engine.videoSocket || engine.videoSocket.destroyed) && typeof engine.captureInstantFrame === 'function') {
+      setTimeout(() => {
+        if (!engine.videoSocket || engine.videoSocket.destroyed) {
+          engine.captureInstantFrame();
+        }
+      }, 70);
+    }
+  };
 
   if (type === 'touch') {
     const action = parseInt(get(data, 'action'), 10);
@@ -180,12 +191,13 @@ function handleControl(type, data, serial, engine) {
     let ok = false;
     if (ctrlOk()) {
       ok = engine.sendTouchEvent(0, x, y, W, H, 0.5);
-      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 40);
+      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 15);
     }
     if (!ok) {
       const sx = Math.round((x / W) * realW);
       const sy = Math.round((y / H) * realH);
       adbInput(serial, `input tap ${sx} ${sy}`);
+      nudgeScreen();
     }
   } else if (type === 'swipe') {
     const x1 = parseFloat(get(data, 'x1')), y1 = parseFloat(get(data, 'y1'));
@@ -278,10 +290,12 @@ function handleControl(type, data, serial, engine) {
         }
       }
       if (type === 'wake' || type === 'refresh') {
-        // Only wake screen via keyevent if engine is not actively streaming
-        // (prevents wm dismiss-keyguard or wakeup from dismissing the Android Recents / App Switcher)
-        if (!engine || !engine.isRunning) {
+        if (engine && engine.controlSocket && !engine.controlSocket.destroyed) {
+          engine.sendKeycode(0, 224); // KEYCODE_WAKEUP DOWN
+          engine.sendKeycode(1, 224); // KEYCODE_WAKEUP UP
+        } else {
           adbInput(serial, 'input keyevent 224');
+          adbInput(serial, 'wm dismiss-keyguard');
         }
       }
     } catch (_) {}
@@ -1686,24 +1700,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
   let decoderReady = false;
   let hasKeyframe = false;
   let activeCodec = 'avc1.42E02A';
-  let cachedSpsPps = null;
-
-  function getNalUnitTypes(u8) {
-    const types = new Set();
-    const len = Math.min(u8.length, 4096);
-    for (let i = 0; i < len - 3; i++) {
-      if (u8[i] === 0 && u8[i+1] === 0) {
-        if (u8[i+2] === 1 && i + 3 < u8.length) {
-          types.add(u8[i+3] & 0x1f);
-          i += 2;
-        } else if (u8[i+2] === 0 && u8[i+3] === 1 && i + 4 < u8.length) {
-          types.add(u8[i+4] & 0x1f);
-          i += 3;
-        }
-      }
-    }
-    return types;
-  }
 
   function parseSpsCodec(u8) {
     const limit = Math.min(u8.length - 4, 512);
@@ -1732,7 +1728,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     decoderReady = false;
   }
 
-  function initDecoder(codecOverride, accelMode = 'prefer-hardware') {
+  function initDecoder(codecOverride) {
     resetDecoder();
     if (typeof VideoDecoder === 'undefined') {
       console.warn('[Stream] WebCodecs VideoDecoder not available in this browser');
@@ -1759,26 +1755,22 @@ function buildPlayerHtml(serial, screenW, screenH) {
         error: function(err) {
           console.warn('[Stream] VideoDecoder error:', err);
           resetDecoder();
-          // Fallback to software decoding without hardware acceleration to resolve High Profile black screens
-          initDecoder(activeCodec, 'no-preference');
+          initDecoder(activeCodec);
           send({ type: 'request_keyframe' });
+          send({ type: 'wake' });
         }
       });
       decoder.configure({
         codec: targetCodec,
         optimizeForLatency: true,
-        hardwareAcceleration: accelMode
+        hardwareAcceleration: 'prefer-hardware'
       });
       decoderReady = true;
       activeCodec = targetCodec;
       const dbgCodec = document.getElementById('dbgCodec');
-      if (dbgCodec) dbgCodec.textContent = targetCodec + (accelMode === 'no-preference' ? ' (SW)' : '');
+      if (dbgCodec) dbgCodec.textContent = targetCodec;
       return true;
     } catch (err) {
-      if (accelMode !== 'no-preference') {
-        console.warn('[Stream] Hardware decode config failed, falling back to software:', err);
-        return initDecoder(codecOverride, 'no-preference');
-      }
       console.error('[Stream] Failed to init VideoDecoder with codec ' + (codecOverride || activeCodec) + ':', err);
       return false;
     }
@@ -1794,8 +1786,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
         } else if (u8[i+2] === 0 && u8[i+3] === 1 && i + 4 < u8.length) {
           ntype = u8[i+4] & 0x1f;
         }
-        // WebCodecs requires NAL 5 (IDR) or NAL 7 (SPS) to initialize decoded state before deltas
-        if (ntype === 5 || ntype === 7) return true;
+        // WebCodecs requires NAL 5 (IDR) to initialize decoded state before deltas
+        if (ntype === 5) return true;
       }
     }
     return false;
@@ -1969,36 +1961,60 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
       const u8 = (rawU8[0] === 0x56) ? rawU8.subarray(1) : rawU8;
 
-      // Extract NAL unit types in packet
-      const nalTypes = getNalUnitTypes(u8);
-      const isSps = nalTypes.has(7);
-      const isIdr = nalTypes.has(5);
-
-      if (isSps) {
-        cachedSpsPps = u8.slice();
-        const spsCodec = parseSpsCodec(u8);
-        if (spsCodec && spsCodec !== activeCodec) {
-          console.log('[Stream] Adapting decoder to hardware stream profile: ' + spsCodec);
-          activeCodec = spsCodec;
-          hasKeyframe = false;
-          if (decoder && decoder.state !== 'closed') {
-            try {
-              decoder.configure({
-                codec: spsCodec,
-                optimizeForLatency: true,
-                hardwareAcceleration: 'prefer-hardware'
-              });
-              const dbgCodec = document.getElementById('dbgCodec');
-              if (dbgCodec) dbgCodec.textContent = spsCodec;
-            } catch (_) {
-              initDecoder(spsCodec);
+      // 1. PNG Image Auto-detection (0x89 0x50 0x4E 0x47)
+      if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4E && u8[3] === 0x47) {
+        createImageBitmap(new Blob([u8], { type: 'image/png' }))
+          .then(function(bmp) {
+            if (!hasKeyframe) {
+              const w = bmp.width; const h = bmp.height;
+              if (w && h && (Math.abs(canvas.width - w) > 8 || Math.abs(canvas.height - h) > 8)) {
+                canvas.width = w; canvas.height = h; nativeW = w; nativeH = h;
+                canvas.style.aspectRatio = w + ' / ' + h;
+              }
+              ctx.imageSmoothingEnabled = false;
+              ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
             }
+          })
+          .catch(function(err) { console.warn('[Stream] PNG decode notice:', err); });
+        return;
+      }
+
+      // 2. JPEG Image Auto-detection (0xFF 0xD8)
+      if (u8[0] === 0xFF && u8[1] === 0xD8) {
+        createImageBitmap(new Blob([u8], { type: 'image/jpeg' }))
+          .then(function(bmp) {
+            if (!hasKeyframe) {
+              const w = bmp.width; const h = bmp.height;
+              if (w && h && (Math.abs(canvas.width - w) > 8 || Math.abs(canvas.height - h) > 8)) {
+                canvas.width = w; canvas.height = h; nativeW = w; nativeH = h;
+                canvas.style.aspectRatio = w + ' / ' + h;
+              }
+              ctx.imageSmoothingEnabled = false;
+              ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+            }
+          })
+          .catch(function(err) { console.warn('[Stream] JPEG decode notice:', err); });
+        return;
+      }
+
+      // 3. Raw H264 NAL stream via WebCodecs
+      // Auto-adapt decoder codec if incoming SPS specifies a different H264 profile/level
+      const spsCodec = parseSpsCodec(u8);
+      if (spsCodec && spsCodec !== activeCodec) {
+        console.log('[Stream] Adapting decoder to hardware stream profile: ' + spsCodec);
+        activeCodec = spsCodec;
+        if (decoder && decoder.state !== 'closed') {
+          try {
+            decoder.configure({
+              codec: spsCodec,
+              optimizeForLatency: true,
+              hardwareAcceleration: 'prefer-hardware'
+            });
+            const dbgCodec = document.getElementById('dbgCodec');
+            if (dbgCodec) dbgCodec.textContent = spsCodec;
+          } catch (_) {
+            initDecoder(spsCodec);
           }
-        }
-        // If this chunk has ONLY SPS/PPS parameter sets without an IDR picture, do NOT call decode() on it!
-        // Parameter sets alone are not a displayable frame; passing them to decode() triggers browser DataError.
-        if (!isIdr) {
-          return;
         }
       }
 
@@ -2009,60 +2025,29 @@ function buildPlayerHtml(serial, screenW, screenH) {
         }
       }
 
-      let frameData = u8;
-      if (isIdr) {
-        // Prepend cached SPS/PPS if missing so the keyframe is 100% self-contained for WebCodecs
-        if (!isSps && cachedSpsPps) {
-          const merged = new Uint8Array(cachedSpsPps.length + u8.length);
-          merged.set(cachedSpsPps, 0);
-          merged.set(u8, cachedSpsPps.length);
-          frameData = merged;
-        }
-        try {
-          const chunk = new EncodedVideoChunk({
-            type: 'key',
-            timestamp: performance.now() * 1000,
-            data: frameData
-          });
-          decoder.decode(chunk);
-          hasKeyframe = true;
-        } catch (err) {
-          hasKeyframe = false;
-          console.warn('[Stream] H264 keyframe chunk decode error:', err);
-          initDecoder(activeCodec, 'no-preference');
-          if (Date.now() - lastKeyframeReqTime > 1000) {
-            lastKeyframeReqTime = Date.now();
-            send({ type: 'request_keyframe' });
-          }
-        }
-        return;
-      }
-
-      // Delta frame (non-IDR slice)
+      const key = isH264Keyframe(u8);
+      if (key) hasKeyframe = true;
       if (!hasKeyframe) {
-        // Delta chunk received without an active keyframe — drop chunk and request keyframe immediately
+        // Delta chunk received without an active keyframe — request keyframe immediately
         if (Date.now() - lastKeyframeReqTime > 1000) {
           lastKeyframeReqTime = Date.now();
           send({ type: 'request_keyframe' });
-          send({ type: 'wake' });
         }
         return;
       }
 
       try {
         const chunk = new EncodedVideoChunk({
-          type: 'delta',
+          type: key ? 'key' : 'delta',
           timestamp: performance.now() * 1000,
-          data: frameData
+          data: u8
         });
         decoder.decode(chunk);
       } catch (err) {
         hasKeyframe = false;
-        console.warn('[Stream] H264 delta chunk decode error:', err);
-        if (Date.now() - lastKeyframeReqTime > 1000) {
-          lastKeyframeReqTime = Date.now();
-          send({ type: 'request_keyframe' });
-        }
+        console.warn('[Stream] H264 chunk decode error:', err);
+        send({ type: 'request_keyframe' });
+        send({ type: 'wake' });
       }
     };
 
@@ -2073,6 +2058,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
       if (!hasKeyframe && (now - lastKeyframeReqTime > 2000)) {
         lastKeyframeReqTime = now;
         send({ type: 'request_keyframe' });
+        send({ type: 'wake' });
       }
       if (lastFrameReceivedTime > 0 && (now - lastFrameReceivedTime > 30000)) {
         send({ type: 'wake' });
@@ -2162,29 +2148,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     resumeAudioContext();
     if (!hasKeyframe) {
       send({ type: 'request_keyframe' });
-    }
-  }
-
-  // Raw official scrcpy binary touch packet dispatch (32 bytes, <0.05ms transmission)
-  function sendTouch(action, x, y, width, height, pressure) {
-    if (ws && ws.readyState === 1) {
-      if (action === 2 && ws.bufferedAmount > 8192) return;
-      const buf = new ArrayBuffer(32);
-      const view = new DataView(buf);
-      view.setUint8(0, 2);                     // INJECT_TOUCH_EVENT = 2
-      view.setUint8(1, action);                // 0=DOWN, 1=UP, 2=MOVE
-      view.setBigInt64(2, -1n, false);         // POINTER_ID_MOUSE (-1n)
-      view.setInt32(10, Math.round(x), false); // X
-      view.setInt32(14, Math.round(y), false); // Y
-      view.setUint16(18, Math.round(width), false);  // width
-      view.setUint16(20, Math.round(height), false); // height
-      const normPressure = (action === 1) ? 0 : Math.min(0xffff, Math.max(1, Math.floor((pressure || 0.5) * 65535)));
-      view.setUint16(22, normPressure, false);
-      view.setInt32(24, (action === 2) ? 0 : 1, false); // action_button (1 on DOWN/UP, 0 on MOVE)
-      view.setInt32(28, (action === 1) ? 0 : 1, false); // buttons (1 on DOWN/MOVE, 0 on UP)
-      ws.send(buf);
-    } else {
-      send({ type: 'touch', action, x, y, width, height, pressure });
+      send({ type: 'wake' });
     }
   }
 
@@ -2196,22 +2160,27 @@ function buildPlayerHtml(serial, screenW, screenH) {
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
-    sendTouch(0, c.x, c.y, c.w, c.h, 0.5);
+    send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
   }
+
+  let pendingTouchMove = null;
+  let touchMoveRaf = null;
 
   function handleTouchMove(e) {
     if (!isNativeTouchActive) return;
     e.preventDefault();
     const c = coords(e);
-    const dx = c.x - lastX;
-    const dy = c.y - lastY;
-    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-    const now = performance.now();
-    // Instant dispatch at high precision (throttled to 10ms / ~100Hz max to avoid buffer bloat)
-    if (now - lastMoveTime >= 10 || Math.hypot(dx, dy) >= 6) {
-      lastMoveTime = now;
-      lastX = c.x; lastY = c.y;
-      sendTouch(2, c.x, c.y, c.w, c.h, 0.6);
+    if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
+    lastX = c.x; lastY = c.y;
+    pendingTouchMove = { type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 };
+    if (!touchMoveRaf) {
+      touchMoveRaf = requestAnimationFrame(function() {
+        touchMoveRaf = null;
+        if (pendingTouchMove) {
+          send(pendingTouchMove);
+          pendingTouchMove = null;
+        }
+      });
     }
   }
 
@@ -2219,8 +2188,13 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (!isNativeTouchActive) return;
     isNativeTouchActive = false;
     e.preventDefault();
+    if (touchMoveRaf) { cancelAnimationFrame(touchMoveRaf); touchMoveRaf = null; }
+    if (pendingTouchMove) {
+      send(pendingTouchMove);
+      pendingTouchMove = null;
+    }
     const c = coords(e);
-    sendTouch(1, c.x, c.y, c.w, c.h, 0);
+    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
   }
 
   canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
@@ -2231,36 +2205,39 @@ function buildPlayerHtml(serial, screenW, screenH) {
   // Mouse / Pointer Listeners (Desktop browsers with mouse / stylus)
   let isPointerDown = false;
   let activePointerId = null;
-  let pointerDownTime = 0;
+  let pendingPointerMove = null;
+  let pointerMoveRaf = null;
 
   canvas.addEventListener('pointerdown', (e) => {
     // If device is touch-driven, let touchstart handle it with 0ms latency
     if (e.pointerType === 'touch' || isNativeTouchActive) return;
     e.preventDefault();
     isPointerDown = true;
-    pointerDownTime = performance.now();
     activePointerId = e.pointerId;
     try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     ensureActiveOnInteraction();
+    if (pointerMoveRaf) { cancelAnimationFrame(pointerMoveRaf); pointerMoveRaf = null; pendingPointerMove = null; }
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
-    sendTouch(0, c.x, c.y, c.w, c.h, 0.5);
+    send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
   });
 
   canvas.addEventListener('pointermove', (e) => {
     if (e.pointerType === 'touch' || isNativeTouchActive || !isPointerDown) return;
     e.preventDefault();
     const c = coords(e);
-    const dx = c.x - lastX;
-    const dy = c.y - lastY;
-    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-    const now = performance.now();
-    // Instant dispatch without requestAnimationFrame latency penalty
-    if (now - lastMoveTime >= 10 || Math.hypot(dx, dy) >= 6) {
-      lastMoveTime = now;
-      lastX = c.x; lastY = c.y;
-      sendTouch(2, c.x, c.y, c.w, c.h, 0.6);
+    if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
+    lastX = c.x; lastY = c.y;
+    pendingPointerMove = { type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 };
+    if (!pointerMoveRaf) {
+      pointerMoveRaf = requestAnimationFrame(function() {
+        pointerMoveRaf = null;
+        if (pendingPointerMove) {
+          send(pendingPointerMove);
+          pendingPointerMove = null;
+        }
+      });
     }
   });
 
@@ -2273,12 +2250,24 @@ function buildPlayerHtml(serial, screenW, screenH) {
       try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
       activePointerId = null;
     }
+    if (pointerMoveRaf) { cancelAnimationFrame(pointerMoveRaf); pointerMoveRaf = null; }
+    if (pendingPointerMove) {
+      send(pendingPointerMove);
+      pendingPointerMove = null;
+    }
     const c = coords(e);
-    sendTouch(1, c.x, c.y, c.w, c.h, 0);
+    send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
   }
 
   canvas.addEventListener('pointerup', releasePointer);
   canvas.addEventListener('pointercancel', releasePointer);
+  window.addEventListener('pointerup', releasePointer);
+
+  canvas.addEventListener('click', (e) => {
+    if (performance.now() - lastReleaseTime < 350) return;
+    const c = coords(e);
+    send({ type: 'tap', x: c.x, y: c.y, width: c.w, height: c.h });
+  });
 
   // ── Ultra-Smooth Continuous Wheel Scrolling (35ms Responsive Bucket) ───
   let wheelAccum = 0;
@@ -2369,39 +2358,11 @@ function buildPlayerHtml(serial, screenW, screenH) {
   let lastNavKeyTime = 0;
   function key(code) {
     const now = Date.now();
-    // Debounce rapid duplicate button clicks on nav keys (Recents=187, Home=3, Back=4)
-    // Prevents double-tap on Recents which Android interprets as 'switch to previous app / return to home'
     if (code === 187 || code === 3 || code === 4) {
-      if (now - lastNavKeyTime < 600) {
-        return;
-      }
+      if (now - lastNavKeyTime < 400) return;
       lastNavKeyTime = now;
     }
-    if (ws && ws.readyState === 1) {
-      // Direct 14-byte scrcpy binary INJECT_KEYCODE (DOWN then UP)
-      const bD = new ArrayBuffer(14);
-      const vD = new DataView(bD);
-      vD.setUint8(0, 0); // INJECT_KEYCODE
-      vD.setUint8(1, 0); // ACTION_DOWN
-      vD.setInt32(2, code, false);
-      vD.setInt32(6, 0, false);
-      vD.setInt32(10, 0, false);
-      ws.send(bD);
-      setTimeout(() => {
-        if (ws && ws.readyState === 1) {
-          const bU = new ArrayBuffer(14);
-          const vU = new DataView(bU);
-          vU.setUint8(0, 0); // INJECT_KEYCODE
-          vU.setUint8(1, 1); // ACTION_UP
-          vU.setInt32(2, code, false);
-          vU.setInt32(6, 0, false);
-          vU.setInt32(10, 0, false);
-          ws.send(bU);
-        }
-      }, 50);
-    } else {
-      send({ type:'code', code });
-    }
+    send({ type:'code', code });
   }
   function expandNotifications() { send({ type:'expand_notifications' }); }
 
@@ -2719,30 +2680,6 @@ async function startStreamServer(serial, port, aliasSerial) {
 
     ws.on('message', (msg) => {
       try {
-        // Fast-path: Raw official scrcpy binary control packets (0ms serialization overhead)
-        if (Buffer.isBuffer(msg) || (msg instanceof Uint8Array)) {
-          const buf = Buffer.isBuffer(msg) ? msg : Buffer.from(msg);
-          if (buf.length === 32 && buf[0] === 2) {
-            // Official scrcpy INJECT_TOUCH_EVENT (32 bytes)
-            if (effectiveWsEngine && effectiveWsEngine.controlSocket && !effectiveWsEngine.controlSocket.destroyed) {
-              const targetW = effectiveWsEngine.scrcpyVideoWidth || effectiveWsEngine.serverVideoWidth || effectiveWsEngine.videoWidth;
-              const targetH = effectiveWsEngine.scrcpyVideoHeight || effectiveWsEngine.serverVideoHeight || effectiveWsEngine.videoHeight;
-              if (targetW > 0 && targetH > 0) {
-                buf.writeUInt16BE(targetW, 18);
-                buf.writeUInt16BE(targetH, 20);
-              }
-              effectiveWsEngine.controlSocket.write(buf);
-              return;
-            }
-          } else if (buf.length === 14 && buf[0] === 0) {
-            // Official scrcpy INJECT_KEYCODE (14 bytes)
-            if (effectiveWsEngine && effectiveWsEngine.controlSocket && !effectiveWsEngine.controlSocket.destroyed) {
-              effectiveWsEngine.controlSocket.write(buf);
-              return;
-            }
-          }
-        }
-
         const data = JSON.parse(msg.toString());
         if (data.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong', time: Date.now() }));

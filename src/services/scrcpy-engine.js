@@ -260,6 +260,7 @@ class ScrcpyEngine extends EventEmitter {
     this.scrcpyVideoWidth = 0;
     this.scrcpyVideoHeight = 0;
     this._jarPushed = false;
+    this._screencapActive = false;
     this.enableAudio = true;
     this.audioSocket = null;
     this._audioProc = null;
@@ -273,7 +274,7 @@ class ScrcpyEngine extends EventEmitter {
 
   /**
    * Register a WS client. We immediately send cached SPS/PPS + IDR keyframe
-   * so the screen displays immediately with ZERO black screen.
+   * and capture an instant live snapshot so the screen displays immediately with ZERO black screen.
    */
   async addClient(ws) {
     ws._needsKeyframe = false;
@@ -283,13 +284,50 @@ class ScrcpyEngine extends EventEmitter {
     if (this._keyframeBuffer && ws.readyState === 1) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
     } else {
-      // If keyframe not cached yet, wake Android display to generate an immediate IDR frame
-      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
+      if (this._configPacket && ws.readyState === 1) {
+        try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
+      }
+      // Instantly capture and push live PNG frame so screen displays immediately with ZERO black screen
+      this.captureInstantFrame(ws);
     }
+
+    // Ensure device stays awake and compositor is poked
+    try {
+      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
+      this._adb(['shell', 'svc', 'power', 'stayon', 'true']).catch(() => {});
+    } catch (_) {}
   }
 
   removeClient(ws) {
     this.wsClients.delete(ws);
+  }
+
+  async captureInstantFrame(targetWs = null) {
+    try {
+      const proc = spawn(ADB_BIN, ['-s', this.serial, 'exec-out', 'screencap', '-p'], {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      const chunks = [];
+      proc.stdout.on('data', c => chunks.push(c));
+      await new Promise(r => { proc.on('close', r); proc.on('error', r); });
+      if (chunks.length > 0) {
+        const png = Buffer.concat(chunks);
+        if (png.length > 100 && png[0] === 0x89 && png[1] === 0x50) {
+          if (targetWs && targetWs.readyState === 1) {
+            try { targetWs.send(png, { binary: true }); } catch (_) {}
+          } else {
+            for (const ws of this.wsClients) {
+              if (ws.readyState === 1) {
+                try { ws.send(png, { binary: true }); } catch (_) {}
+              }
+            }
+          }
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
   }
 
   sendKeyframeToClient(ws) {
@@ -299,16 +337,18 @@ class ScrcpyEngine extends EventEmitter {
     if (this._keyframeBuffer) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
     } else {
-      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
+      if (this._configPacket) {
+        try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
+      }
+      this.captureInstantFrame(ws);
     }
+    // Poke compositor to force a dirty rect update
+    this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
   }
 
   broadcastKeyframe() {
-    const pkt = this._keyframeBuffer;
-    if (!pkt) {
-      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
-      return;
-    }
+    const pkt = this._keyframeBuffer || this._configPacket;
+    if (!pkt) return;
     for (const ws of this.wsClients) {
       if (ws.readyState === 1) {
         ws._needsKeyframe = false;
@@ -438,12 +478,6 @@ class ScrcpyEngine extends EventEmitter {
       }
     }
 
-    // Adaptive safe fallback if device MediaCodec failed or restarted rapidly
-    if ((this._fastCrashCount || 0) >= 2) {
-      maxSizeArg = '720';
-    }
-    const bitRate = ((this._fastCrashCount || 0) >= 2) ? '2000000' : '4000000';
-
     const scidArg = this._videoScidHex ? [`scid=${this._videoScidHex}`] : [];
     const args = [
       '-s', this.serial, 'shell',
@@ -454,9 +488,9 @@ class ScrcpyEngine extends EventEmitter {
       'audio=false',
       'control=true',
       'cleanup=false',
-      'downsize_on_error=true',
       `max_size=${maxSizeArg || '1080'}`,
-      `video_bit_rate=${bitRate}`,
+      'video_bit_rate=4000000',
+      'max_fps=60',
     ];
 
     logger.info(`[ScrcpyEngine ${this.serial}] Spawning scrcpy server with args: ${args.slice(2).join(' ')}`);
@@ -482,8 +516,6 @@ class ScrcpyEngine extends EventEmitter {
           const sw = parseInt(dimMatch[1], 10);
           const sh = parseInt(dimMatch[2], 10);
           if (sw > 0 && sh > 0) {
-            this.serverVideoWidth = sw;
-            this.serverVideoHeight = sh;
             this.scrcpyVideoWidth = sw;
             this.scrcpyVideoHeight = sh;
             this.videoWidth  = sw;
@@ -523,26 +555,75 @@ class ScrcpyEngine extends EventEmitter {
       const uptime = Date.now() - this._procStartTime;
       logger.warn(`[ScrcpyEngine ${this.serial}] proc exited (code=${code}, uptime=${uptime}ms)`);
 
-      if (uptime < 4000) {
-        this._fastCrashCount = (this._fastCrashCount || 0) + 1;
-      } else {
-        this._fastCrashCount = 0;
-      }
-
       this._cleanup();
 
-      this._restartPending = true;
-      const delay = (this._fastCrashCount >= 3) ? 5000 : (uptime < 3000 ? 3000 : 1500);
-      logger.info(`[ScrcpyEngine ${this.serial}] Restarting in ${delay}ms (crashCount: ${this._fastCrashCount || 0})...`);
-      setTimeout(() => {
-        this._restartPending = false;
-        if (this.isRunning) this._restart();
-      }, delay);
+      // Only restart if we weren't already in fallback mode
+      if (!this._fallbackActive) {
+        this._restartPending = true;
+        // Back off longer if it died quickly (likely a startup error)
+        const delay = uptime < 3000 ? 4000 : 1500;
+        logger.info(`[ScrcpyEngine ${this.serial}] Restarting in ${delay}ms...`);
+        setTimeout(() => {
+          this._restartPending = false;
+          if (this.isRunning && !this._fallbackActive) this._restart();
+        }, delay);
+      }
+    });
+  }
+
+  _startScreenrecordFallback() {
+    if (this._fallbackActive) return;
+    this._fallbackActive = true;
+    logger.info(`[ScrcpyEngine ${this.serial}] Starting hardware screenrecord fallback...`);
+
+    const isLandscape = (this.scrcpyVideoWidth && this.scrcpyVideoHeight)
+      ? (this.scrcpyVideoWidth > this.scrcpyVideoHeight)
+      : (this.screenWidth > this.screenHeight);
+    const fallbackSize = isLandscape ? '1280x720' : '720x1280';
+
+    const args = [
+      '-s', this.serial, 'exec-out',
+      'screenrecord',
+      '--output-format=h264',
+      '--size', fallbackSize,
+      '--bit-rate', '2500000',
+      '-'
+    ];
+
+    const proc = spawn(ADB_BIN, args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    this._fallbackProc = proc;
+
+    proc.stdout.on('data', (chunk) => {
+      this._broadcastVideo(chunk, false);
+    });
+
+    proc.on('close', () => {
+      this._fallbackProc = null;
+      if (this.isRunning && this._fallbackActive) {
+        setTimeout(() => {
+          this._fallbackActive = false;
+          if (this.isRunning) this._startScreenrecordFallback();
+        }, 1000);
+      }
+    });
+
+    proc.on('error', (err) => {
+      logger.warn(`[ScrcpyEngine ${this.serial}] Screenrecord process error: ${err.message}`);
     });
   }
 
   stop() {
     this.isRunning = false;
+    this._screencapActive = false;
+    this._fallbackActive = false;
+    if (this._fallbackProc) {
+      try { this._fallbackProc.kill(); } catch (_) {}
+      this._fallbackProc = null;
+    }
     this._cleanup();
     this.wsClients.clear();
     this.emit('stopped');
@@ -601,9 +682,6 @@ class ScrcpyEngine extends EventEmitter {
     this.controlSocket = await this._connectOne(this.videoPort);
     this.controlSocket.setNoDelay(true);
     this.controlSocket.setKeepAlive(true, 1000);
-    this.controlSocket.on('data', () => {
-      // Drain server-to-client control messages (clipboard, rotation) so socket buffer never stalls
-    });
 
     this.controlSocket.on('close', () => {
       logger.warn(`[ScrcpyEngine ${this.serial}] Control socket closed`);
@@ -687,14 +765,8 @@ class ScrcpyEngine extends EventEmitter {
         if (!this.isRunning || !this.enableAudio) return;
 
         // Adaptive fallback ladder for pure internal digital audio:
-        // 1. opus (output) -> 2. aac (output) -> 3. raw (output) -> disable
-        this._audioAttempts = (this._audioAttempts || 0) + 1;
-        if (this._audioAttempts >= 3) {
-          logger.info(`[ScrcpyAudio ${this.serial}] Audio forwarding unsupported or unavailable on this device — disabling audio capture to protect video stream stability`);
-          this.enableAudio = false;
-          return;
-        }
-
+        // 1. opus (output) -> 2. aac (output) -> 3. raw (output)
+        // (Never fall back to room mic, preventing static/ambient noise and cross-talk between phones)
         if (codec === 'opus') {
           logger.info(`[ScrcpyAudio ${this.serial}] Falling back from opus to aac audio encoder...`);
           setTimeout(() => this._startDedicatedAudioStream('aac', 'output'), 1000);
@@ -702,8 +774,12 @@ class ScrcpyEngine extends EventEmitter {
           logger.info(`[ScrcpyAudio ${this.serial}] Falling back from aac to raw PCM audio...`);
           setTimeout(() => this._startDedicatedAudioStream('raw', 'output'), 1000);
         } else {
-          logger.info(`[ScrcpyAudio ${this.serial}] Dedicated audio capture completed attempts — disabling audio to preserve video performance`);
-          this.enableAudio = false;
+          // Cooldown and retry opus internal output
+          setTimeout(() => {
+            if (this.isRunning && !this._audioProc) {
+              this._startDedicatedAudioStream('opus', 'output');
+            }
+          }, 8000);
         }
       });
 
@@ -723,15 +799,10 @@ class ScrcpyEngine extends EventEmitter {
         try { this._audioProc.kill(); } catch (_) {}
         this._audioProc = null;
       }
-      this._audioAttempts = (this._audioAttempts || 0) + 1;
-      if (this._audioAttempts < 3 && this.isRunning) {
-        if (codec === 'opus') {
-          setTimeout(() => this._startDedicatedAudioStream('aac', 'output'), 1500);
-        } else if (codec === 'aac') {
-          setTimeout(() => this._startDedicatedAudioStream('raw', 'output'), 1500);
-        }
-      } else {
-        this.enableAudio = false;
+      if (codec === 'opus' && this.isRunning) {
+        setTimeout(() => this._startDedicatedAudioStream('aac', 'playback'), 1500);
+      } else if (codec === 'aac' && this.isRunning) {
+        setTimeout(() => this._startDedicatedAudioStream('raw', 'playback'), 1500);
       }
     }
   }
@@ -780,13 +851,12 @@ class ScrcpyEngine extends EventEmitter {
     const META = 12; // 8-byte PTS + 4-byte size
 
     const watchdog = setInterval(() => {
-      // If video socket died unexpectedly, close and restart scrcpy pipeline
-      if ((!this.videoSocket || this.videoSocket.destroyed) && this.isRunning && !this._restartPending) {
-        logger.warn(`[ScrcpyEngine ${this.serial}] Video socket disconnected — triggering restart`);
-        clearInterval(watchdog);
-        this._restart();
+      // Only trigger fallback if video socket is destroyed or disconnected
+      if ((!this.videoSocket || this.videoSocket.destroyed) && !this._fallbackActive && this.isRunning) {
+        logger.warn(`[ScrcpyEngine ${this.serial}] Video socket disconnected — starting screenrecord fallback`);
+        this._startScreenrecordFallback();
       }
-    }, 2500);
+    }, 2000);
 
     socket.on('data', (chunk) => {
       this.lastDataTime = Date.now();
@@ -802,8 +872,6 @@ class ScrcpyEngine extends EventEmitter {
             const w = buf.readUInt32BE(hIdx + 4);
             const h = buf.readUInt32BE(hIdx + 8);
             if (w > 0 && h > 0 && w < 10000 && h < 10000) {
-              this.serverVideoWidth = w;
-              this.serverVideoHeight = h;
               this.scrcpyVideoWidth = w;
               this.scrcpyVideoHeight = h;
               this.videoWidth = w;
@@ -817,8 +885,6 @@ class ScrcpyEngine extends EventEmitter {
             const w = buf.readUInt32BE(69);
             const h = buf.readUInt32BE(73);
             if (w > 0 && h > 0 && w < 10000 && h < 10000) {
-              this.serverVideoWidth = w;
-              this.serverVideoHeight = h;
               this.scrcpyVideoWidth = w;
               this.scrcpyVideoHeight = h;
               this.videoWidth = w;
@@ -863,6 +929,7 @@ class ScrcpyEngine extends EventEmitter {
         const isSps = nalTypes.has(7);
         const isIdr = nalTypes.has(5);
         const isConfig = isSps || (ptsHigh & 0x80000000) !== 0;
+        const isKeyframe = isConfig || isIdr || isSps || nalTypes.has(8);
 
         if (isSps || (isConfig && !this._configPacket)) {
           this._configPacket = Buffer.from(payload);
@@ -916,15 +983,8 @@ class ScrcpyEngine extends EventEmitter {
           }
         }
 
-        // If packet contains SPS/PPS parameter sets ONLY without an IDR picture slice,
-        // do not broadcast it standalone as a video chunk (avoids browser WebCodecs DataError).
-        // Wait for the IDR slice below so we broadcast a unified SPS+PPS+IDR keyframe.
-        if (isConfig && !isIdr) {
-          continue;
-        }
-
         let broadcastPkt = payload;
-        if (isIdr) {
+        if (isIdr || (isKeyframe && !isConfig)) {
           this._keyframeTime = Date.now();
           if (this._configPacket && !isSps) {
             // Always prepend SPS/PPS config to IDR slice so every keyframe is 100% self-contained for WebCodecs
@@ -936,7 +996,7 @@ class ScrcpyEngine extends EventEmitter {
         }
 
         this._lastVideoPayload = broadcastPkt;
-        this._broadcastVideo(broadcastPkt, isIdr);
+        this._broadcastVideo(broadcastPkt, isKeyframe);
       }
 
       // Safety reset
@@ -1065,20 +1125,19 @@ class ScrcpyEngine extends EventEmitter {
   _broadcastVideo(payload, isKeyframe = false) {
     for (const ws of this.wsClients) {
       if (ws.readyState === 1) {
-        // Backpressure protection: only throttle if socket buffer exceeds 1.5MB (generous for high-bitrate scenes)
-        if (ws.bufferedAmount > 1536 * 1024) {
+        // Backpressure protection: only throttle if socket buffer exceeds 384KB
+        if (ws.bufferedAmount > 384 * 1024) {
           ws._needsKeyframe = true;
-          if (!isKeyframe) continue;
-        }
-        if (ws._needsKeyframe && !isKeyframe) {
-          // As soon as socket buffer drains below 128KB, immediately flush the self-contained keyframe
-          if (ws.bufferedAmount < 128 * 1024 && this._keyframeBuffer) {
-            ws._needsKeyframe = false;
-            try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
-          }
           continue;
         }
-        ws._needsKeyframe = false;
+        if (ws._needsKeyframe) {
+          // If buffered amount drained, wait for a FRESH real keyframe from the encoder
+          // Never inject stale cached frames from earlier screens!
+          if (!isKeyframe) {
+            continue;
+          }
+          ws._needsKeyframe = false;
+        }
         try { ws.send(payload, { binary: true }); } catch (_) { this.wsClients.delete(ws); }
       } else {
         this.wsClients.delete(ws);
@@ -1086,25 +1145,86 @@ class ScrcpyEngine extends EventEmitter {
     }
   }
 
+  /**
+   * Simple, reliable screencap streaming.
+   * Captures PNG screenshots continuously and sends as base64 to clients.
+   * ~10-15 fps, works on all devices, no codec issues.
+   */
+  _startScreencapStream() {
+    if (this._screencapActive) return;
+    this._screencapActive = true;
+
+    const captureLoop = async () => {
+      while (this._screencapActive && this.isRunning) {
+        try {
+          const startTime = Date.now();
+          
+          // Capture screenshot
+          const proc = spawn(ADB_BIN, ['-s', this.serial, 'exec-out', 'screencap -p'], {
+            windowsHide: true,
+            stdio: ['ignore', 'pipe', 'ignore']
+          });
+
+          const chunks = [];
+          proc.stdout.on('data', c => chunks.push(c));
+          
+          await new Promise((resolve) => {
+            proc.on('close', () => resolve());
+            proc.on('error', () => resolve());
+          });
+
+          if (chunks.length > 0) {
+            // exec-out via spawn stdio:pipe delivers clean binary — no CRLF stripping needed
+            const pngData = Buffer.concat(chunks);
+            
+            // Send to all connected clients
+            for (const ws of this.wsClients) {
+              if (ws.readyState === 1) {
+                try {
+                  ws.send(pngData, { binary: true });
+                } catch (_) {
+                  this.wsClients.delete(ws);
+                }
+              } else {
+                this.wsClients.delete(ws);
+              }
+            }
+          }
+
+          // Maintain ~15 fps (67ms per frame)
+          const elapsed = Date.now() - startTime;
+          const delay = Math.max(1, 67 - elapsed);
+          await new Promise(r => setTimeout(r, delay));
+
+        } catch (err) {
+          logger.warn(`[ScrcpyEngine ${this.serial}] Screencap error: ${err.message}`);
+          await new Promise(r => setTimeout(r, 100));
+        }
+      }
+    };
+
+    captureLoop();
+    logger.info(`[ScrcpyEngine ${this.serial}] Screencap streaming started`);
+  }
+
   // ── Control protocol ──────────────────────────────────────────────────────
 
   /**
-   * INJECT_TOUCH_EVENT (32 bytes, scrcpy 2.x / 3.x)
+   * INJECT_TOUCH_EVENT (32 bytes, scrcpy 2.x)
    *   [0]     msg type = 2
    *   [1]     action: 0=DOWN 1=UP 2=MOVE
-   *   [2-9]   pointer id i64BE (-2n = SC_POINTER_ID_GENERIC_FINGER)
+   *   [2-9]   pointer id i64BE (-1 = virtual)
    *   [10-13] x i32BE
    *   [14-17] y i32BE
-   *   [18-19] screen width u16BE (MUST match scrcpy-server videoSize to avoid "Ignore touch event" discard)
+   *   [18-19] screen width u16BE
    *   [20-21] screen height u16BE
    *   [22-23] pressure u16BE (0xFFFF = 1.0)
-   *   [24-27] action_button i32BE (0 for finger)
-   *   [28-31] buttons i32BE (0 for finger)
+   *   [24-27] action_button i32BE (1=PRIMARY on DOWN)
+   *   [28-31] buttons i32BE (1 on DOWN/MOVE, 0 on UP)
    */
   sendTouchEvent(action, x, y, width, height, pressure = 1.0) {
-    // Ground truth: scrcpyVideoWidth/Height parsed from SPS is the exact size scrcpy-server validates against
-    let targetW = this.scrcpyVideoWidth || this.serverVideoWidth || this.videoWidth;
-    let targetH = this.scrcpyVideoHeight || this.serverVideoHeight || this.videoHeight;
+    let targetW = this.scrcpyVideoWidth || this.videoWidth;
+    let targetH = this.scrcpyVideoHeight || this.videoHeight;
     if (!targetW || !targetH) {
       targetW = (width > 10) ? Math.round(width) : (this.screenWidth || 1080);
       targetH = (height > 10) ? Math.round(height) : (this.screenHeight || 2340);
@@ -1121,47 +1241,38 @@ class ScrcpyEngine extends EventEmitter {
     const finalY = Math.max(0, Math.min(targetH - 1, scaledY));
 
     if (!this.controlSocket || this.controlSocket.destroyed) {
-      // Direct ADB fallback so taps are never lost if control socket is reconnecting
-      if (action === 0) {
-        const realX = this.screenWidth ? Math.round((x / srcW) * this.screenWidth) : finalX;
-        const realY = this.screenHeight ? Math.round((y / srcH) * this.screenHeight) : finalY;
-        this._adb(['shell', 'input', 'tap', String(realX), String(realY)]).catch(() => {});
+      if (action === 0 || action === 1) {
+        const physX = Math.round((finalX / targetW) * this.screenWidth);
+        const physY = Math.round((finalY / targetH) * this.screenHeight);
+        this._adb(['shell', 'input', 'tap', String(physX), String(physY)]).catch(() => {});
       }
       return false;
     }
 
     const normPressure = (action === 1) ? 0 : Math.min(0xffff, Math.max(1, Math.floor((pressure || 0.5) * 65535)));
 
-    // Official scrcpy v3.3.4 INJECT_TOUCH_EVENT format (32 bytes):
-    // [0] type = 2
-    // [1] action: 0=DOWN, 1=UP, 2=MOVE
-    // [2..9] pointer_id: i64BE (-1n POINTER_ID_MOUSE)
-    // [10..13] x: i32BE
-    // [14..17] y: i32BE
-    // [18..19] width: u16BE (MUST match scrcpy-server videoSize to avoid "Ignore touch event" discard)
-    // [20..21] height: u16BE
-    // [22..23] pressure: u16BE (0..0xFFFF)
-    // [24..27] action_button: i32BE (1 on DOWN/UP, 0 on MOVE)
-    // [28..31] buttons: i32BE (1 on DOWN/MOVE, 0 on UP)
-    const actionBtn = (action === 2) ? 0 : 1;
-    const buttonsState = (action === 1) ? 0 : 1;
-
-    const buf = Buffer.allocUnsafe(32);
+    if (!this._touchBuf) this._touchBuf = Buffer.alloc(32);
+    const buf = this._touchBuf;
     buf.writeUInt8(2, 0);                 // INJECT_TOUCH_EVENT
     buf.writeUInt8(action, 1);            // 0=DOWN, 1=UP, 2=MOVE
-    buf.writeBigInt64BE(-1n, 2);          // POINTER_ID_MOUSE (-1n)
+    buf.writeBigInt64BE(-2n, 2);          // SC_POINTER_ID_GENERIC_FINGER (-2n)
     buf.writeInt32BE(finalX, 10);
     buf.writeInt32BE(finalY, 14);
     buf.writeUInt16BE(targetW, 18);
     buf.writeUInt16BE(targetH, 20);
     buf.writeUInt16BE(normPressure, 22);
-    buf.writeInt32BE(actionBtn, 24);      // Official scrcpy action_button
-    buf.writeInt32BE(buttonsState, 28);   // Official scrcpy buttons state
+    buf.writeInt32BE(0, 24);              // action_button = 0 (clean capacitive finger)
+    buf.writeInt32BE(0, 28);              // buttons = 0 (no mouse emulation delay)
     try {
       this.controlSocket.write(buf);
       return true;
     } catch (e) { 
       logger.warn(`[ScrcpyEngine ${this.serial}] touch write failed: ${e.message}`);
+      if (action === 0 || action === 1) {
+        const physX = Math.round((finalX / targetW) * this.screenWidth);
+        const physY = Math.round((finalY / targetH) * this.screenHeight);
+        this._adb(['shell', 'input', 'tap', String(physX), String(physY)]).catch(() => {});
+      }
       return false; 
     }
   }
@@ -1234,22 +1345,13 @@ class ScrcpyEngine extends EventEmitter {
       cs.setNoDelay(true);
       cs.setKeepAlive(true, 1000);
       this.controlSocket = cs;
-      this._controlRetries = 0;
       cs.on('close', () => {
         this.controlSocket = null;
-        if (this.isRunning) {
-          this._controlRetries = (this._controlRetries || 0) + 1;
-          const delay = Math.min(1000 * Math.pow(1.5, Math.min(this._controlRetries, 4)), 10000);
-          setTimeout(() => this._reconnectControl(), delay);
-        }
+        if (this.isRunning) setTimeout(() => this._reconnectControl(), 300);
       });
       cs.on('error', () => { this.controlSocket = null; });
     } catch (_) {
-      if (this.isRunning) {
-        this._controlRetries = (this._controlRetries || 0) + 1;
-        const delay = Math.min(1000 * Math.pow(1.5, Math.min(this._controlRetries, 4)), 10000);
-        setTimeout(() => this._reconnectControl(), delay);
-      }
+      if (this.isRunning) setTimeout(() => this._reconnectControl(), 1000);
     }
   }
 
@@ -1268,34 +1370,16 @@ class ScrcpyEngine extends EventEmitter {
 
   async _restart() {
     if (!this.isRunning) return;
-
-    this._restartAttempts = (this._restartAttempts || 0) + 1;
-    const now = Date.now();
-    if (this._lastRestartTime && (now - this._lastRestartTime < 15000) && this._restartAttempts > 3) {
-      logger.warn(`[ScrcpyEngine ${this.serial}] Rate limiting stream restarts (cooling down for 20s)`);
-      if (this.isRunning) {
-        setTimeout(() => {
-          this._restartAttempts = 0;
-          this._restart();
-        }, 20000);
-      }
-      return;
-    }
-    this._lastRestartTime = now;
-
     logger.info(`[ScrcpyEngine ${this.serial}] Self-healing device stream...`);
-    this._restartPending = false;
-    // Tell connected browsers to reset their decoders ONLY if active video had started
-    if (this._lastVideoPayload) {
-      const resetMsg = Buffer.from(JSON.stringify({ type: 'stream_reset' }));
-      for (const ws of this.wsClients) {
-        if (ws.readyState === 1) try { ws.send(resetMsg); } catch (_) {}
-      }
-    }
     // Clear stale keyframe cache so fresh SPS/PPS+IDR are sent after restart
     this._configPacket   = null;
     this._keyframeBuffer = null;
-    this._lastVideoPayload = null;
+    this._restartPending = false;
+    // Tell connected browsers to reset their decoders before new stream data arrives
+    const resetMsg = Buffer.from(JSON.stringify({ type: 'stream_reset' }));
+    for (const ws of this.wsClients) {
+      if (ws.readyState === 1) try { ws.send(resetMsg); } catch (_) {}
+    }
     try {
       this._cleanup();
       await new Promise(r => setTimeout(r, 600));
@@ -1313,16 +1397,14 @@ class ScrcpyEngine extends EventEmitter {
       await this._adb(['forward', `tcp:${this.videoPort}`, `localabstract:scrcpy_${this._videoScidHex}`]);
       this._spawnServer();
       await this._connectSockets();
-      this._restartAttempts = 0;
       logger.info(`[ScrcpyEngine ${this.serial}] Stream self-healed successfully`);
 
       if (this.enableAudio && (!this._audioProc || !this.audioSocket)) {
         this._startDedicatedAudioStream().catch(() => {});
       }
     } catch (err) {
-      const backoff = Math.min(3000 * Math.pow(1.5, Math.min(this._restartAttempts || 1, 4)), 20000);
-      logger.warn(`[ScrcpyEngine ${this.serial}] Self-healing attempt failed: ${err.message} — retry in ${Math.round(backoff/1000)}s`);
-      if (this.isRunning) setTimeout(() => this._restart(), backoff);
+      logger.warn(`[ScrcpyEngine ${this.serial}] Self-healing attempt failed: ${err.message} — retry in 3s`);
+      if (this.isRunning) setTimeout(() => this._restart(), 3000);
     }
   }
 
