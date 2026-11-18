@@ -1688,6 +1688,24 @@ function buildPlayerHtml(serial, screenW, screenH) {
   let decoderReady = false;
   let hasKeyframe = false;
   let activeCodec = 'avc1.42E02A';
+  let cachedSpsPps = null;
+
+  function getNalUnitTypes(u8) {
+    const types = new Set();
+    const len = Math.min(u8.length, 4096);
+    for (let i = 0; i < len - 3; i++) {
+      if (u8[i] === 0 && u8[i+1] === 0) {
+        if (u8[i+2] === 1 && i + 3 < u8.length) {
+          types.add(u8[i+3] & 0x1f);
+          i += 2;
+        } else if (u8[i+2] === 0 && u8[i+3] === 1 && i + 4 < u8.length) {
+          types.add(u8[i+4] & 0x1f);
+          i += 3;
+        }
+      }
+    }
+    return types;
+  }
 
   function parseSpsCodec(u8) {
     const limit = Math.min(u8.length - 4, 512);
@@ -1949,24 +1967,36 @@ function buildPlayerHtml(serial, screenW, screenH) {
 
       const u8 = (rawU8[0] === 0x56) ? rawU8.subarray(1) : rawU8;
 
-      // Raw H264 NAL stream via WebCodecs
-      // Auto-adapt decoder codec if incoming SPS specifies a different H264 profile/level
-      const spsCodec = parseSpsCodec(u8);
-      if (spsCodec && spsCodec !== activeCodec) {
-        console.log('[Stream] Adapting decoder to hardware stream profile: ' + spsCodec);
-        activeCodec = spsCodec;
-        if (decoder && decoder.state !== 'closed') {
-          try {
-            decoder.configure({
-              codec: spsCodec,
-              optimizeForLatency: true,
-              hardwareAcceleration: 'prefer-hardware'
-            });
-            const dbgCodec = document.getElementById('dbgCodec');
-            if (dbgCodec) dbgCodec.textContent = spsCodec;
-          } catch (_) {
-            initDecoder(spsCodec);
+      // Extract NAL unit types in packet
+      const nalTypes = getNalUnitTypes(u8);
+      const isSps = nalTypes.has(7);
+      const isIdr = nalTypes.has(5);
+
+      if (isSps) {
+        cachedSpsPps = u8.slice();
+        const spsCodec = parseSpsCodec(u8);
+        if (spsCodec && spsCodec !== activeCodec) {
+          console.log('[Stream] Adapting decoder to hardware stream profile: ' + spsCodec);
+          activeCodec = spsCodec;
+          hasKeyframe = false;
+          if (decoder && decoder.state !== 'closed') {
+            try {
+              decoder.configure({
+                codec: spsCodec,
+                optimizeForLatency: true,
+                hardwareAcceleration: 'prefer-hardware'
+              });
+              const dbgCodec = document.getElementById('dbgCodec');
+              if (dbgCodec) dbgCodec.textContent = spsCodec;
+            } catch (_) {
+              initDecoder(spsCodec);
+            }
           }
+        }
+        // If this chunk has ONLY SPS/PPS parameter sets without an IDR picture, do NOT call decode() on it!
+        // Parameter sets alone are not a displayable frame; passing them to decode() triggers browser DataError.
+        if (!isIdr) {
+          return;
         }
       }
 
@@ -1977,29 +2007,61 @@ function buildPlayerHtml(serial, screenW, screenH) {
         }
       }
 
-      const key = isH264Keyframe(u8);
-      if (key) hasKeyframe = true;
+      let frameData = u8;
+      if (isIdr) {
+        // Prepend cached SPS/PPS if missing so the keyframe is 100% self-contained for WebCodecs
+        if (!isSps && cachedSpsPps) {
+          const merged = new Uint8Array(cachedSpsPps.length + u8.length);
+          merged.set(cachedSpsPps, 0);
+          merged.set(u8, cachedSpsPps.length);
+          frameData = merged;
+        }
+        try {
+          const chunk = new EncodedVideoChunk({
+            type: 'key',
+            timestamp: performance.now() * 1000,
+            data: frameData
+          });
+          decoder.decode(chunk);
+          hasKeyframe = true;
+        } catch (err) {
+          hasKeyframe = false;
+          console.warn('[Stream] H264 keyframe chunk decode error:', err);
+          if (Date.now() - lastKeyframeReqTime > 1000) {
+            lastKeyframeReqTime = Date.now();
+            send({ type: 'request_keyframe' });
+            send({ type: 'wake' });
+          }
+        }
+        return;
+      }
+
+      // Delta frame (non-IDR slice)
       if (!hasKeyframe) {
-        // Delta chunk received without an active keyframe — request keyframe immediately
+        // Delta chunk received without an active keyframe — drop chunk and request keyframe immediately
         if (Date.now() - lastKeyframeReqTime > 1000) {
           lastKeyframeReqTime = Date.now();
           send({ type: 'request_keyframe' });
+          send({ type: 'wake' });
         }
         return;
       }
 
       try {
         const chunk = new EncodedVideoChunk({
-          type: key ? 'key' : 'delta',
+          type: 'delta',
           timestamp: performance.now() * 1000,
-          data: u8
+          data: frameData
         });
         decoder.decode(chunk);
       } catch (err) {
         hasKeyframe = false;
-        console.warn('[Stream] H264 chunk decode error:', err);
-        send({ type: 'request_keyframe' });
-        send({ type: 'wake' });
+        console.warn('[Stream] H264 delta chunk decode error:', err);
+        if (Date.now() - lastKeyframeReqTime > 1000) {
+          lastKeyframeReqTime = Date.now();
+          send({ type: 'request_keyframe' });
+          send({ type: 'wake' });
+        }
       }
     };
 

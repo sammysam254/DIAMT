@@ -282,8 +282,9 @@ class ScrcpyEngine extends EventEmitter {
     // Immediately send complete self-contained cached keyframe so screen renders on frame 1 with ZERO black screen
     if (this._keyframeBuffer && ws.readyState === 1) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
-    } else if (this._configPacket && ws.readyState === 1) {
-      try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
+    } else {
+      // If keyframe not cached yet, wake Android display to generate an immediate IDR frame
+      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
     }
   }
 
@@ -297,14 +298,17 @@ class ScrcpyEngine extends EventEmitter {
 
     if (this._keyframeBuffer) {
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
-    } else if (this._configPacket) {
-      try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
+    } else {
+      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
     }
   }
 
   broadcastKeyframe() {
-    const pkt = this._keyframeBuffer || this._configPacket;
-    if (!pkt) return;
+    const pkt = this._keyframeBuffer;
+    if (!pkt) {
+      this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
+      return;
+    }
     for (const ws of this.wsClients) {
       if (ws.readyState === 1) {
         ws._needsKeyframe = false;
@@ -859,7 +863,6 @@ class ScrcpyEngine extends EventEmitter {
         const isSps = nalTypes.has(7);
         const isIdr = nalTypes.has(5);
         const isConfig = isSps || (ptsHigh & 0x80000000) !== 0;
-        const isKeyframe = isConfig || isIdr || isSps || nalTypes.has(8);
 
         if (isSps || (isConfig && !this._configPacket)) {
           this._configPacket = Buffer.from(payload);
@@ -913,8 +916,15 @@ class ScrcpyEngine extends EventEmitter {
           }
         }
 
+        // If packet contains SPS/PPS parameter sets ONLY without an IDR picture slice,
+        // do not broadcast it standalone as a video chunk (avoids browser WebCodecs DataError).
+        // Wait for the IDR slice below so we broadcast a unified SPS+PPS+IDR keyframe.
+        if (isConfig && !isIdr) {
+          continue;
+        }
+
         let broadcastPkt = payload;
-        if (isIdr || (isKeyframe && !isConfig)) {
+        if (isIdr) {
           this._keyframeTime = Date.now();
           if (this._configPacket && !isSps) {
             // Always prepend SPS/PPS config to IDR slice so every keyframe is 100% self-contained for WebCodecs
@@ -926,7 +936,7 @@ class ScrcpyEngine extends EventEmitter {
         }
 
         this._lastVideoPayload = broadcastPkt;
-        this._broadcastVideo(broadcastPkt, isKeyframe);
+        this._broadcastVideo(broadcastPkt, isIdr);
       }
 
       // Safety reset

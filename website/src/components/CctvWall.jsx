@@ -323,7 +323,10 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
             const rawStreamUrl = d.stream_url;
             let streamUrl = (rawStreamUrl && rawStreamUrl !== 'https://' && rawStreamUrl !== 'http://' && !rawStreamUrl.endsWith('://') && rawStreamUrl.length > 8) ? rawStreamUrl : null;
             if (!streamUrl) {
-              streamUrl = `https://remotecontrol.dennoh.site/?udid=${encodeURIComponent(d.serial || '')}`;
+              const defaultDomain = (typeof window !== 'undefined' && window.location.hostname.includes('diamt'))
+                ? 'remotecontrol.diamt.site'
+                : 'remotecontrol.dennoh.site';
+              streamUrl = `https://${defaultDomain}/?udid=${encodeURIComponent(d.serial || '')}`;
             } else if (typeof window !== 'undefined' && window.location.protocol === 'https:' && streamUrl.startsWith('http://') && !streamUrl.includes('localhost') && !streamUrl.includes('127.0.0.1')) {
               streamUrl = streamUrl.replace(/^http:/, 'https:');
             }
