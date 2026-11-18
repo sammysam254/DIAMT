@@ -375,9 +375,41 @@ if not exist "%CLOUDFLARED_EXE%" (
     if exist "%INSTALL_DIR%\assets\bin\cloudflared.exe" set "CLOUDFLARED_EXE=%INSTALL_DIR%\assets\bin\cloudflared.exe"
 )
 if exist "%CLOUDFLARED_EXE%" (
-    echo [*] Checking Cloudflare Zero Trust tunnel for remotecontrol.dennoh.site...
+    echo [*] Registering & checking Cloudflare Zero Trust tunnel for remotecontrol.dennoh.site...
     "%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-        "$cf = Get-Process cloudflared -ErrorAction SilentlyContinue; if (-not $cf) { Start-Process -FilePath '%CLOUDFLARED_EXE%' -ArgumentList 'tunnel','run','--token','eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiZWRiMTg4YWMtY2Y0ZS00OGIwLTkwNjktY2NhYTVlODY4ODk4IiwicyI6IlpEUmtaakU1TWpBdFptRmhOQzAwT1RGa0xXRTRNV1V0TnpaaVltSmpaRGt3TTJSbCJ9' -WindowStyle Hidden; Write-Host '[OK] Cloudflare Zero Trust tunnel started in background.' } else { Write-Host '[OK] Cloudflare Zero Trust tunnel already active.' }"
+        "$token = 'eyJhIjoiMjEzYzI3Y2IwOTVjZTBlMTE0ZTNkNWYzZDM3ODJiNWQiLCJ0IjoiZWRiMTg4YWMtY2Y0ZS00OGIwLTkwNjktY2NhYTVlODY4ODk4IiwicyI6IlpEUmtaakU1TWpBdFptRmhOQzAwT1RGa0xXRTRNV1V0TnpaaVltSmpaRGt3TTJSbCJ9';" ^
+        "if (Test-Path 'config.json') { try { $c = Get-Content 'config.json' -Raw | ConvertFrom-Json; if ($c.cloudflareToken) { $token = $c.cloudflareToken } } catch {} };" ^
+        "$exe = '%CLOUDFLARED_EXE%';" ^
+        "$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);" ^
+        "$svc = Get-Service -Name Cloudflared -ErrorAction SilentlyContinue;" ^
+        "if ($svc) {" ^
+        "    if ($svc.Status -ne 'Running') { Start-Service Cloudflared -ErrorAction SilentlyContinue };" ^
+        "    Write-Host '[OK] Cloudflared Windows Service is active and running.';" ^
+        "} else {" ^
+        "    Write-Host '[*] Registering Cloudflare Tunnel Windows Service (Auto-Start on Boot)...';" ^
+        "    if ($isAdmin) {" ^
+        "        & $exe service install $token 2>&1 | Out-Null;" ^
+        "        Start-Service Cloudflared -ErrorAction SilentlyContinue;" ^
+        "    } else {" ^
+        "        try {" ^
+        "            $p = Start-Process -FilePath $exe -ArgumentList 'service','install',$token -Verb RunAs -PassThru -Wait -WindowStyle Hidden;" ^
+        "            Start-Sleep -Seconds 1;" ^
+        "            Start-Service Cloudflared -ErrorAction SilentlyContinue;" ^
+        "        } catch { Write-Host '[*] UAC prompt bypassed or declined, falling back to background process...' };" ^
+        "    };" ^
+        "    $svc = Get-Service -Name Cloudflared -ErrorAction SilentlyContinue;" ^
+        "    if ($svc) {" ^
+        "        Write-Host '[OK] Cloudflare Tunnel successfully registered as 24/7 Windows Service!';" ^
+        "    } else {" ^
+        "        $cf = Get-Process cloudflared -ErrorAction SilentlyContinue;" ^
+        "        if (-not $cf) {" ^
+        "            Start-Process -FilePath $exe -ArgumentList 'tunnel','run','--token',$token -WindowStyle Hidden;" ^
+        "            Write-Host '[OK] Cloudflare Tunnel started as background process.';" ^
+        "        } else {" ^
+        "            Write-Host '[OK] Cloudflare Tunnel process is already active.';" ^
+        "        };" ^
+        "    };" ^
+        "}"
 ) else (
     echo [WARN] Cloudflare tunnel binary not found - tunnel will not be available.
 )
