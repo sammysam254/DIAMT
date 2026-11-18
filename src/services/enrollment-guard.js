@@ -57,11 +57,21 @@ function listAdbDevices(adbBin) {
       }
       const lines = (stdout || '').split('\n').slice(1);
       const serials = [];
+      let hasOffline = false;
       for (const line of lines) {
         const parts = line.trim().split(/\s+/);
-        if (parts.length >= 2 && parts[1] === 'device') {
-          serials.push(parts[0]);
+        if (parts.length >= 2) {
+          if (parts[1] === 'device') {
+            serials.push(parts[0]);
+          } else if (parts[1] === 'offline') {
+            hasOffline = true;
+          }
         }
+      }
+      if (hasOffline) {
+        try {
+          exec(`"${adbBin}" reconnect offline`, { timeout: 3000 }, () => {});
+        } catch (_) {}
       }
       resolve(serials);
     });
@@ -123,11 +133,26 @@ async function runRecoveryCheck(force = false) {
     }
   }
 
-  // ── 2. Guard against false positive disconnects during high USB/video traffic ──
-  // Never terminate active streaming processes based on polling; physical disconnects
-  // are safely handled by the event-driven adb-tracker stream.
-  if (!adbSerials || adbSerials.length === 0) {
-    return; // Don't purge anything if ADB query returned empty
+  // ── 2. Clean up stale processManager entries only if physical ADB device is truly gone
+  for (const serial of activeSerials) {
+    const dev = processManager.getDevice(serial);
+    const underlyingSerial = dev ? (dev.adbSerial || dev.serial || serial) : serial;
+
+    // If either this key or the underlying ADB serial is still connected to ADB, KEEP IT ALIVE!
+    if (adbSerials.includes(serial) || (underlyingSerial && adbSerials.includes(underlyingSerial))) {
+      continue; // Still active in ADB ✓
+    }
+
+    logger.info(`[EnrollmentGuard] Stale session detected for ${serial} (underlying: ${underlyingSerial}) — cleaning up`);
+    try {
+      if (_removeDeviceCallback) {
+        await _removeDeviceCallback({ id: serial });
+      } else {
+        processManager.killDeviceProcesses(serial);
+      }
+    } catch (err) {
+      logger.warn(`[EnrollmentGuard] Cleanup error for ${serial}: ${err.message}`);
+    }
   }
 }
 

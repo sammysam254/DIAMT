@@ -11,7 +11,6 @@
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
-const http = require('http');
 const { spawn, execSync } = require('child_process');
 
 // ── Single Instance Guard (Port 7402) ─────────────────────────
@@ -47,16 +46,6 @@ function getElectronPath() {
   return 'electron';
 }
 
-function checkPort7400Active() {
-  return new Promise((resolve) => {
-    const req = http.get('http://127.0.0.1:7400/api/license/status', { timeout: 2000 }, (res) => {
-      resolve(res.statusCode === 200);
-    });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { req.destroy(); resolve(false); });
-  });
-}
-
 function startAgent() {
   if (isStopping) return;
 
@@ -77,6 +66,7 @@ function startAgent() {
     });
 
     activeChild.on('error', (err) => {
+      // Avoid crash on spawn error, retry after delay
       scheduleRestart();
     });
 
@@ -91,14 +81,8 @@ function startAgent() {
   }
 }
 
-async function scheduleRestart() {
+function scheduleRestart() {
   if (isStopping) return;
-  const isHealthy = await checkPort7400Active();
-  if (isHealthy) {
-    restartCount = 0;
-    setTimeout(() => { if (!isStopping && !activeChild) scheduleRestart(); }, 15000);
-    return;
-  }
   restartCount++;
   // Exponential backoff up to 10 seconds if restarting rapidly
   const delay = Math.min(3000 + (restartCount > 5 ? 7000 : 0), 10000);
