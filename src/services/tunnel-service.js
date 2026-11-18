@@ -137,10 +137,14 @@ function createCloudflaredTunnel(port) {
     const currentCfg = loadConfig();
     const useQuickTunnel = currentCfg.useQuickTunnel !== false;
     const token = useQuickTunnel ? '' : (currentCfg.cloudflareToken || currentCfg.cloudflaredToken || currentCfg.token || process.env.CLOUDFLARE_TUNNEL_TOKEN || '');
-    const rawDomain = useQuickTunnel ? '' : (currentCfg.customDomain || currentCfg.domain || process.env.DEVICE_DOMAIN || '');
-    const domain = rawDomain ? rawDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
+    const rawDomain = useQuickTunnel ? '' : (currentCfg.customDomain || currentCfg.domain || process.env.DEVICE_DOMAIN || process.env.DOMAIN || '');
+    let domain = rawDomain ? rawDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim() : '';
 
-    if (token) {
+    if (token && !domain) {
+      domain = 'remotecontrol.dennoh.site';
+    }
+
+    if (token && domain) {
       if (activeTokenTunnelProcess && activeTokenTunnelProcess.exitCode === null) {
         const publicUrl = `https://${domain}`;
         logger.info(`[OK] Reusing active Cloudflare Zero Trust token tunnel: ${publicUrl}`);

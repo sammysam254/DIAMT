@@ -191,16 +191,16 @@ async function handleDeviceAdd(device) {
     try {
       const activeCfg = loadConfig();
       const useQuickTunnel = activeCfg.useQuickTunnel !== false;
-      const rawCustomDomain = useQuickTunnel ? '' : (activeCfg.domain || activeCfg.customDomain || '');
-      const hasCustomDomain = Boolean(rawCustomDomain && !rawCustomDomain.includes('localhost') && !rawCustomDomain.includes('127.0.0.1'));
-      const cleanCustomDomain = hasCustomDomain ? rawCustomDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
+      const rawCustomDomain = useQuickTunnel ? '' : (activeCfg.domain || activeCfg.customDomain || process.env.DEVICE_DOMAIN || process.env.DOMAIN || '');
+      const cleanCustomDomain = rawCustomDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+      const hasCustomDomain = Boolean(cleanCustomDomain && cleanCustomDomain.length > 3 && !cleanCustomDomain.includes('localhost') && !cleanCustomDomain.includes('127.0.0.1'));
 
-      if (cleanCustomDomain) {
+      if (hasCustomDomain) {
         publicUrl = `https://${cleanCustomDomain}`;
         tunnelProcess = null; // Do NOT attach global tunnel process to individual device sessions
       } else {
         const tunnel = await createTunnel(port);
-        if (tunnel && tunnel.publicUrl) {
+        if (tunnel && tunnel.publicUrl && tunnel.publicUrl !== 'https://' && tunnel.publicUrl !== 'http://') {
           tunnelProcess = tunnel.tunnelProcess;
           publicUrl = tunnel.publicUrl;
         }

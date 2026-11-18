@@ -321,9 +321,9 @@ export default function CctvWall({ currentUser, isSuperAdmin, isSeedAdmin }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px' }}>
           {devices.map(d => {
             const rawStreamUrl = d.stream_url;
-            let streamUrl = rawStreamUrl;
+            let streamUrl = (rawStreamUrl && rawStreamUrl !== 'https://' && rawStreamUrl !== 'http://' && !rawStreamUrl.endsWith('://') && rawStreamUrl.length > 8) ? rawStreamUrl : null;
             if (!streamUrl) {
-              streamUrl = `http://localhost:8100/?udid=${encodeURIComponent(d.serial || '')}`;
+              streamUrl = `https://remotecontrol.dennoh.site/?udid=${encodeURIComponent(d.serial || '')}`;
             } else if (typeof window !== 'undefined' && window.location.protocol === 'https:' && streamUrl.startsWith('http://') && !streamUrl.includes('localhost') && !streamUrl.includes('127.0.0.1')) {
               streamUrl = streamUrl.replace(/^http:/, 'https:');
             }

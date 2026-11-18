@@ -493,7 +493,7 @@
         const token = currentSessionToken || '';
         const localStreamPath = `/?udid=${encodeURIComponent(d.serial)}&pin=${encodeURIComponent(pin)}&token=${encodeURIComponent(token)}`;
         const directPortUrl = `http://localhost:${d.port}/?pin=${encodeURIComponent(pin)}&token=${encodeURIComponent(token)}`;
-        const publicUrl = d.streamUrl || `${window.location.origin}/?udid=${encodeURIComponent(d.serial)}`;
+        const publicUrl = (d.streamUrl && d.streamUrl !== 'https://' && d.streamUrl !== 'http://' && !d.streamUrl.endsWith('://')) ? d.streamUrl : `${window.location.origin}/?udid=${encodeURIComponent(d.serial)}`;
 
         return `
           <div class="device-card">

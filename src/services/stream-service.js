@@ -2663,7 +2663,10 @@ async function startStreamServer(serial, port, aliasSerial) {
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
 function buildStreamUrl(tunnelDomain, port, serial) {
-  const cleanDomain = (tunnelDomain || 'localhost:8100').replace(/\/+$/, '');
+  let cleanDomain = (tunnelDomain || '').trim().replace(/\/+$/, '');
+  if (!cleanDomain || cleanDomain === 'https:' || cleanDomain === 'http:' || cleanDomain === 'https://' || cleanDomain === 'http://') {
+    cleanDomain = `http://localhost:${port || 8100}`;
+  }
   const domain = cleanDomain.startsWith('http') ? cleanDomain : `https://${cleanDomain}`;
   return `${domain}/?udid=${encodeURIComponent(serial)}`;
 }
