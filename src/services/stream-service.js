@@ -1758,7 +1758,8 @@ function buildPlayerHtml(serial, screenW, screenH) {
             const dbgRes = document.getElementById('dbgRes');
             if (dbgRes) dbgRes.textContent = w + ' x ' + h;
           }
-          ctx.imageSmoothingEnabled = false;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
           frame.close();
           countFrame();
@@ -1788,7 +1789,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
   }
 
   function isH264Keyframe(u8) {
-    const limit = Math.min(u8.length - 4, 1024);
+    const limit = Math.min(u8.length - 4, 4096);
     for (let i = 0; i < limit; i++) {
       if (u8[i] === 0 && u8[i+1] === 0) {
         let ntype = -1;
@@ -1798,7 +1799,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
           ntype = u8[i+4] & 0x1f;
         }
         // WebCodecs requires NAL 5 (IDR) to initialize decoded state before deltas
-        if (ntype === 5) return true;
+        if (ntype === 5 || ntype === 19) return true;
       }
     }
     return false;
@@ -2014,6 +2015,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
       if (spsCodec && spsCodec !== activeCodec) {
         console.log('[Stream] Adapting decoder to hardware stream profile: ' + spsCodec);
         activeCodec = spsCodec;
+        hasKeyframe = false;
         if (decoder && decoder.state !== 'closed') {
           try {
             decoder.configure({

@@ -461,20 +461,21 @@ class ScrcpyEngine extends EventEmitter {
       logger.error(`[ScrcpyEngine ${this.serial}] Download from: https://github.com/Genymobile/scrcpy/releases/download/v2.4/scrcpy-server-v2.4`);
     }
 
-    // Dynamic resolution alignment: ensure max_size keeps dimensions divisible by 16 for all hardware encoders
-    const isTablet = Boolean(this.screenWidth && this.screenHeight && Math.min(this.screenWidth, this.screenHeight) >= 1000);
-    const candidateSizes = isTablet ? [1024, 960, 1152, 1280, 800] : [1280, 1024, 1152, 960, 800];
-    let maxSizeArg = isTablet ? '1024' : '1280';
+    // Macroblock alignment: ensure width and height are multiples of 16 for hardware encoders
+    let cropArg = [];
+    let maxSizeVal = '0'; // 0 = native unscaled resolution
     if (this.screenWidth && this.screenHeight) {
-      const maxDim = Math.max(this.screenWidth, this.screenHeight);
-      const minDim = Math.min(this.screenWidth, this.screenHeight);
-      const aspect = minDim / maxDim;
-      for (const sz of candidateSizes) {
-        const scaledMin = Math.round(sz * aspect);
-        if (sz % 16 === 0 && scaledMin % 16 === 0) {
-          maxSizeArg = String(sz);
-          break;
-        }
+      const alignedW = Math.floor(this.screenWidth / 16) * 16;
+      const alignedH = Math.floor(this.screenHeight / 16) * 16;
+      // If native resolution has non-16-divisible remainder (e.g. 1604 -> 1600), crop the 4px padding
+      if (alignedW !== this.screenWidth || alignedH !== this.screenHeight) {
+        cropArg = [`crop=${alignedW}:${alignedH}:0:0`];
+      }
+      const maxDim = Math.max(alignedW, alignedH);
+      if (maxDim > 1600) {
+        maxSizeVal = '1600'; // 1600 keeps 1080x2400 aligned to clean 720x1600
+      } else {
+        maxSizeVal = String(maxDim);
       }
     }
 
@@ -484,14 +485,15 @@ class ScrcpyEngine extends EventEmitter {
       'CLASSPATH=/data/local/tmp/scrcpy-server.jar',
       'app_process', '/', 'com.genymobile.scrcpy.Server', '3.3.4',
       ...scidArg,
+      ...cropArg,
       'tunnel_forward=true',
       'audio=false',
       'control=true',
       'cleanup=false',
-      `max_size=${maxSizeArg || '1080'}`,
-      'video_bit_rate=4000000',
+      `max_size=${maxSizeVal || '0'}`,
+      'video_bit_rate=6000000',
       'max_fps=60',
-      'i_frame_interval=2',
+      'video_codec_options=i-frame-interval=1',
     ];
 
     logger.info(`[ScrcpyEngine ${this.serial}] Spawning scrcpy server with args: ${args.slice(2).join(' ')}`);
@@ -928,9 +930,8 @@ class ScrcpyEngine extends EventEmitter {
 
         const nalTypes = getNalUnitTypes(payload);
         const isSps = nalTypes.has(7);
-        const isIdr = nalTypes.has(5);
+        const isIdr = nalTypes.has(5) || nalTypes.has(19);
         const isConfig = isSps || (ptsHigh & 0x80000000) !== 0;
-        const isKeyframe = isConfig || isIdr || isSps || nalTypes.has(8);
 
         if (isSps || (isConfig && !this._configPacket)) {
           this._configPacket = Buffer.from(payload);
@@ -985,7 +986,7 @@ class ScrcpyEngine extends EventEmitter {
         }
 
         let broadcastPkt = payload;
-        if (isIdr || (isKeyframe && !isConfig)) {
+        if (isIdr) {
           this._keyframeTime = Date.now();
           if (this._configPacket && !isSps) {
             // Always prepend SPS/PPS config to IDR slice so every keyframe is 100% self-contained for WebCodecs
@@ -997,7 +998,7 @@ class ScrcpyEngine extends EventEmitter {
         }
 
         this._lastVideoPayload = broadcastPkt;
-        this._broadcastVideo(broadcastPkt, isKeyframe);
+        this._broadcastVideo(broadcastPkt, isIdr);
       }
 
       // Safety reset
