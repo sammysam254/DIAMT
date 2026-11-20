@@ -405,17 +405,29 @@ function startCloudHeartbeat() {
         });
       }
 
-      // Reconcile with Supabase: mark any devices for this binding code that are NOT active as offline
+      // Reconcile with Supabase: mark devices offline ONLY if they are truly not active and physically gone from ADB
       try {
-        const client = licenseService.getSupabaseClient ? licenseService.getSupabaseClient() : null;
-        if (client) {
-          const res = await client.get(`/devices?binding_code=eq.${encodeURIComponent(defaultBinding)}&status=eq.online&select=serial`);
-          if (res.data && Array.isArray(res.data)) {
-            for (const row of res.data) {
-              if (row.serial && !activeSerials.has(row.serial)) {
-                logger.info(`[Heartbeat] Device ${row.serial} no longer attached on USB — marking offline in cloud`);
-                await licenseService.markDeviceOffline(row.serial);
+        const supaClient = licenseService.getSupabaseClient ? licenseService.getSupabaseClient() : null;
+        if (supaClient) {
+          const res = await supaClient.get(`/devices?binding_code=eq.${encodeURIComponent(defaultBinding)}&status=eq.online&select=serial`);
+          if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+            // Check current physical ADB presence before ever touching cloud status
+            let attachedAdbIds = new Set();
+            try {
+              if (client) {
+                const adbList = await client.listDevices();
+                attachedAdbIds = new Set((adbList || []).map(d => d.id));
               }
+            } catch (_) {}
+
+            for (const row of res.data) {
+              if (!row.serial) continue;
+              // If active in processManager OR still physically seen by ADB, keep online!
+              if (activeSerials.has(row.serial) || attachedAdbIds.has(row.serial)) {
+                continue;
+              }
+              logger.info(`[Heartbeat] Device ${row.serial} no longer attached on USB or active — marking offline in cloud`);
+              await licenseService.markDeviceOffline(row.serial);
             }
           }
         }
@@ -423,8 +435,8 @@ function startCloudHeartbeat() {
     } catch (_) {}
   };
 
-  // Immediate sync on start
-  performSync();
+  // Allow a 45-second startup grace period so initial ADB scans and scrcpy streams finish registering before reconciliation
+  setTimeout(performSync, 45000);
 
   // Periodic heartbeat every 5 minutes (event-driven syncs handle plug/unplug)
   cloudHeartbeatTimer = setInterval(performSync, 300000);

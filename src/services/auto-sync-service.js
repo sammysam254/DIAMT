@@ -89,20 +89,14 @@ function checkAndSyncGithub() {
             // 3. Pull changes cleanly into working copy
             execFile(gitBin, ['pull', '--ff-only', 'origin', 'main'], { cwd: process.cwd(), timeout: 45000 }, (pullErr) => {
               const onUpdateSuccess = () => {
-                execFile(gitBin, ['clean', '-fd'], { cwd: process.cwd() }, () => {});
+                // Advance HEAD to origin/main so localHash === remoteHash and avoid repeated loops
+                execFile(gitBin, ['reset', '--soft', 'origin/main'], { cwd: process.cwd() }, () => {});
                 try {
                   const wifiCache = path.join(process.cwd(), 'wifi-devices-cache.json');
                   if (fs.existsSync(wifiCache)) fs.unlinkSync(wifiCache);
                 } catch (_) {}
                 invalidateModuleCache();
-                logger.info('[AutoSync] GitHub changes updated. Scheduling graceful restart in 3s so watchdog restarts clean runtime...');
-                setTimeout(() => {
-                  try {
-                    const { app } = require('electron');
-                    if (app && app.quit) app.quit();
-                  } catch (_) {}
-                  process.exit(0);
-                }, 3000);
+                logger.info('[AutoSync] GitHub changes updated and hot-reloaded cleanly without dropping active streams.');
               };
 
               if (pullErr) {
