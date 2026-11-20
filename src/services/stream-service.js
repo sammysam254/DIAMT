@@ -1103,7 +1103,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
     .btn-red:active{transform:scale(.92)}
     
     .vol-slider-box{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 0;width:100%;flex-shrink:0}
-    .volume-slider-v{-webkit-appearance:slider-vertical;appearance:slider-vertical;writing-mode:bt-lr;width:6px;height:65px;background:rgba(255,255,255,.15);border-radius:4px;outline:none;cursor:pointer;accent-color:#22c55e}
+    .volume-slider-v{writing-mode: vertical-lr; direction: rtl; width:6px;height:65px;background:rgba(255,255,255,.15);border-radius:4px;outline:none;cursor:pointer;accent-color:#22c55e}
 
     /* Mobile Bottom Navigation Bar (Hidden on desktop, prominent & pinned on mobile) */
     .mobile-nav-bar{

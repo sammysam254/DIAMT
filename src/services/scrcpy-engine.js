@@ -277,13 +277,18 @@ class ScrcpyEngine extends EventEmitter {
    * and capture an instant live snapshot so the screen displays immediately with ZERO black screen.
    */
   async addClient(ws) {
-    ws._needsKeyframe = false;
     this.wsClients.add(ws);
 
-    // Immediately send complete self-contained cached keyframe so screen renders on frame 1 with ZERO black screen
-    if (this._keyframeBuffer && ws.readyState === 1) {
+    const now = Date.now();
+    const isFresh = this._keyframeBuffer && this._keyframeTime && (now - this._keyframeTime < 500);
+
+    if (isFresh && ws.readyState === 1) {
+      ws._needsKeyframe = false;
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
     } else {
+      // Require fresh real keyframe from encoder before sending delta frames
+      // to avoid decoding delta chunks against out-of-sync reference frames (gray shearing)
+      ws._needsKeyframe = true;
       if (this._configPacket && ws.readyState === 1) {
         try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
       }
@@ -332,11 +337,14 @@ class ScrcpyEngine extends EventEmitter {
 
   sendKeyframeToClient(ws) {
     if (!ws || ws.readyState !== 1) return;
-    ws._needsKeyframe = false;
+    const now = Date.now();
+    const isFresh = this._keyframeBuffer && this._keyframeTime && (now - this._keyframeTime < 500);
 
-    if (this._keyframeBuffer) {
+    if (isFresh) {
+      ws._needsKeyframe = false;
       try { ws.send(this._keyframeBuffer, { binary: true }); } catch (_) {}
     } else {
+      ws._needsKeyframe = true;
       if (this._configPacket) {
         try { ws.send(this._configPacket, { binary: true }); } catch (_) {}
       }
@@ -461,21 +469,30 @@ class ScrcpyEngine extends EventEmitter {
       logger.error(`[ScrcpyEngine ${this.serial}] Download from: https://github.com/Genymobile/scrcpy/releases/download/v2.4/scrcpy-server-v2.4`);
     }
 
-    // Macroblock alignment: ensure width and height are multiples of 16 for hardware encoders
-    let cropArg = [];
+    // Macroblock alignment: ensure width and height scale cleanly without cropping
     let maxSizeVal = '0'; // 0 = native unscaled resolution
     if (this.screenWidth && this.screenHeight) {
-      const alignedW = Math.floor(this.screenWidth / 16) * 16;
-      const alignedH = Math.floor(this.screenHeight / 16) * 16;
-      // If native resolution has non-16-divisible remainder (e.g. 1604 -> 1600), crop the 4px padding
-      if (alignedW !== this.screenWidth || alignedH !== this.screenHeight) {
-        cropArg = [`crop=${alignedW}:${alignedH}:0:0`];
+      const maxDim = Math.max(this.screenWidth, this.screenHeight);
+      const minDim = Math.min(this.screenWidth, this.screenHeight);
+      const aspect = minDim / maxDim;
+
+      // Find an optimal max dimension that keeps BOTH dimensions strictly divisible by 16
+      const candidates = [1600, 1560, 1440, 1360, 1280, 1200, 1152, 1080, 1024, 960, 800];
+      let bestSize = null;
+      for (const sz of candidates) {
+        if (sz > maxDim) continue;
+        const scaledMin = Math.round(sz * aspect);
+        if (sz % 16 === 0 && scaledMin % 16 === 0) {
+          bestSize = sz;
+          break;
+        }
       }
-      const maxDim = Math.max(alignedW, alignedH);
-      if (maxDim > 1600) {
-        maxSizeVal = '1600'; // 1600 keeps 1080x2400 aligned to clean 720x1600
+      if (maxDim <= 1600 && this.screenWidth % 8 === 0 && this.screenHeight % 8 === 0) {
+        maxSizeVal = '0'; // Native 1:1 crisp display
+      } else if (bestSize) {
+        maxSizeVal = String(bestSize);
       } else {
-        maxSizeVal = String(maxDim);
+        maxSizeVal = maxDim > 1600 ? '1600' : '0';
       }
     }
 
@@ -485,7 +502,6 @@ class ScrcpyEngine extends EventEmitter {
       'CLASSPATH=/data/local/tmp/scrcpy-server.jar',
       'app_process', '/', 'com.genymobile.scrcpy.Server', '3.3.4',
       ...scidArg,
-      ...cropArg,
       'tunnel_forward=true',
       'audio=false',
       'control=true',
@@ -493,7 +509,6 @@ class ScrcpyEngine extends EventEmitter {
       `max_size=${maxSizeVal || '0'}`,
       'video_bit_rate=6000000',
       'max_fps=60',
-      'video_codec_options=i-frame-interval=1',
     ];
 
     logger.info(`[ScrcpyEngine ${this.serial}] Spawning scrcpy server with args: ${args.slice(2).join(' ')}`);
@@ -562,6 +577,13 @@ class ScrcpyEngine extends EventEmitter {
 
       // Only restart if we weren't already in fallback mode
       if (!this._fallbackActive) {
+        this._crashCount = (this._crashCount || 0) + 1;
+        if (this._crashCount >= 4 && uptime < 5000) {
+          logger.warn(`[ScrcpyEngine ${this.serial}] Repeated crashes (${this._crashCount}) — activating screenrecord fallback`);
+          this._startScreenrecordFallback();
+          return;
+        }
+
         this._restartPending = true;
         // Back off longer if it died quickly (likely a startup error)
         const delay = uptime < 3000 ? 4000 : 1500;
@@ -930,8 +952,9 @@ class ScrcpyEngine extends EventEmitter {
 
         const nalTypes = getNalUnitTypes(payload);
         const isSps = nalTypes.has(7);
-        const isIdr = nalTypes.has(5) || nalTypes.has(19);
-        const isConfig = isSps || (ptsHigh & 0x80000000) !== 0;
+        const isScrcpyKeyframe = (ptsHigh & 0x40000000) !== 0; // scrcpy FLAG_KEY_FRAME
+        const isIdr = isScrcpyKeyframe || nalTypes.has(5) || nalTypes.has(19);
+        const isConfig = isSps || (ptsHigh & 0x80000000) !== 0; // scrcpy FLAG_CONFIG
 
         if (isSps || (isConfig && !this._configPacket)) {
           this._configPacket = Buffer.from(payload);
@@ -1341,6 +1364,9 @@ class ScrcpyEngine extends EventEmitter {
   _resetStreamState() {
     this._configPacket   = null;
     this._keyframeBuffer = null;
+    const now = Date.now();
+    if (this._lastResetTime && (now - this._lastResetTime < 3000)) return;
+    this._lastResetTime = now;
     // Notify all connected browsers to reset their decoders
     const resetMsg = Buffer.from(JSON.stringify({ type: 'stream_reset' }));
     for (const ws of this.wsClients) {
@@ -1352,6 +1378,9 @@ class ScrcpyEngine extends EventEmitter {
 
   async _restart() {
     if (!this.isRunning) return;
+    const now = Date.now();
+    if (this._lastRestartTime && (now - this._lastRestartTime < 2500)) return;
+    this._lastRestartTime = now;
     logger.info(`[ScrcpyEngine ${this.serial}] Self-healing device stream...`);
     // Clear stale keyframe cache so fresh SPS/PPS+IDR are sent after restart
     this._configPacket   = null;
