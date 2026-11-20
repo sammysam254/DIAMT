@@ -159,32 +159,42 @@ function handleControl(type, data, serial, engine) {
     // Track touch points for gesture / swipe calculation if falling back to ADB
     if (action === 0) {
       touchGestures.set(serial, { startX: sx, startY: sy, lastX: sx, lastY: sy, time: Date.now() });
+      engine.sendTouchEvent(0, x, y, W, H, pressure);
     } else if (action === 2) {
       const g = touchGestures.get(serial);
       if (g) { g.lastX = sx; g.lastY = sy; }
-    }
-
-    const ok = engine.sendTouchEvent(action, x, y, W, H, pressure);
-
-    // If native scrcpy control is disconnected or unready, fallback to intelligent ADB swipe/tap
-    if (action === 1) {
+      engine.sendTouchEvent(2, x, y, W, H, pressure);
+    } else if (action === 1) {
       const g = touchGestures.get(serial);
       touchGestures.delete(serial);
-      if (!ok) {
-        if (g) {
-          const dx = sx - g.startX;
-          const dy = sy - g.startY;
-          const dist = Math.hypot(dx, dy);
-          const dur = Math.max(60, Math.min(500, Date.now() - g.time));
-          if (dist > 25) {
-            adbInput(serial, `input swipe ${g.startX} ${g.startY} ${sx} ${sy} ${dur}`);
+      const elapsed = g ? (Date.now() - g.time) : 100;
+      // Android launcher and apps require ~45ms down-to-up hold to reliably register clicks
+      const remainingHold = (elapsed < 45) ? (45 - elapsed) : 0;
+
+      const triggerUp = () => {
+        const ok = engine.sendTouchEvent(1, x, y, W, H, 0);
+        if (!ok) {
+          if (g) {
+            const dx = sx - g.startX;
+            const dy = sy - g.startY;
+            const dist = Math.hypot(dx, dy);
+            const dur = Math.max(60, Math.min(500, Date.now() - g.time));
+            if (dist > 25) {
+              adbInput(serial, `input swipe ${g.startX} ${g.startY} ${sx} ${sy} ${dur}`);
+            } else {
+              adbInput(serial, `input tap ${g.startX} ${g.startY}`);
+            }
           } else {
-            adbInput(serial, `input tap ${g.startX} ${g.startY}`);
+            adbInput(serial, `input tap ${sx} ${sy}`);
           }
-        } else {
-          adbInput(serial, `input tap ${sx} ${sy}`);
+          nudgeScreen();
         }
-        nudgeScreen();
+      };
+
+      if (remainingHold > 0) {
+        setTimeout(triggerUp, remainingHold);
+      } else {
+        triggerUp();
       }
     }
   } else if (type === 'tap') {
@@ -192,7 +202,7 @@ function handleControl(type, data, serial, engine) {
     let ok = false;
     if (ctrlOk()) {
       ok = engine.sendTouchEvent(0, x, y, W, H, 0.5);
-      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 15);
+      setTimeout(() => engine.sendTouchEvent(1, x, y, W, H, 0), 45);
     }
     if (!ok) {
       const sx = Math.round((x / W) * realW);
@@ -2063,6 +2073,10 @@ function buildPlayerHtml(serial, screenW, screenH) {
       }
 
       try {
+        // If decoder queue is backing up (e.g. temporary CPU spike), drop delta frame to stay locked to live 0ms
+        if (decoder.decodeQueueSize > 2 && !key) {
+          return;
+        }
         const chunk = new EncodedVideoChunk({
           type: key ? 'key' : 'delta',
           timestamp: performance.now() * 1000,
@@ -2189,24 +2203,16 @@ function buildPlayerHtml(serial, screenW, screenH) {
     send({ type: 'touch', action: 0, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.5 });
   }
 
-  let pendingTouchMove = null;
-  let touchMoveRaf = null;
-
   function handleTouchMove(e) {
     if (!isNativeTouchActive) return;
     e.preventDefault();
     const c = coords(e);
-    if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
+    if (Math.abs(c.x - lastX) < 1 && Math.abs(c.y - lastY) < 1) return;
     lastX = c.x; lastY = c.y;
-    pendingTouchMove = { type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 };
-    if (!touchMoveRaf) {
-      touchMoveRaf = requestAnimationFrame(function() {
-        touchMoveRaf = null;
-        if (pendingTouchMove) {
-          send(pendingTouchMove);
-          pendingTouchMove = null;
-        }
-      });
+    const now = performance.now();
+    if (now - lastMoveTime >= 12) {
+      lastMoveTime = now;
+      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
     }
   }
 
@@ -2214,11 +2220,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (!isNativeTouchActive) return;
     isNativeTouchActive = false;
     e.preventDefault();
-    if (touchMoveRaf) { cancelAnimationFrame(touchMoveRaf); touchMoveRaf = null; }
-    if (pendingTouchMove) {
-      send(pendingTouchMove);
-      pendingTouchMove = null;
-    }
     const c = coords(e);
     send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
   }
@@ -2231,8 +2232,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
   // Mouse / Pointer Listeners (Desktop browsers with mouse / stylus)
   let isPointerDown = false;
   let activePointerId = null;
-  let pendingPointerMove = null;
-  let pointerMoveRaf = null;
 
   canvas.addEventListener('pointerdown', (e) => {
     // If device is touch-driven, let touchstart handle it with 0ms latency
@@ -2242,7 +2241,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
     activePointerId = e.pointerId;
     try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     ensureActiveOnInteraction();
-    if (pointerMoveRaf) { cancelAnimationFrame(pointerMoveRaf); pointerMoveRaf = null; pendingPointerMove = null; }
     const c = coords(e);
     lastX = c.x; lastY = c.y;
     lastMoveTime = performance.now();
@@ -2253,17 +2251,12 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (e.pointerType === 'touch' || isNativeTouchActive || !isPointerDown) return;
     e.preventDefault();
     const c = coords(e);
-    if (Math.abs(c.x - lastX) < 0.5 && Math.abs(c.y - lastY) < 0.5) return;
+    if (Math.abs(c.x - lastX) < 1 && Math.abs(c.y - lastY) < 1) return;
     lastX = c.x; lastY = c.y;
-    pendingPointerMove = { type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 };
-    if (!pointerMoveRaf) {
-      pointerMoveRaf = requestAnimationFrame(function() {
-        pointerMoveRaf = null;
-        if (pendingPointerMove) {
-          send(pendingPointerMove);
-          pendingPointerMove = null;
-        }
-      });
+    const now = performance.now();
+    if (now - lastMoveTime >= 12) {
+      lastMoveTime = now;
+      send({ type: 'touch', action: 2, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0.6 });
     }
   });
 
@@ -2275,11 +2268,6 @@ function buildPlayerHtml(serial, screenW, screenH) {
     if (activePointerId !== null) {
       try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
       activePointerId = null;
-    }
-    if (pointerMoveRaf) { cancelAnimationFrame(pointerMoveRaf); pointerMoveRaf = null; }
-    if (pendingPointerMove) {
-      send(pendingPointerMove);
-      pendingPointerMove = null;
     }
     const c = coords(e);
     send({ type: 'touch', action: 1, x: c.x, y: c.y, width: c.w, height: c.h, pressure: 0 });
@@ -2657,6 +2645,12 @@ async function startStreamServer(serial, port, aliasSerial) {
   const wss = new WebSocket.Server({ server, path: '/ws', perMessageDeflate: false });
 
   wss.on('connection', async (ws, req) => {
+    try {
+      if (ws._socket) {
+        ws._socket.setNoDelay(true);
+        ws._socket.setKeepAlive(true, 10000);
+      }
+    } catch (_) {}
     const wsUrl = new URL(req.url, 'http://localhost');
     const reqWsUdid = (wsUrl.searchParams.get('udid') || '').trim();
     const candidateWsAuth = [

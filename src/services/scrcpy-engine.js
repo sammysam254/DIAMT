@@ -507,7 +507,7 @@ class ScrcpyEngine extends EventEmitter {
       'control=true',
       'cleanup=false',
       `max_size=${maxSizeVal || '0'}`,
-      'video_bit_rate=6000000',
+      'video_bit_rate=2800000',
       'max_fps=60',
     ];
 
@@ -1141,7 +1141,7 @@ class ScrcpyEngine extends EventEmitter {
     this._audioPacketsSent = (this._audioPacketsSent || 0) + 1;
 
     for (const ws of this.wsClients) {
-      if (ws.readyState === 1 && ws.bufferedAmount < 128 * 1024) {
+      if (ws.readyState === 1 && ws.bufferedAmount < 64 * 1024) {
         try { ws.send(audioFrame, { binary: true }); } catch (_) {}
       }
     }
@@ -1150,8 +1150,8 @@ class ScrcpyEngine extends EventEmitter {
   _broadcastVideo(payload, isKeyframe = false) {
     for (const ws of this.wsClients) {
       if (ws.readyState === 1) {
-        // Backpressure protection: only throttle if socket buffer exceeds 384KB
-        if (ws.bufferedAmount > 384 * 1024) {
+        // Backpressure protection: throttle if socket buffer exceeds 64KB (prevent bufferbloat & latency buildup)
+        if (ws.bufferedAmount > 64 * 1024) {
           ws._needsKeyframe = true;
           continue;
         }
