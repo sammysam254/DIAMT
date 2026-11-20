@@ -1538,6 +1538,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
     }
   }
 
+  let aacDisabled = false;
+  let aacErrorCount = 0;
+
   function initAacDecoder(description) {
     if (typeof AudioDecoder === 'undefined') return false;
     try {
@@ -1554,34 +1557,49 @@ function buildPlayerHtml(serial, screenW, screenH) {
           if (buf) scheduleAudioBuffer(buf);
         },
         error: function(err) {
-          console.warn('[Audio] AAC decoder error:', err);
           aacDecoderReady = false;
+          aacErrorCount++;
+          if (aacErrorCount <= 2) {
+            console.warn('[Audio] AAC decoder notice:', err);
+          } else {
+            aacDisabled = true;
+          }
         }
       });
       const cfg = { codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2 };
-      if (description && description.byteLength > 0) cfg.description = description;
+      if (description && description.byteLength > 0) {
+        cfg.description = description;
+      } else {
+        // Standard AudioSpecificConfig for 48000Hz stereo AAC-LC
+        cfg.description = new Uint8Array([0x11, 0x90]);
+      }
       aacDecoder.configure(cfg);
       aacDecoderReady = true;
       return true;
     } catch (err) {
-      console.warn('[Audio] AAC init failed:', err);
       aacDecoderReady = false;
+      aacErrorCount++;
+      if (aacErrorCount >= 2) aacDisabled = true;
       return false;
     }
   }
 
   function playAacPacket(bytes, isConfig) {
     if (isMuted) return;
+    if (isConfig) {
+      aacConfig = bytes;
+      aacDisabled = false;
+      aacErrorCount = 0;
+      initAacDecoder(aacConfig);
+      return;
+    }
+
+    if (aacDisabled) return; // Circuit breaker: silence repeated decoding errors to protect UI event loop
+
     if (!audioCtx) initAudio();
     if (!audioCtx) return;
     if (audioCtx.state !== 'running') {
       showAudioResumePrompt();
-    }
-
-    if (isConfig) {
-      aacConfig = bytes;
-      initAacDecoder(aacConfig);
-      return;
     }
 
     if (!aacDecoderReady || !aacDecoder || aacDecoder.state === 'closed') {
@@ -1595,8 +1613,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
         data: bytes
       }));
     } catch (err) {
-      console.warn('[Audio] AAC decode error:', err);
       aacDecoderReady = false;
+      aacErrorCount++;
+      if (aacErrorCount >= 2) aacDisabled = true;
     }
   }
 

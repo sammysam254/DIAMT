@@ -296,6 +296,19 @@ class ScrcpyEngine extends EventEmitter {
       this.captureInstantFrame(ws);
     }
 
+    // Push cached audio config if available so client audio decoders configure immediately
+    if (this._cachedAudioConfig && this._cachedAudioConfig.payload && ws.readyState === 1) {
+      let cByte = 0x4F;
+      if (this._cachedAudioConfig.codec === 'aac') cByte = 0x43;
+      else if (this._cachedAudioConfig.codec === 'raw') cByte = 0x52;
+      const frame = Buffer.allocUnsafe(3 + this._cachedAudioConfig.payload.length);
+      frame[0] = 0x41; // 'A'
+      frame[1] = cByte;
+      frame[2] = 0x01; // config flag
+      this._cachedAudioConfig.payload.copy(frame, 3);
+      try { ws.send(frame, { binary: true }); } catch (_) {}
+    }
+
     // Ensure device stays awake and compositor is poked
     try {
       this._adb(['shell', 'input', 'keyevent', '224']).catch(() => {});
@@ -1125,6 +1138,12 @@ class ScrcpyEngine extends EventEmitter {
   }
 
   _broadcastAudio(payload, isConfig = false) {
+    if (isConfig) {
+      this._cachedAudioConfig = {
+        codec: this._audioCodec,
+        payload: Buffer.from(payload)
+      };
+    }
     // Frame layout: [0x41][codec_byte][flags_byte][...payload]
     // 0x41 = 'A' (audio tag)
     // codec: 0x4F ('O' = opus), 0x43 ('C' = aac), 0x52 ('R' = raw PCM)
@@ -1271,8 +1290,8 @@ class ScrcpyEngine extends EventEmitter {
 
     const normPressure = (action === 1) ? 0 : Math.min(0xffff, Math.max(1, Math.floor((pressure || 0.5) * 65535)));
 
-    if (!this._touchBuf) this._touchBuf = Buffer.alloc(32);
-    const buf = this._touchBuf;
+    // Allocate fresh buffer for every touch event so concurrent socket.write operations don't mutate queued bytes
+    const buf = Buffer.allocUnsafe(32);
     buf.writeUInt8(2, 0);                 // INJECT_TOUCH_EVENT
     buf.writeUInt8(action, 1);            // 0=DOWN, 1=UP, 2=MOVE
     buf.writeBigInt64BE(-2n, 2);          // SC_POINTER_ID_GENERIC_FINGER (-2n)
@@ -1281,8 +1300,8 @@ class ScrcpyEngine extends EventEmitter {
     buf.writeUInt16BE(targetW, 18);
     buf.writeUInt16BE(targetH, 20);
     buf.writeUInt16BE(normPressure, 22);
-    buf.writeInt32BE(0, 24);              // action_button = 0 (clean capacitive finger)
-    buf.writeInt32BE(0, 28);              // buttons = 0 (no mouse emulation delay)
+    buf.writeInt32BE(action === 0 ? 1 : 0, 24);              // action_button = 1 (AMOTION_EVENT_BUTTON_PRIMARY) on DOWN, 0 otherwise
+    buf.writeInt32BE(action === 1 ? 0 : 1, 28);              // buttons = 1 on DOWN/MOVE, 0 on UP
     try {
       this.controlSocket.write(buf);
       return true;
