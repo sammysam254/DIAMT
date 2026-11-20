@@ -1242,11 +1242,6 @@ class ScrcpyEngine extends EventEmitter {
     const finalY = Math.max(0, Math.min(targetH - 1, scaledY));
 
     if (!this.controlSocket || this.controlSocket.destroyed) {
-      if (action === 0 || action === 1) {
-        const physX = Math.round((finalX / targetW) * this.screenWidth);
-        const physY = Math.round((finalY / targetH) * this.screenHeight);
-        this._adb(['shell', 'input', 'tap', String(physX), String(physY)]).catch(() => {});
-      }
       return false;
     }
 
@@ -1269,11 +1264,6 @@ class ScrcpyEngine extends EventEmitter {
       return true;
     } catch (e) { 
       logger.warn(`[ScrcpyEngine ${this.serial}] touch write failed: ${e.message}`);
-      if (action === 0 || action === 1) {
-        const physX = Math.round((finalX / targetW) * this.screenWidth);
-        const physY = Math.round((finalY / targetH) * this.screenHeight);
-        this._adb(['shell', 'input', 'tap', String(physX), String(physY)]).catch(() => {});
-      }
       return false; 
     }
   }
@@ -1288,9 +1278,6 @@ class ScrcpyEngine extends EventEmitter {
    */
   sendKeycode(action, keycode, repeat = 0, metastate = 0) {
     if (!this.controlSocket || this.controlSocket.destroyed) {
-      if (action === 0) {
-        this._adb(['shell', 'input', 'keyevent', String(keycode)]).catch(() => {});
-      }
       return false;
     }
     const buf = Buffer.allocUnsafe(14);
@@ -1303,9 +1290,6 @@ class ScrcpyEngine extends EventEmitter {
       this.controlSocket.write(buf); 
       return true; 
     } catch (_) {
-      if (action === 0) {
-        this._adb(['shell', 'input', 'keyevent', String(keycode)]).catch(() => {});
-      }
       return false; 
     }
   }
@@ -1318,8 +1302,6 @@ class ScrcpyEngine extends EventEmitter {
    */
   sendText(text) {
     if (!this.controlSocket || this.controlSocket.destroyed) {
-      const escaped = text.replace(/(["'`$\\!& |;()<>])/g, '\\$1');
-      this._adb(['shell', 'input', 'text', escaped]).catch(() => {});
       return false;
     }
     const tb = Buffer.from(text, 'utf-8');
@@ -1331,8 +1313,6 @@ class ScrcpyEngine extends EventEmitter {
       this.controlSocket.write(buf); 
       return true; 
     } catch (_) {
-      const escaped = text.replace(/(["'`$\\!& |;()<>])/g, '\\$1');
-      this._adb(['shell', 'input', 'text', escaped]).catch(() => {});
       return false; 
     }
   }

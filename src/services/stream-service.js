@@ -119,6 +119,7 @@ function captureOneFrame(serial) {
 // ─── Shared control dispatcher ────────────────────────────────────────────────
 
 const touchGestures = new Map();
+const lastTextPerDevice = new Map();
 
 function get(data, key) {
   return typeof data.get === 'function' ? data.get(key) : data[key];
@@ -254,6 +255,16 @@ function handleControl(type, data, serial, engine) {
     }
   } else if (type === 'text') {
     const text = get(data, 'text') || '';
+    if (!text) return;
+
+    // Server-side debounce: ignore duplicate single-character bursts within 90ms for this serial
+    const now = Date.now();
+    const last = lastTextPerDevice.get(serial);
+    if (text.length === 1 && last && last.text === text && (now - last.time) < 90) {
+      return;
+    }
+    lastTextPerDevice.set(serial, { text, time: now });
+
     let sent = false;
     if (ctrlOk()) {
       sent = engine.sendText(text);
@@ -2299,11 +2310,20 @@ function buildPlayerHtml(serial, screenW, screenH) {
   }, { passive:false });
 
   // ── Keyboard handling (Spacebar protection & full Android keys) ────────
+  let lastKeySent = '';
+  let lastKeyTime = 0;
+
   document.addEventListener('keydown', (e) => {
-    // Never intercept if typing into an input/textarea inside a modal dialog
+    // 1. Immediately drop browser auto-repeat events to prevent multiple duplicate characters
+    if (e.repeat) {
+      e.preventDefault();
+      return;
+    }
+
+    // 2. Never intercept if typing into an input/textarea inside a modal dialog
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
 
-    // Immediately blur any active button so Space cannot trigger click events on it
+    // 3. Immediately blur any active button so Space cannot trigger click events on it
     if (document.activeElement && document.activeElement !== document.body && document.activeElement !== canvas) {
       document.activeElement.blur();
     }
@@ -2337,6 +2357,11 @@ function buildPlayerHtml(serial, screenW, screenH) {
       key(22);
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
+      const now = Date.now();
+      // Debounce rapid duplicate keystrokes within 140ms to prevent ghost double typing
+      if (e.key === lastKeySent && now - lastKeyTime < 140) return;
+      lastKeySent = e.key;
+      lastKeyTime = now;
       send({ type:'text', text:e.key });
     }
   });
@@ -2356,12 +2381,17 @@ function buildPlayerHtml(serial, screenW, screenH) {
   });
 
   let lastNavKeyTime = 0;
+  let lastNavKeyCode = 0;
   function key(code) {
     const now = Date.now();
     if (code === 187 || code === 3 || code === 4) {
-      if (now - lastNavKeyTime < 400) return;
+      if (now - lastNavKeyTime < 350) return;
       lastNavKeyTime = now;
+    } else if (code === lastNavKeyCode && now - lastNavKeyTime < 120) {
+      return;
     }
+    lastNavKeyTime = now;
+    lastNavKeyCode = code;
     send({ type:'code', code });
   }
   function expandNotifications() { send({ type:'expand_notifications' }); }
