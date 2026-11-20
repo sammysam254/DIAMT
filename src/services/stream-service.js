@@ -1711,6 +1711,7 @@ function buildPlayerHtml(serial, screenW, screenH) {
   let decoderReady = false;
   let hasKeyframe = false;
   let activeCodec = 'avc1.42E02A';
+  let cachedSpsPps = null;
 
   function parseSpsCodec(u8) {
     const limit = Math.min(u8.length - 4, 512);
@@ -2012,6 +2013,9 @@ function buildPlayerHtml(serial, screenW, screenH) {
       // 3. Raw H264 NAL stream via WebCodecs
       // Auto-adapt decoder codec if incoming SPS specifies a different H264 profile/level
       const spsCodec = parseSpsCodec(u8);
+      if (spsCodec) {
+        cachedSpsPps = u8.slice();
+      }
       if (spsCodec && spsCodec !== activeCodec) {
         console.log('[Stream] Adapting decoder to hardware stream profile: ' + spsCodec);
         activeCodec = spsCodec;
@@ -2049,11 +2053,20 @@ function buildPlayerHtml(serial, screenW, screenH) {
         return;
       }
 
+      let frameData = u8;
+      if (key && !spsCodec && cachedSpsPps) {
+        // Prepend cached SPS/PPS to IDR frame so Chromium has full Annex B parameter sets
+        const merged = new Uint8Array(cachedSpsPps.length + u8.length);
+        merged.set(cachedSpsPps, 0);
+        merged.set(u8, cachedSpsPps.length);
+        frameData = merged;
+      }
+
       try {
         const chunk = new EncodedVideoChunk({
           type: key ? 'key' : 'delta',
           timestamp: performance.now() * 1000,
-          data: u8
+          data: frameData
         });
         decoder.decode(chunk);
       } catch (err) {
